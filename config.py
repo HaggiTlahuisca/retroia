@@ -35,14 +35,24 @@ AI_PROVIDERS = {
     "LM Studio": "lmstudio",
 }
 
-MODELOS_OPENROUTER = {
-    "GPT 4o Mini": "openai/gpt-4o-mini",
-    "Claude 3.5 Sonnet": "anthropic/claude-3.5-sonnet",
-    "Claude 3 Haiku": "anthropic/claude-3-haiku",
-    "Meta Llama 3.3 70B": "meta-llama/llama-3.3-70b-instruct",
-    "Qwen 3": "qwen/qwen-3-235b-a22b",
-    "Mistral Nemo": "mistral/mistral-nemo",
+# Modelos separados por categoría (Gratis)
+MODELOS_GRATIS = {
+    "Nvidia Nemotron 3 Ultra 550B (Gratis)": "Nvidia/nemotron-3-ultra-550b-a55b:free",
+    "Google Gemma 4 31B IT (Gratis)": "google/gemma-4-31b-it:free",
+    "Qwen 3 Next (Gratis)": "qwen/qwen-3-235b-a22b",
+    "Meta Llama 3.3 70B Instruct (Gratis)": "meta-llama/llama-3.3-70b-instruct:free",
 }
+
+# Modelos separados por categoría (De pago)
+MODELOS_PAGO = {
+    "Mistral Nemo": "mistral/mistral-nemo",
+    "Claude 3 Haiku": "anthropic/claude-3-haiku",
+    "GPT 4o Mini": "openai/gpt-4o-mini",
+    "Claude 5 Sonnet": "anthropic/claude-5-sonnet",
+}
+
+# Combinación global para mantener compatibilidad con el resto del sistema
+MODELOS_OPENROUTER = {**MODELOS_GRATIS, **MODELOS_PAGO}
 
 TIPOS_RECURSO = [
     "Video", "PDF", "Artículo", "Enlace", "Documento", "Archivo", "Libro", "Otro"
