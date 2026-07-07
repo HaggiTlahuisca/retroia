@@ -69,11 +69,12 @@ class LibSQLCursorWrapper:
         return list(rows)
 
     def __iter__(self) -> Any:
+        rows = self._cursor.fetchall()
         if self._conn_wrapper.row_factory:
-            for r in self._cursor:
+            for r in rows:
                 yield self._conn_wrapper.row_factory(self, r)
         else:
-            yield from self._cursor
+            yield from rows
 
 
 class LibSQLConnectionWrapper:
@@ -220,7 +221,6 @@ class DatabaseManager:
                 applied_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             """
-        # Separación por punto y coma para máxima compatibilidad al ejecutar scripts en la nube
         for statement in script.split(";"):
             if statement.strip():
                 conn.execute(statement)
@@ -266,8 +266,7 @@ class DatabaseManager:
 
     def create_activity(self, item: Actividad, rubrica_id: int | None = None) -> int:
         with self.connect() as conn:
-            cur = conn.cursor()
-            cur.execute(
+            cur = conn.execute(
                 """INSERT INTO actividades(nombre, descripcion, instrucciones, rubrica_id)
                    VALUES (?, ?, ?, ?)""",
                 (item.nombre, item.descripcion, item.instrucciones, rubrica_id),
@@ -315,8 +314,7 @@ class DatabaseManager:
     def create_rubric(self, item: Rubrica) -> int:
         criterios_json = self._rubric_json(item)
         with self.connect() as conn:
-            cur = conn.cursor()
-            cur.execute(
+            cur = conn.execute(
                 "INSERT INTO rubricas(nombre, contenido, criterios_json) VALUES (?, ?, ?)",
                 (item.nombre, item.contenido, criterios_json),
             )
@@ -354,8 +352,7 @@ class DatabaseManager:
 
     def create_resource(self, item: Recurso) -> int:
         with self.connect() as conn:
-            cur = conn.cursor()
-            cur.execute(
+            cur = conn.execute(
                 """INSERT INTO recursos(actividad_id,titulo,tipo,url,descripcion) VALUES(?,?,?,?,?)""",
                 (item.actividad_id, item.titulo, item.tipo, item.url, item.descripcion),
             )
@@ -377,8 +374,7 @@ class DatabaseManager:
 
     def upsert_example(self, item: EjemploRetroalimentacion) -> int:
         with self.connect() as conn:
-            cur = conn.cursor()
-            cur.execute(
+            cur = conn.execute(
                 """INSERT INTO ejemplos(nombre,contenido) VALUES(?,?)
                    ON CONFLICT(nombre) DO UPDATE SET contenido=excluded.contenido,
                    fecha_actualizacion=CURRENT_TIMESTAMP""",
@@ -412,8 +408,7 @@ class DatabaseManager:
 
     def create_history(self, item: Retroalimentacion, activity_id: int | None) -> int:
         with self.connect() as conn:
-            cur = conn.cursor()
-            cur.execute(
+            cur = conn.execute(
                 """INSERT INTO historial(actividad_id,estudiante,calificacion,criterios,observaciones,
                    retroalimentacion,prompt,modelo,temperatura) VALUES(?,?,?,?,?,?,?,?,?)""",
                 (activity_id, item.estudiante, item.calificacion, json.dumps(item.criterios, ensure_ascii=False),
@@ -452,14 +447,13 @@ class DatabaseManager:
     def import_json(self, data: dict[str, Iterable[dict[str, Any]]]) -> None:
         allowed = {"actividades", "rubricas", "recursos", "ejemplos", "directrices", "historial"}
         with self.connect() as conn:
-            cur = conn.cursor()
             for table, rows in data.items():
                 if table not in allowed:
                     continue
                 for row in rows:
                     cols = ",".join(row.keys())
                     marks = ",".join("?" for _ in row)
-                    cur.execute(f"INSERT OR REPLACE INTO {table}({cols}) VALUES({marks})", tuple(row.values()))
+                    conn.execute(f"INSERT OR REPLACE INTO {table}({cols}) VALUES({marks})", tuple(row.values()))
 
     @staticmethod
     def _rubric_json(item: Rubrica) -> str | None:
@@ -480,15 +474,12 @@ class DatabaseManager:
 
     def _execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
         with self.connect() as conn:
-            cur = conn.cursor()
-            cur.execute(sql, params)
+            conn.execute(sql, params)
 
     def _fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> Any | None:
         with self.connect() as conn:
-            cur = conn.cursor()
-            return cur.execute(sql, params).fetchone()
+            return conn.execute(sql, params).fetchone()
 
     def _fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[Any]:
         with self.connect() as conn:
-            cur = conn.cursor()
-            return list(cur.execute(sql, params))
+            return list(conn.execute(sql, params))
