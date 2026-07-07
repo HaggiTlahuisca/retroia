@@ -9,7 +9,7 @@ from typing import Any
 import streamlit as st
 from dotenv import load_dotenv
 
-from config import APP_ICON, APP_LAYOUT, APP_TITLE, DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, MODELOS_OPENROUTER
+from config import APP_ICON, APP_LAYOUT, APP_TITLE, DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, MODELOS_OPENROUTER, MODELOS_GRATIS, MODELOS_PAGO
 from database import DatabaseManager
 from ia_client import IAClient
 from models import Actividad, EjemploRetroalimentacion, Retroalimentacion
@@ -44,23 +44,37 @@ class RetroalimentacionApp:
         st.markdown(app_css(), unsafe_allow_html=True)
         self._state()
         header()
-        tabs = st.tabs([
-            "1 Configuración de actividades",
-            "2 Configuración IA",
-            "3 Generar retroalimentación",
-            "4 Historial",
-            "5 Configuración",
-        ])
-        with tabs[0]:
+
+        # Enrutador estricto para evitar el fallo de visualización acumulada en móviles
+        opciones_navegacion = [
+            "📋 1. Configuración de actividades",
+            "🤖 2. Configuración IA",
+            "✨ 3. Generar retroalimentación",
+            "📜 4. Historial",
+            "⚙️ 5. Configuración del Sistema"
+        ]
+        
+        st.markdown("### 🧭 Panel de Navegación")
+        pagina_actual = st.selectbox(
+            "Selecciona la sección que deseas visualizar:", 
+            opciones_navegacion, 
+            label_visibility="collapsed"
+        )
+        st.markdown("---")
+
+        if pagina_actual == opciones_navegacion[0]:
             self.tab_activities()
-        with tabs[1]:
+        elif pagina_actual == opciones_navegacion[1]:
             self.tab_ai_config()
-        with tabs[2]:
+        elif pagina_actual == opciones_navegacion[2]:
             self.tab_generate()
-        with tabs[3]:
+        elif pagina_actual == opciones_navegacion[3]:
             self.tab_history()
-        with tabs[4]:
+        elif pagina_actual == opciones_navegacion[4]:
             self.tab_settings()
+
+        # Pie de página fijo para mejorar la estética en cualquier dispositivo
+        st.markdown("<br><hr><center><small class='small-muted'>Retroalimentaciones Formativas IA • Acceso Remoto Estable</small></center>", unsafe_allow_html=True)
 
     def _state(self) -> None:
         defaults = {
@@ -275,7 +289,7 @@ class RetroalimentacionApp:
                 observaciones=builder.observaciones,
                 prompt=prompt,
                 temperatura=st.session_state.temperature,
-            )
+                )
             self.db.create_history(item, activity_id)
             st.success("Retroalimentación generada y guardada en historial.")
         except Exception as exc:
@@ -311,9 +325,24 @@ class RetroalimentacionApp:
     def tab_settings(self) -> None:
         st.subheader("API y modelo")
         st.session_state.api_key = st.text_input("Clave de API OpenRouter", st.session_state.api_key, type="password")
-        model_name = st.selectbox("Modelo", list(MODELOS_OPENROUTER.keys()), index=list(MODELOS_OPENROUTER).index(st.session_state.model_name))
+        
+        if st.session_state.model_name in MODELOS_PAGO:
+            cat_idx = 1
+        else:
+            cat_idx = 0
+            
+        categoria = st.radio("Categoría de modelo", ["Gratis", "De pago"], index=cat_idx, horizontal=True)
+        modelos_disponibles = MODELOS_GRATIS if categoria == "Gratis" else MODELOS_PAGO
+        
+        if st.session_state.model_name in modelos_disponibles:
+            default_index = list(modelos_disponibles.keys()).index(st.session_state.model_name)
+        else:
+            default_index = 0
+            
+        model_name = st.selectbox("Modelo", list(modelos_disponibles.keys()), index=default_index)
         st.session_state.model_name = model_name
-        st.session_state.model_id = MODELOS_OPENROUTER[model_name]
+        st.session_state.model_id = modelos_disponibles[model_name]
+        
         st.session_state.temperature = st.slider("Temperatura", 0.0, 1.5, float(st.session_state.temperature), 0.1)
         st.session_state.max_tokens = st.slider("Máximo de tokens", 200, 8000, int(st.session_state.max_tokens), 100)
         if st.button("Probar conexión"):
