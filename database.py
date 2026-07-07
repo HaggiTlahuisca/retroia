@@ -13,6 +13,31 @@ from models import Actividad, Criterio, EjemploRetroalimentacion, Nivel, Recurso
 from utils import now_slug
 
 
+class CustomRow:
+    """Formateador seguro de filas para compatibilidad entre SQLite tradicional y libSQL remoto."""
+    def __init__(self, cursor: Any, row_tuple: tuple[Any, ...]) -> None:
+        columns = [col[0] for col in cursor.description]
+        self._data = dict(zip(columns, row_tuple))
+        self._tuple = row_tuple
+
+    def __getitem__(self, key: Any) -> Any:
+        if isinstance(key, int):
+            return self._tuple[key]
+        return self._data[key]
+
+    def keys(self) -> list[str]:
+        return list(self._data.keys())
+
+    def items(self) -> Any:
+        return self._data.items()
+
+    def __iter__(self) -> Any:
+        return iter(self._tuple)
+
+    def __len__(self) -> int:
+        return len(self._tuple)
+
+
 class DatabaseManager:
     """Administra conexión, migraciones y operaciones CRUD."""
 
@@ -27,15 +52,27 @@ class DatabaseManager:
             self._migrate_legacy(conn)
             conn.commit()
 
-    def connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
+    def connect(self) -> Any:
+        import os
+        url = os.getenv("TURSO_DATABASE_URL")
+        token = os.getenv("TURSO_AUTH_TOKEN")
+        
+        if url and token:
+            import libsql
+            conn = libsql.connect(database=url, auth_token=token)
+        else:
+            conn = sqlite3.connect(self.db_path)
+            
+        conn.row_factory = lambda cursor, row_tuple: CustomRow(cursor, row_tuple)
+        
+        try:
+            conn.execute("PRAGMA foreign_keys = ON")
+        except Exception:
+            pass
         return conn
 
-    def _create_tables(self, conn: sqlite3.Connection) -> None:
-        conn.executescript(
-            """
+    def _create_tables(self, conn: Any) -> None:
+        script = """
             CREATE TABLE IF NOT EXISTS rubricas (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre TEXT UNIQUE NOT NULL,
@@ -103,20 +140,25 @@ class DatabaseManager:
                 applied_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             """
-        )
+        if hasattr(conn, "executescript"):
+            conn.executescript(script)
+        else:
+            for statement in script.split(";"):
+                if statement.strip():
+                    conn.execute(statement)
 
-    def _add_missing_columns(self, conn: sqlite3.Connection) -> None:
+    def _add_missing_columns(self, conn: Any) -> None:
         self._ensure_columns(conn, "actividades", {"instrucciones": "TEXT DEFAULT ''", "fecha_actualizacion": "TEXT"})
         self._ensure_columns(conn, "historial", {"prompt": "TEXT", "temperatura": "REAL"})
 
     @staticmethod
-    def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    def _ensure_columns(conn: Any, table: str, columns: dict[str, str]) -> None:
         existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
         for name, ddl in columns.items():
             if name not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
-    def _migrate_legacy(self, conn: sqlite3.Connection) -> None:
+    def _migrate_legacy(self, conn: Any) -> None:
         tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if "instrucciones" in tables:
             conn.execute(
@@ -146,7 +188,8 @@ class DatabaseManager:
 
     def create_activity(self, item: Actividad, rubrica_id: int | None = None) -> int:
         with self.connect() as conn:
-            cur = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 """INSERT INTO actividades(nombre, descripcion, instrucciones, rubrica_id)
                    VALUES (?, ?, ?, ?)""",
                 (item.nombre, item.descripcion, item.instrucciones, rubrica_id),
@@ -174,7 +217,7 @@ class DatabaseManager:
             self.create_resource(recurso)
         return new_id
 
-    def list_activities(self, query: str = "") -> list[sqlite3.Row]:
+    def list_activities(self, query: str = "") -> list[Any]:
         sql = """SELECT a.*, r.nombre AS rubrica_nombre FROM actividades a
                  LEFT JOIN rubricas r ON r.id=a.rubrica_id"""
         params: tuple[Any, ...] = ()
@@ -194,7 +237,8 @@ class DatabaseManager:
     def create_rubric(self, item: Rubrica) -> int:
         criterios_json = self._rubric_json(item)
         with self.connect() as conn:
-            cur = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 "INSERT INTO rubricas(nombre, contenido, criterios_json) VALUES (?, ?, ?)",
                 (item.nombre, item.contenido, criterios_json),
             )
@@ -217,7 +261,7 @@ class DatabaseManager:
         item.nombre = f"{item.nombre} (copia)"
         return self.create_rubric(item)
 
-    def list_rubrics(self, query: str = "") -> list[sqlite3.Row]:
+    def list_rubrics(self, query: str = "") -> list[Any]:
         sql, params = "SELECT * FROM rubricas", ()
         if query:
             sql += " WHERE nombre LIKE ? OR contenido LIKE ?"
@@ -232,7 +276,8 @@ class DatabaseManager:
 
     def create_resource(self, item: Recurso) -> int:
         with self.connect() as conn:
-            cur = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 """INSERT INTO recursos(actividad_id,titulo,tipo,url,descripcion) VALUES(?,?,?,?,?)""",
                 (item.actividad_id, item.titulo, item.tipo, item.url, item.descripcion),
             )
@@ -254,7 +299,8 @@ class DatabaseManager:
 
     def upsert_example(self, item: EjemploRetroalimentacion) -> int:
         with self.connect() as conn:
-            cur = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 """INSERT INTO ejemplos(nombre,contenido) VALUES(?,?)
                    ON CONFLICT(nombre) DO UPDATE SET contenido=excluded.contenido,
                    fecha_actualizacion=CURRENT_TIMESTAMP""",
@@ -271,7 +317,7 @@ class DatabaseManager:
             raise ValueError("Ejemplo no encontrado")
         return self.upsert_example(EjemploRetroalimentacion(f"{row['nombre']} (copia)", row["contenido"]))
 
-    def list_examples(self) -> list[sqlite3.Row]:
+    def list_examples(self) -> list[Any]:
         return self._fetchall("SELECT * FROM ejemplos ORDER BY nombre")
 
     def get_directrices(self, name: str = "default") -> str:
@@ -288,7 +334,8 @@ class DatabaseManager:
 
     def create_history(self, item: Retroalimentacion, activity_id: int | None) -> int:
         with self.connect() as conn:
-            cur = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 """INSERT INTO historial(actividad_id,estudiante,calificacion,criterios,observaciones,
                    retroalimentacion,prompt,modelo,temperatura) VALUES(?,?,?,?,?,?,?,?,?)""",
                 (activity_id, item.estudiante, item.calificacion, json.dumps(item.criterios, ensure_ascii=False),
@@ -296,7 +343,7 @@ class DatabaseManager:
             )
             return int(cur.lastrowid)
 
-    def list_history(self, query: str = "", activity_id: int | None = None) -> list[sqlite3.Row]:
+    def list_history(self, query: str = "", activity_id: int | None = None) -> list[Any]:
         sql = """SELECT h.*, a.nombre AS actividad FROM historial h
                  LEFT JOIN actividades a ON a.id=h.actividad_id WHERE 1=1"""
         params: list[Any] = []
@@ -308,7 +355,7 @@ class DatabaseManager:
             params.append(activity_id)
         return self._fetchall(sql + " ORDER BY h.fecha DESC", tuple(params))
 
-    def get_history(self, item_id: int) -> sqlite3.Row | None:
+    def get_history(self, item_id: int) -> Any | None:
         return self._fetchone("SELECT * FROM historial WHERE id=?", (item_id,))
 
     def delete_history(self, item_id: int) -> None:
@@ -327,13 +374,14 @@ class DatabaseManager:
     def import_json(self, data: dict[str, Iterable[dict[str, Any]]]) -> None:
         allowed = {"actividades", "rubricas", "recursos", "ejemplos", "directrices", "historial"}
         with self.connect() as conn:
+            cur = conn.cursor()
             for table, rows in data.items():
                 if table not in allowed:
                     continue
                 for row in rows:
                     cols = ",".join(row.keys())
                     marks = ",".join("?" for _ in row)
-                    conn.execute(f"INSERT OR REPLACE INTO {table}({cols}) VALUES({marks})", tuple(row.values()))
+                    cur.execute(f"INSERT OR REPLACE INTO {table}({cols}) VALUES({marks})", tuple(row.values()))
 
     @staticmethod
     def _rubric_json(item: Rubrica) -> str | None:
@@ -354,12 +402,15 @@ class DatabaseManager:
 
     def _execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
         with self.connect() as conn:
-            conn.execute(sql, params)
+            cur = conn.cursor()
+            cur.execute(sql, params)
 
-    def _fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> sqlite3.Row | None:
+    def _fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> Any | None:
         with self.connect() as conn:
-            return conn.execute(sql, params).fetchone()
+            cur = conn.cursor()
+            return cur.execute(sql, params).fetchone()
 
-    def _fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
+    def _fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[Any]:
         with self.connect() as conn:
-            return list(conn.execute(sql, params))
+            cur = conn.cursor()
+            return list(cur.execute(sql, params))
