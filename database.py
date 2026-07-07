@@ -1,4 +1,4 @@
-"""Capa de persistencia SQLite."""
+"""Capa de persistencia SQLite y libSQL (Turso)."""
 
 from __future__ import annotations
 
@@ -38,6 +38,85 @@ class CustomRow:
         return len(self._tuple)
 
 
+class LibSQLCursorWrapper:
+    """Wrapper para cursores de libSQL para simular row_factory."""
+    def __init__(self, cursor: Any, conn_wrapper: LibSQLConnectionWrapper) -> None:
+        self._cursor = cursor
+        self._conn_wrapper = conn_wrapper
+
+    @property
+    def description(self) -> Any:
+        return self._cursor.description
+
+    @property
+    def lastrowid(self) -> Any:
+        return self._cursor.lastrowid
+
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> LibSQLCursorWrapper:
+        self._cursor.execute(sql, params)
+        return self
+
+    def fetchone(self) -> Any:
+        row = self._cursor.fetchone()
+        if row is not None and self._conn_wrapper.row_factory:
+            return self._conn_wrapper.row_factory(self, row)
+        return row
+
+    def fetchall(self) -> list[Any]:
+        rows = self._cursor.fetchall()
+        if self._conn_wrapper.row_factory:
+            return [self._conn_wrapper.row_factory(self, r) for r in rows]
+        return list(rows)
+
+    def __iter__(self) -> Any:
+        if self._conn_wrapper.row_factory:
+            for r in self._cursor:
+                yield self._conn_wrapper.row_factory(self, r)
+        else:
+            yield from self._cursor
+
+
+class LibSQLConnectionWrapper:
+    """Wrapper para conexiones de libSQL que permite la asignación segura de row_factory."""
+    def __init__(self, conn: Any) -> None:
+        self._conn = conn
+        self.row_factory = None
+
+    def cursor(self) -> LibSQLCursorWrapper:
+        return LibSQLCursorWrapper(self._conn.cursor(), self)
+
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> LibSQLCursorWrapper:
+        cur = self.cursor()
+        cur.execute(sql, params)
+        return cur
+
+    def commit(self) -> None:
+        if hasattr(self._conn, "commit"):
+            self._conn.commit()
+
+    def rollback(self) -> None:
+        if hasattr(self._conn, "rollback"):
+            self._conn.rollback()
+
+    def close(self) -> None:
+        if hasattr(self._conn, "close"):
+            self._conn.close()
+
+    def __enter__(self) -> LibSQLConnectionWrapper:
+        if hasattr(self._conn, "__enter__"):
+            self._conn.__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
+        if hasattr(self._conn, "__exit__"):
+            return self._conn.__exit__(exc_type, exc_val, exc_tb)
+        if exc_type is not None:
+            self.rollback()
+        else:
+            self.commit()
+        return False
+
+
 class DatabaseManager:
     """Administra conexión, migraciones y operaciones CRUD."""
 
@@ -59,7 +138,8 @@ class DatabaseManager:
         
         if url and token:
             import libsql
-            conn = libsql.connect(database=url, auth_token=token)
+            native_conn = libsql.connect(database=url, auth_token=token)
+            conn = LibSQLConnectionWrapper(native_conn)
         else:
             conn = sqlite3.connect(self.db_path)
             
@@ -140,12 +220,10 @@ class DatabaseManager:
                 applied_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             """
-        if hasattr(conn, "executescript"):
-            conn.executescript(script)
-        else:
-            for statement in script.split(";"):
-                if statement.strip():
-                    conn.execute(statement)
+        # Separación por punto y coma para máxima compatibilidad al ejecutar scripts en la nube
+        for statement in script.split(";"):
+            if statement.strip():
+                conn.execute(statement)
 
     def _add_missing_columns(self, conn: Any) -> None:
         self._ensure_columns(conn, "actividades", {"instrucciones": "TEXT DEFAULT ''", "fecha_actualizacion": "TEXT"})
