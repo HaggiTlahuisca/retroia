@@ -103,16 +103,28 @@ class RetroalimentacionApp:
             item, rubrica_id, submitted = activity_form(self.db.list_rubrics())
             if submitted:
                 result = Validator.actividad(item.nombre, item.descripcion, item.instrucciones)
+                if result.ok:
+                    existing_acts = [row["nombre"] for row in self.db.list_activities()]
+                    result = Validator.duplicate_name(item.nombre, existing_acts)
                 self._show_validation(result)
                 if result.ok:
-                    self.db.create_activity(item, rubrica_id)
-                    st.success("Actividad guardada.")
-                    st.rerun()
+                    try:
+                        self.db.create_activity(item, rubrica_id)
+                        st.success("Actividad guardada.")
+                        st.rerun()
+                    except Exception as exc:
+                        if "UNIQUE constraint" in str(exc) or "unique constraint" in str(exc).lower():
+                            st.error("Ya existe una actividad registrada con ese mismo nombre. Por favor, utiliza un nombre diferente.")
+                        else:
+                            st.error(f"No se pudo guardar la actividad: {exc}")
             self._activity_list()
             self._resource_manager()
 
     def _save_rubric(self, rubrica: Any) -> None:
         check = Validator.required(rubrica.nombre, "El nombre de la rúbrica")
+        if check.ok:
+            existing_names = [row["nombre"] for row in self.db.list_rubrics()]
+            check = Validator.duplicate_name(rubrica.nombre, existing_names)
         self._show_validation(check)
         if not check.ok:
             return
@@ -121,7 +133,10 @@ class RetroalimentacionApp:
             st.success("Rúbrica guardada.")
             st.rerun()
         except Exception as exc:
-            st.error(f"No se pudo guardar la rúbrica: {exc}")
+            if "UNIQUE constraint" in str(exc) or "unique constraint" in str(exc).lower():
+                st.error("Ya existe una rúbrica registrada con ese mismo nombre. Por favor, utiliza un nombre diferente.")
+            else:
+                st.error(f"No se pudo guardar la rúbrica: {exc}")
 
     def _rubric_list(self) -> None:
         query = st.text_input("Buscar rúbricas", key="search_rubrics")
@@ -289,7 +304,7 @@ class RetroalimentacionApp:
                 observaciones=builder.observaciones,
                 prompt=prompt,
                 temperatura=st.session_state.temperature,
-                )
+            )
             self.db.create_history(item, activity_id)
             st.success("Retroalimentación generada y guardada en historial.")
         except Exception as exc:
