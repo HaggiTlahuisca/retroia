@@ -84,18 +84,68 @@ def add_hyperlink(paragraph: Any, text: str, url: str) -> None:
     paragraph._p.append(hyperlink)
 
 
+def agregar_parrafo_firma(doc: Document, texto: str) -> Any:
+    """Agrega líneas de firma con interlineado sencillo y sin espacios entre líneas, en Arial 12pt negrita."""
+    p = doc.add_paragraph()
+    p.paragraph_format.line_spacing = 1.0
+    p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+    run = p.add_run(texto)
+    set_run_font(run, nombre="Arial", tamano=12, bold=True)
+    return p
+
+
 def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
     """Parsea líneas con Markdown **negrita** e hipervínculos, insertándolos con fuente Arial 12pt en Word."""
     stripped = line.strip()
+
+    if not stripped:
+        p = doc.add_paragraph()
+        p.paragraph_format.space_after = Pt(4)
+        return p
+
+    # Detección e imposición de formato para firmas
+    signature_lines = [
+        "haggi de jesús tlahuisca hernández",
+        "asesor virtual",
+        "21d28277",
+        "m11c1g77-050",
+        "con afecto."
+    ]
+
+    if stripped.lower() in signature_lines:
+        return agregar_parrafo_firma(doc, stripped)
+
     p = doc.add_paragraph()
     p.paragraph_format.line_spacing = 1.15
     p.paragraph_format.space_after = Pt(6)
 
-    if not stripped:
+    lower_stripped = stripped.lower()
+
+    # Detección automática de encabezados de criterios para forzar negrita nativa en Word
+    known_headings = [
+        "criterio cognitivo",
+        "criterio actitudinal",
+        "criterio comunicativo",
+        "criterio pensamiento crítico",
+        "retroalimentación formativa"
+    ]
+
+    if lower_stripped in known_headings or lower_stripped.startswith("criterio "):
+        if "**" not in stripped:
+            run = p.add_run(stripped)
+            set_run_font(run, nombre="Arial", tamano=12, bold=True)
+            return p
+
+    if lower_stripped.startswith("apreciable") and "**" not in stripped:
+        run = p.add_run(stripped)
+        set_run_font(run, nombre="Arial", tamano=12, bold=True)
         return p
 
-    # Tokenizador para detectar **negritas** e URLs https://...
-    tokens = re.split(r"(\*\*.*?\*\*|https?://[^\s]+)", stripped)
+    # Normalización e interpretación de negritas por Markdown (**...**)
+    normalized = stripped.replace("***", "**")
+    tokens = re.split(r"(\*\*.*?\*\*|https?://[^\s]+)", normalized)
 
     for token in tokens:
         if not token:
@@ -113,29 +163,17 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
                 run = p.add_run(suffix)
                 set_run_font(run, nombre="Arial", tamano=12, bold=False)
         else:
-            run = p.add_run(token)
+            clean_token = token.replace("**", "")
+            run = p.add_run(clean_token)
             set_run_font(run, nombre="Arial", tamano=12, bold=False)
 
     return p
 
 
-def agregar_parrafo_firma(doc: Document, texto: str) -> Any:
-    """Agrega líneas de firma con interlineado sencillo y sin espacios entre líneas, en Arial 12pt negrita."""
-    p = doc.add_paragraph()
-    p.paragraph_format.line_spacing = 1.0
-    p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(0)
-    run = p.add_run(texto)
-    set_run_font(run, nombre="Arial", tamano=12, bold=True)
-    return p
-
-
 def docx_bytes(title: str, text: str, signature_details: list[str] | None = None) -> bytes:
-    """Genera un archivo Word (.docx) procesando Markdown, fuentes Arial 12pt, hipervínculos y firma."""
+    """Genera un archivo Word (.docx) procesando Markdown, fuentes Arial 12pt, hipervínculos y firma desglosada."""
     doc = Document()
 
-    # Configurar márgenes a 2.5 cm por defecto (Normal)
     for section in doc.sections:
         section.top_margin = Pt(72)
         section.bottom_margin = Pt(72)
@@ -143,19 +181,24 @@ def docx_bytes(title: str, text: str, signature_details: list[str] | None = None
         section.right_margin = Pt(72)
 
     lines = text.split("\n")
-    in_signature = False
 
     for line in lines:
         stripped = line.strip()
 
-        if stripped in ["Con afecto.", "Atentamente,", "Haggi de Jesús Tlahuisca Hernández"]:
-            in_signature = True
+        # Filtro de seguridad: Si la firma viene unida en una sola línea por la IA, la desglosa automáticamente
+        if "Haggi de Jesús Tlahuisca Hernández" in stripped and "Asesor virtual" in stripped:
+            partes_firma = [
+                "Con afecto.",
+                "Haggi de Jesús Tlahuisca Hernández",
+                "Asesor virtual",
+                "21D28277",
+                "M11C1G77-050"
+            ]
+            for parte in partes_firma:
+                agregar_parrafo_firma(doc, parte)
+            continue
 
-        if in_signature:
-            if stripped:
-                agregar_parrafo_firma(doc, stripped)
-        else:
-            add_formatted_line_to_doc(doc, line)
+        add_formatted_line_to_doc(doc, line)
 
     buffer = io.BytesIO()
     doc.save(buffer)
