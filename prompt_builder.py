@@ -67,8 +67,8 @@ class PromptBuilder:
         recursos_str = ""
         if self.recursos:
             for rec in self.recursos:
-                desc = f" ({rec.descripcion})" if rec.descripcion else ""
-                recursos_str += f"- {rec.titulo} [{rec.tipo}]: {rec.url}{desc}\n"
+                desc = f" (Propósito o tema: {rec.descripcion})" if rec.descripcion else ""
+                recursos_str += f"- URL: {rec.url}{desc}\n"
         else:
             recursos_str = "No hay recursos adicionales configurados para esta actividad.\n"
 
@@ -93,42 +93,45 @@ Tu función es actuar como un REDACTOR PEDAGÓGICO que genera una retroalimentac
 ### OBSERVACIONES Y DETALLES ESPECÍFICOS DEL ASESOR:
 {self.observaciones if self.observaciones else "La actividad cumple satisfactoriamente con los criterios de desempeño de la rúbrica."}
 
-### RECURSOS EDUCATIVOS REGISTRADOS (SOLO USA ESTOS):
+### RECURSOS EDUCATIVOS REGISTRADOS EN EL SISTEMA:
 {recursos_str}
 
 {ejemplo_str}
 
-### ESTRUCTURA OBLIGATORIA DE LA RETROALIMENTACIÓN:
+### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y FORMATO:
 
-1. **INTRODUCCIÓN (Conserva la esencia y tono afable):**
-   - Inicia saludando y felicitando al estudiante "{self.estudiante}" por la entrega de la actividad "{nombre_actividad}".
-   - Añade una breve reflexión sobre la importancia y aplicación práctica de lo aprendido en su vida cotidiana o educación.
-   - Incluye la frase de transición exacta o equivalente:
+1. **SALUDO E INTRODUCCIÓN (FORMATO DE NEGRITAS):**
+   - Inicia exactamente con el saludo en negritas usando Markdown: **Apreciable, {self.estudiante}.**
+   - Felicita al estudiante por la entrega de la actividad "{nombre_actividad}".
+   - Agrega la breve reflexión pedagógica sobre la utilidad del álgebra / matemáticas en la vida cotidiana.
+   - Incluye la frase exacta de transición:
      "A continuación, se señalan las fortalezas y áreas de oportunidad detectadas en la actividad con base en los criterios de desempeño y niveles que contempla la rúbrica de evaluación:"
 
 2. **CUERPO DE EVALUACIÓN POR CRITERIOS:**
-   - Detalla cada uno de los 4 criterios de desempeño (Cognitivo, Actitudinal, Comunicativo y Pensamiento crítico).
-   - En cada criterio, MENCIONA EXPLÍCITAMENTE la palabra del nivel alcanzado en minúsculas (ejemplo: **experto**, **capacitado**, **aceptable**, **aprendiz**, **requiere apoyo** o **no evaluable**).
-   - Integra de forma clara y respetuosa las observaciones del Asesor Virtual (por ejemplo, si se señala uso de Inteligencia Artificial, ejemplos genéricos de libro o falta de reflexión personal sobre su entorno real).
+   - Inicia cada criterio con su encabezado en negritas exacto: **Criterio cognitivo**, **Criterio actitudinal**, **Criterio comunicativo**, **Criterio pensamiento crítico**.
+   - Al señalar el nivel obtenido en cada criterio, escribe el nivel en minúsculas encerrado entre asteriscos dobles (ejemplo: **capacitado**, **experto**, **aceptable**, **aprendiz**, **requiere apoyo** o **no evaluable**).
+   - Integra respetuosa y pedagógicamente todas las observaciones del Asesor Virtual.
 
-3. **SECCIÓN DE RECURSOS (MANTENER LA REDACCIÓN INDICADA Y RECURSOS ESTRICTOS):**
+3. **SECCIÓN DE RECURSOS (REDACCIÓN EN PROSA NATURAL SIN ETIQUETAS NI TÍTULOS DE USO INTERNO):**
    - Transición obligatoria:
      "A continuación, comparto contigo una serie de recursos que tienen como fin el reforzamiento y una mejor comprensión de los temas que viste para realizar esta actividad:"
-   - REGLA DE ORO DE RECURSOS: Utiliza ÚNICAMENTE los recursos que te proporcioné arriba. Queda ESTRICTAMENTE PROHIBIDO inventar, asumir o agregar otros videos, enlaces o nombres de sitios externos que no estén en la lista. Si no hay recursos en la lista, indica de forma afable que puede apoyarse en los materiales del módulo.
+   - Redacta los recursos en PROSA FLUIDA Y NATURAL (por ejemplo: 'El primero es un video del profe Jozh en el que explica... https://...' o 'El segundo es un artículo sobre... https://...').
+   - QUEDA PROHIBIDO incluir etiquetas de uso interno como [Enlace], [Documento], 'Factorización [Enlace]:' o títulos secos. Muestra únicamente la explicación fluida y la URL directa.
+   - REGLA DE ORO: Utiliza ÚNICAMENTE los enlaces provistos arriba. No inventes URLs ni recursos externos.
 
-4. **CIERRE Y DESPEDIDA FIJOS (DEBE MANTENERSE CASI IDÉNTICO):**
-   - Incluye el siguiente mensaje de cierre y la frase célebre:
-     "Para finalizar con esta retroalimentación, nuevamente te felicito por la entrega de esta actividad y te invito a que sigas realizando y entregando tus actividades del módulo para que así puedas culminar con un peldaño más de esta escalera que es tu educación media superior.
+4. **CIERRE Y DESPEDIDA FIJOS:**
+   "Para finalizar con esta retroalimentación, nuevamente te felicito por la entrega de esta actividad y te invito a que sigas realizando y entregando tus actividades del módulo para que así puedas culminar con un peldaño más de esta escalera que es tu educación media superior.
 
 Me despido con esta frase de Aristóteles: “Las raíces de la educación son amargas, pero el fruto es dulce”.
 
-Siempre puedes contactarme, ya sea por medio del mensajero de la plataforma o a través de mi correo institucional."
+Siempre puedes contactarme, ya sea por medio del mensajero de la plataforma o a través de mi correo institucional.
 
-5. **FIRMA INSTITUCIONAL AL CALCE:**
-   Haggi de Jesús Tlahuisca Hernández
-   Asesor virtual
-   21D28277
-   M11C1G77-050
+Con afecto.
 
-Genera directamente el texto completo de la retroalimentación, sin preámbulos ni notas del sistema."""
+Haggi de Jesús Tlahuisca Hernández
+Asesor virtual
+21D28277
+M11C1G77-050"
+
+Genera directamente el texto completo de la retroalimentación sin preámbulos ni notas explicativas."""
         return prompt
