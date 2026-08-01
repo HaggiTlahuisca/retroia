@@ -45,7 +45,6 @@ class RetroalimentacionApp:
         self._state()
         header()
 
-        # Enrutador estricto para evitar el fallo de visualización acumulada en móviles
         opciones_navegacion = [
             "📋 1. Configuración de actividades",
             "🤖 2. Configuración IA",
@@ -73,7 +72,6 @@ class RetroalimentacionApp:
         elif pagina_actual == opciones_navegacion[4]:
             self.tab_settings()
 
-        # Pie de página fijo para mejorar la estética en cualquier dispositivo
         st.markdown("<br><hr><center><small class='small-muted'>Retroalimentaciones Formativas IA • Acceso Remoto Estable</small></center>", unsafe_allow_html=True)
 
     def _state(self) -> None:
@@ -240,40 +238,58 @@ class RetroalimentacionApp:
             info_card("Sin actividades", "Primero registra una actividad y su rúbrica.")
             return
         labels = {f"{r['nombre']} ({r['id']})": r["id"] for r in activities}
-        selected = st.selectbox("Actividad", list(labels.keys()))
+        selected = st.selectbox("Selecciona la Actividad", list(labels.keys()))
         activity = self.db.get_activity(labels[selected])
         if not activity:
             return
+
         examples = self.db.list_examples()
         example = self._select_example(examples)
-        col1, col2 = st.columns([2, 1])
-        estudiante = col1.text_input("Estudiante")
-        calificacion = col2.number_input("Calificación", min_value=0.0, max_value=10.0, step=0.1)
-        criterios = evaluation_inputs(activity.rubrica.criterios if activity.rubrica else [])
-        observaciones = st.text_area("Observaciones", height=130)
-        builder = PromptBuilder(
-            directrices=self.db.get_directrices(), ejemplo=example, actividad=activity,
-            rubrica=activity.rubrica, recursos=activity.recursos, estudiante=estudiante,
-            calificacion=calificacion, criterios_evaluados=criterios, observaciones=observaciones,
+        
+        st.markdown("---")
+        st.markdown("### 📝 Datos de la Evaluación")
+        estudiante = st.text_input("Nombre del Estudiante", placeholder="Ej. Argelia")
+
+        criterios_evaluados, calificacion_total = evaluation_inputs(activity.rubrica.criterios if activity.rubrica else [])
+
+        observaciones = st.text_area(
+            "Observaciones y notas del Asesor Virtual (detalles clave, evidencia de IA, faltas de ortografía, etc.):",
+            placeholder="Ej. Los ejemplos de lenguaje algebraico son muy genéricos y abstractos (cuadernos, taxis). La conclusión no conecta con su entorno ni vida cotidiana, reflejando evidencia de IA.",
+            height=130
         )
+
+        builder = PromptBuilder(
+            directrices=self.db.get_directrices(),
+            ejemplo=example,
+            actividad=activity,
+            rubrica=activity.rubrica,
+            recursos=activity.recursos,
+            estudiante=estudiante,
+            calificacion=calificacion_total,
+            criterios_evaluados=criterios_evaluados,
+            observaciones=observaciones,
+        )
+
         prompt = builder.preview()
-        st.caption(f"Tokens estimados: {builder.count_tokens():,}")
-        with st.expander("Vista previa del prompt"):
+        st.caption(f"Tokens estimados para este prompt: {builder.count_tokens():,}")
+        with st.expander("🔍 Vista previa del prompt que se enviará a la IA"):
             st.text(prompt)
+
         col_a, col_b = st.columns(2)
-        if col_a.button("Generar", type="primary", use_container_width=True):
+        if col_a.button("✨ Generar Retroalimentación", type="primary", use_container_width=True):
             self._generate_feedback(builder, activity.id)
-        if col_b.button("Regenerar", use_container_width=True):
+        if col_b.button("🔄 Regenerar", use_container_width=True):
             self._generate_feedback(builder, activity.id)
+
         if st.session_state.last_feedback:
             self._render_generated(estudiante or "estudiante")
 
     def _select_example(self, rows: list[Any]) -> EjemploRetroalimentacion | None:
         if not rows:
-            st.warning("No hay ejemplos configurados. La generación puede funcionar, pero será menos consistente.")
+            st.warning("No hay ejemplos o machotes configurados. La generación puede funcionar, pero será menos consistente.")
             return None
         labels = {r["nombre"]: r for r in rows}
-        selected = st.selectbox("Ejemplo base", list(labels.keys()))
+        selected = st.selectbox("Ejemplo / Machote Base de Estilo", list(labels.keys()))
         row = labels[selected]
         return EjemploRetroalimentacion(row["nombre"], row["contenido"], row["id"])
 
@@ -283,7 +299,7 @@ class RetroalimentacionApp:
         if not validation.ok:
             return
         try:
-            with st.spinner("Generando retroalimentación..."):
+            with st.spinner("Generando retroalimentación pedagógica personalizada..."):
                 prompt = builder.build()
                 text = self.ia_client.generar(
                     prompt=prompt,
@@ -306,29 +322,29 @@ class RetroalimentacionApp:
                 temperatura=st.session_state.temperature,
             )
             self.db.create_history(item, activity_id)
-            st.success("Retroalimentación generada y guardada en historial.")
+            st.success("Retroalimentación generada y guardada exitosamente en el historial.")
         except Exception as exc:
             st.error(f"No se pudo generar la retroalimentación: {exc}")
 
     def _render_generated(self, estudiante: str) -> None:
         title = f"retroalimentacion_{sanitize_filename(estudiante)}"
-        st.subheader("Resultado")
-        st.write(st.session_state.last_feedback)
+        st.subheader("Resultado de la Retroalimentación")
+        st.markdown(st.session_state.last_feedback)
         payload = json.dumps({"retroalimentacion": st.session_state.last_feedback, "prompt": st.session_state.last_prompt}, ensure_ascii=False, indent=2)
         download_buttons(
             title,
             st.session_state.last_feedback,
-            docx_bytes("Retroalimentación", st.session_state.last_feedback),
-            pdf_bytes("Retroalimentación", st.session_state.last_feedback),
+            docx_bytes("Retroalimentación Formativa", st.session_state.last_feedback),
+            pdf_bytes("Retroalimentación Formativa", st.session_state.last_feedback),
             payload,
         )
 
     def tab_history(self) -> None:
         col1, col2 = st.columns(2)
-        query = col1.text_input("Buscar")
+        query = col1.text_input("Buscar en historial")
         activities = self.db.list_activities()
         options = {"Todas": None} | {r["nombre"]: r["id"] for r in activities}
-        selected = col2.selectbox("Actividad", list(options.keys()))
+        selected = col2.selectbox("Filtrar por actividad", list(options.keys()))
         rows = self.db.list_history(query, options[selected])
         if not rows:
             st.info("No hay registros en el historial.")
