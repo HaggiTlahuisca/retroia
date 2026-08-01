@@ -37,10 +37,10 @@ AI_PROVIDERS = {
 
 # Modelos separados por categoría (Gratis)
 MODELOS_GRATIS = {
-    "Nvidia Nemotron 3 Ultra 550B (Gratis)": "Nvidia/nemotron-3-ultra-550b-a55b:free",
-    "Google Gemma 4 31B IT (Gratis)": "google/gemma-4-31b-it:free",
-    "Qwen 3 Next (Gratis)": "qwen/qwen-3-235b-a22b",
     "Meta Llama 3.3 70B Instruct (Gratis)": "meta-llama/llama-3.3-70b-instruct:free",
+    "Google Gemma 4 31B IT (Gratis)": "google/gemma-4-31b-it:free",
+    "Nvidia Nemotron 3 Ultra 550B (Gratis)": "Nvidia/nemotron-3-ultra-550b-a55b:free",
+    "Qwen 3 Next (Gratis)": "qwen/qwen-3-235b-a22b",
 }
 
 # Modelos separados por categoría (De pago)
@@ -53,6 +53,9 @@ MODELOS_PAGO = {
 
 # Combinación global para mantener compatibilidad con el resto del sistema
 MODELOS_OPENROUTER = {**MODELOS_GRATIS, **MODELOS_PAGO}
+
+DEFAULT_MODEL_NAME = "Meta Llama 3.3 70B Instruct (Gratis)"
+DEFAULT_MODEL_ID = MODELOS_OPENROUTER[DEFAULT_MODEL_NAME]
 
 TIPOS_RECURSO = [
     "Video", "PDF", "Artículo", "Enlace", "Documento", "Archivo", "Libro", "Otro"
@@ -78,7 +81,7 @@ class RuntimeConfig:
 
     provider: str = "openrouter"
     api_key: str = ""
-    model_name: str = "GPT 4o Mini"
-    model_id: str = MODELOS_OPENROUTER["GPT 4o Mini"]
+    model_name: str = DEFAULT_MODEL_NAME
+    model_id: str = DEFAULT_MODEL_ID
     temperature: float = DEFAULT_TEMPERATURE
     max_tokens: int = DEFAULT_MAX_TOKENS
