@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 import streamlit as st
 
-from models import Actividad, EjemploRetroalimentacion, Recurso, Rubrica
+from models import Actividad, Criterio, EjemploRetroalimentacion, Nivel, Recurso, Rubrica
 
 
 def header() -> None:
@@ -21,19 +21,51 @@ def info_card(title: str, text: str) -> None:
 
 
 def rubric_manual_form() -> tuple[Rubrica, bool]:
-    """Formulario para crear una rúbrica de forma manual."""
-    with st.form("form_rubrica_manual"):
-        nombre = st.text_input("Nombre de la rúbrica")
-        contenido = st.text_area("Contenido / Descriptores de la rúbrica", height=150)
-        submitted = st.form_submit_button("Guardar rúbrica")
-    return Rubrica(nombre=nombre, contenido=contenido), submitted
+    """Formulario para crear una rúbrica con la estructura exacta de la matriz de PDF."""
+    st.markdown("#### 📐 Matriz de Desempeño de la Rúbrica")
+    st.caption("Ingresa los descriptores correspondientes a cada nivel de desempeño para los 4 criterios.")
+
+    with st.form("form_rubrica_manual_matriz"):
+        nombre = st.text_input("Nombre de la rúbrica", placeholder="Ej. Rúbrica Actividad Integradora 4")
+        
+        criterios_nombres = ["Cognitivo", "Actitudinal", "Comunicativo", "Pensamiento crítico"]
+        niveles_nombres = ["Experto", "Capacitado", "Aceptable", "Aprendiz", "Requiere apoyo", "No evaluable"]
+
+        criterios_objetos: list[Criterio] = []
+        resumen_texto_lineas: list[str] = [f"RÚBRICA: {nombre}\n"]
+
+        tabs = st.tabs(criterios_nombres)
+
+        for idx, crit_nombre in enumerate(criterios_nombres):
+            with tabs[idx]:
+                st.markdown(f"##### Descriptores para Criterio: **{crit_nombre}**")
+                niveles_objetos: list[Nivel] = []
+                resumen_texto_lineas.append(f"\n--- CRITERIO: {crit_nombre.upper()} ---")
+
+                for niv_nombre in niveles_nombres:
+                    key_input = f"input_rub_{crit_nombre}_{niv_nombre}"
+                    desc = st.text_area(
+                        f"Nivel: {niv_nombre}",
+                        key=key_input,
+                        height=90,
+                        placeholder=f"Escribe la descripción de lo que cumple el estudiante en el nivel {niv_nombre}..."
+                    )
+                    niveles_objetos.append(Nivel(nombre=niv_nombre, descripcion=desc))
+                    resumen_texto_lineas.append(f"[{niv_nombre}]: {desc}")
+
+                criterios_objetos.append(Criterio(nombre=crit_nombre, niveles=niveles_objetos))
+
+        contenido_completo = "\n".join(resumen_texto_lineas)
+        submitted = st.form_submit_button("💾 Guardar Rúbrica Estructurada", type="primary")
+
+    return Rubrica(nombre=nombre, contenido=contenido_completo, criterios=criterios_objetos), submitted
 
 
 def rubric_import_form() -> tuple[Rubrica, bool]:
-    """Formulario para importar rúbricas desde texto."""
+    """Formulario para importar rúbricas desde texto plano o tablas pegadas."""
     with st.form("form_rubrica_import"):
         nombre = st.text_input("Nombre de la rúbrica a importar")
-        contenido = st.text_area("Pega aquí el texto o tabla de la rúbrica", height=200)
+        contenido = st.text_area("Pega aquí el texto o tabla completa de la rúbrica", height=220)
         submitted = st.form_submit_button("Importar y guardar")
     return Rubrica(nombre=nombre, contenido=contenido), submitted
 
