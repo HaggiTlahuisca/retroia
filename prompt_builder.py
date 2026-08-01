@@ -1,112 +1,115 @@
-"""Construcción centralizada de prompts."""
+"""Constructor de prompts para la generación de retroalimentaciones."""
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
-
+from typing import Any
 from models import Actividad, EjemploRetroalimentacion, Recurso, Rubrica
-from validators import ValidationResult, Validator
+from validators import ValidationResult
 
 
-@dataclass(slots=True)
 class PromptBuilder:
-    """Construye prompts para retroalimentación formativa."""
+    """Construye prompts estructurados para la IA actuando como redactor pedagógico."""
 
-    directrices: str = ""
-    ejemplo: EjemploRetroalimentacion | None = None
-    actividad: Actividad | None = None
-    rubrica: Rubrica | None = None
-    recursos: list[Recurso] = field(default_factory=list)
-    estudiante: str = ""
-    calificacion: float | None = None
-    criterios_evaluados: dict[str, str] = field(default_factory=dict)
-    observaciones: str = ""
-
-    def build(self) -> str:
-        """Devuelve el prompt completo en el orden definido por la especificación."""
-        parts = [
-            self._section("DIRECTRICES GENERALES", self.directrices),
-            self._section("EJEMPLO DE RETROALIMENTACIÓN", self._example_text()),
-            self._section("ACTIVIDAD", self._activity_text()),
-            self._section("INSTRUCCIONES DE LA ACTIVIDAD", self._activity_instructions()),
-            self._section("RECURSOS EDUCATIVOS", self._resources_text()),
-            self._section("RÚBRICA", self._rubric_text()),
-            self._section("EVALUACIÓN", self._evaluation_text()),
-            self._section("OBSERVACIONES DEL DOCENTE", self.observaciones or "Sin observaciones adicionales."),
-            self._section("DATOS DEL ESTUDIANTE", self._student_text()),
-            self._section("SALIDA ESPERADA", self._output_rules()),
-        ]
-        return "\n\n".join(part for part in parts if part.strip())
-
-    def preview(self) -> str:
-        """Alias semántico para mostrar vista previa."""
-        return self.build()
+    def __init__(
+        self,
+        directrices: str,
+        ejemplo: EjemploRetroalimentacion | None,
+        actividad: Actividad | None,
+        rubrica: Rubrica | None,
+        recursos: list[Recurso] | None,
+        estudiante: str,
+        calificacion: float,
+        criterios_evaluados: dict[str, dict[str, Any]],
+        observaciones: str,
+    ) -> None:
+        self.directrices = directrices
+        self.ejemplo = ejemplo
+        self.actividad = actividad
+        self.rubrica = rubrica
+        self.recursos = recursos or []
+        self.estudiante = estudiante.strip()
+        self.calificacion = calificacion
+        self.criterios_evaluados = criterios_evaluados
+        self.observaciones = observaciones.strip()
 
     def count_tokens(self) -> int:
-        """Estimación ligera de tokens. No requiere dependencias externas."""
-        return max(1, len(self.build()) // 4)
+        """Estima aproximadamente la cantidad de tokens del prompt."""
+        text = self.build()
+        return len(text) // 4
 
     def validate(self) -> ValidationResult:
-        """Valida campos críticos y tamaño del prompt."""
-        result = ValidationResult()
-        for field_value, label in [(self.directrices, "Directrices"), (self.estudiante, "Estudiante")]:
-            check = Validator.required(field_value, label)
-            result.errors.extend(check.errors)
+        """Valida que existan los elementos mínimos para construir el prompt."""
+        res = ValidationResult()
+        if not self.estudiante:
+            res.add_error("El nombre del estudiante es obligatorio.")
         if not self.actividad:
-            result.add_error("Debe seleccionarse una actividad.")
-        result.errors.extend(Validator.prompt_length(self.build()).errors)
-        result.warnings.extend(Validator.prompt_length(self.build()).warnings)
-        result.ok = not result.errors
-        return result
+            res.add_error("Debes seleccionar una actividad.")
+        if not self.criterios_evaluados:
+            res.add_error("Debes evaluar los criterios de desempeño.")
+        return res
 
-    @staticmethod
-    def _section(title: str, content: str) -> str:
-        return f"## {title}\n{content.strip()}" if content else ""
+    def preview(self) -> str:
+        """Genera una vista previa del prompt."""
+        return self.build()
 
-    def _example_text(self) -> str:
-        return self.ejemplo.contenido if self.ejemplo else "Sin ejemplo seleccionado."
+    def build(self) -> str:
+        """Construye el prompt completo orientado a la redacción pedagógica asistida."""
+        nombre_actividad = self.actividad.nombre if self.actividad else "Actividad Integradora"
+        desc_actividad = self.actividad.descripcion if self.actividad else ""
+        instrucciones_actividad = self.actividad.instrucciones if self.actividad else ""
 
-    def _activity_text(self) -> str:
-        if not self.actividad:
-            return ""
-        return f"Nombre: {self.actividad.nombre}\nDescripción: {self.actividad.descripcion or 'Sin descripción.'}"
+        criterios_str = ""
+        for crit_nombre, datos in self.criterios_evaluados.items():
+            nivel = datos.get("nivel", "Experto")
+            puntos = datos.get("puntos", 0)
+            criterios_str += f"- Criterio {crit_nombre}: Nivel seleccionado **{nivel}** ({puntos} puntos).\n"
 
-    def _activity_instructions(self) -> str:
-        return self.actividad.instrucciones if self.actividad else "Sin instrucciones específicas."
+        recursos_str = ""
+        if self.recursos:
+            for rec in self.recursos:
+                recursos_str += f"- {rec.titulo} [{rec.tipo}]: {rec.url} ({rec.descripcion})\n"
+        else:
+            recursos_str = "No se especificaron recursos adicionales.\n"
 
-    def _resources_text(self) -> str:
-        if not self.recursos:
-            return "Sin recursos educativos asociados."
-        return "\n".join(
-            f"- {r.titulo} [{r.tipo}] {r.url or ''}: {r.descripcion or 'Sin descripción.'}"
-            for r in self.recursos
-        )
+        ejemplo_str = ""
+        if self.ejemplo:
+            ejemplo_str = f"### EJEMPLO DE ESTILO Y ESTRUCTURA BASE (MACHOTE):\n{self.ejemplo.contenido}\n"
 
-    def _rubric_text(self) -> str:
-        if not self.rubrica:
-            return "Sin rúbrica asociada."
-        if self.rubrica.criterios:
-            payload = {
-                c.nombre: {n.nombre: n.descripcion for n in c.niveles}
-                for c in self.rubrica.criterios
-            }
-            return json.dumps(payload, ensure_ascii=False, indent=2)
-        return self.rubrica.contenido or "Sin contenido de rúbrica."
+        prompt = f"""Eres un Asesor Virtual empático, profesional y riguroso de Prepa en Línea SEP llamado Haggi de Jesús Tlahuisca Hernández.
+Tu función NO es calificar desde cero la actividad del estudiante, sino actuar como un REDACTOR PEDAGÓGICO que articula una retroalimentación formal, constructiva y personalizada basada ESTRICTAMENTE en las evaluaciones y observaciones hechas por el Asesor Virtual.
 
-    def _evaluation_text(self) -> str:
-        lines = [f"Calificación: {self.calificacion}/10" if self.calificacion is not None else "Sin calificación."]
-        lines.extend(f"- {k}: {v}" for k, v in self.criterios_evaluados.items())
-        return "\n".join(lines)
+{self.directrices if self.directrices else ""}
 
-    def _student_text(self) -> str:
-        return f"Nombre del estudiante: {self.estudiante}"
+### CONTEXTO DE LA ACTIVIDAD:
+- Nombre de la actividad: {nombre_actividad}
+- Descripción: {desc_actividad}
+- Instrucciones clave: {instrucciones_actividad}
 
-    @staticmethod
-    def _output_rules() -> str:
-        return (
-            "Genera únicamente la retroalimentación final. Debe ser formativa, específica, "
-            "constructiva, personalizada, clara y lista para entregar al estudiante. Evita títulos, "
-            "preámbulos, listas rígidas y frases genéricas. Integra logros, áreas de mejora y "
-            "siguientes pasos en párrafos naturales."
-        )
+### EVALUACIÓN REALIZADA POR EL ASESOR (DEBES RESPETAR ESTOS NIVELES EXACTOS):
+- Estudiante: {self.estudiante}
+- Calificación total calculada: {self.calificacion:.1f} / 100 puntos.
+- Evaluaciones por Criterio de Desempeño:
+{criterios_str}
+
+### OBSERVACIONES Y NOTAS DETALLADAS DEL ASESOR VIRTUAL:
+{self.observaciones if self.observaciones else "La entrega cumple con lo esperado según los niveles seleccionados."}
+
+### RECURSOS DE APOYO A INCLUIR EN LA RETROALIMENTACIÓN:
+{recursos_str}
+
+{ejemplo_str}
+
+### INSTRUCCIONES ESTRICTAS DE REDACCIÓN:
+1. Inicia con un saludo afable y personalizado usando el nombre del estudiante: "{self.estudiante}".
+2. Explica claramente la evaluación obtenida en cada uno de los 4 criterios de desempeño (Cognitivo, Actitudinal, Comunicativo y Pensamiento crítico).
+3. MENCIONA EXPLÍCITAMENTE la palabra del nivel alcanzado en minúsculas (ejemplo: **experto**, **capacitado**, **aceptable**, **aprendiz**, **requiere apoyo** o **no evaluable**) para cada criterio.
+4. Integra las OBSERVACIONES DEL ASESOR de manera pedagógica y respetuosa. Si se señala uso de Inteligencia Artificial, reflexiones genéricas o falta de ejemplos de su vida cotidiana real, explícalo con tacto pero con firmeza, conectándolo con los descriptores del criterio correspondiente (especialmente Pensamiento Crítico o Actitudinal).
+5. Incluye la lista de recursos compartidos con sus hipervínculos completos de forma clara para que el alumno pueda profundizar o corregir sus áreas de oportunidad.
+6. Cierra con un mensaje de motivación, incluyendo una frase inspiradora y la firma institucional al calce:
+   Haggi de Jesús Tlahuisca Hernández
+   Asesor virtual
+   21D28277
+   M11C1G77-050
+
+Genera únicamente el texto completo de la retroalimentación, sin notas aclaratorias antes ni después."""
+        return prompt
