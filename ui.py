@@ -9,7 +9,18 @@ from typing import Any
 import streamlit as st
 from dotenv import load_dotenv
 
-from config import APP_ICON, APP_LAYOUT, APP_TITLE, DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, MODELOS_OPENROUTER, MODELOS_GRATIS, MODELOS_PAGO
+from config import (
+    APP_ICON,
+    APP_LAYOUT,
+    APP_TITLE,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_MODEL_ID,
+    DEFAULT_MODEL_NAME,
+    DEFAULT_TEMPERATURE,
+    MODELOS_GRATIS,
+    MODELOS_OPENROUTER,
+    MODELOS_PAGO,
+)
 from database import DatabaseManager
 from ia_client import IAClient
 from models import Actividad, EjemploRetroalimentacion, Retroalimentacion
@@ -77,8 +88,8 @@ class RetroalimentacionApp:
     def _state(self) -> None:
         defaults = {
             "api_key": os.getenv("OPENROUTER_API_KEY", ""),
-            "model_name": "GPT 4o Mini",
-            "model_id": MODELOS_OPENROUTER["GPT 4o Mini"],
+            "model_name": DEFAULT_MODEL_NAME,
+            "model_id": DEFAULT_MODEL_ID,
             "temperature": DEFAULT_TEMPERATURE,
             "max_tokens": DEFAULT_MAX_TOKENS,
             "last_feedback": "",
@@ -254,7 +265,7 @@ class RetroalimentacionApp:
 
         observaciones = st.text_area(
             "Observaciones y notas del Asesor Virtual (detalles clave, evidencia de IA, faltas de ortografía, etc.):",
-            placeholder="Ej. Los ejemplos de lenguaje algebraico son muy genéricos y abstractos (cuadernos, taxis). La conclusión no conecta con su entorno ni vida cotidiana, reflejando evidencia de IA.",
+            placeholder="Ej. Los ejemplos de lenguaje algebraico son muy genéricos y abstractos (cuadernos, taxis). La conclusión no conecta con su entorno ni vida cotidiana, reflejando redacción con evidencia de IA.",
             height=130
         )
 
