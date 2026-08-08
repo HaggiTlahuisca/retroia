@@ -88,7 +88,7 @@ def resource_form(actividad_id: int) -> tuple[Recurso, bool]:
         titulo = st.text_input("Título del recurso")
         tipo = st.selectbox("Tipo de recurso", ["Enlace", "Video", "PDF", "Artículo", "Documento", "Otro"])
         url = st.text_input("URL del recurso (http/https)")
-        descripcion = st.text_area#("Descripción o propósito del recurso", height=70)
+        descripcion = st.text_area("Observaciones", height=70)
         submitted = st.form_submit_button("Agregar recurso")
     return Recurso(titulo=titulo, tipo=tipo, url=url, descripcion=descripcion, actividad_id=actividad_id), submitted
 
