@@ -37,9 +37,8 @@ AI_PROVIDERS = {
 
 # Modelos separados por categoría (Gratis)
 MODELOS_GRATIS = {
-    "Meta Llama 3.3 70B Instruct (Gratis)": "meta-llama/llama-3.3-70b-instruct:free",
-    "Google Gemma 4 31B IT (Gratis)": "google/gemma-4-31b-it:free",
     "Nvidia Nemotron 3 Ultra 550B (Gratis)": "Nvidia/nemotron-3-ultra-550b-a55b:free",
+    "Google Gemma 4 31B IT (Gratis)": "google/gemma-4-31b-it:free",
     "Qwen 3 Next (Gratis)": "qwen/qwen-3-235b-a22b",
 }
 
@@ -54,7 +53,7 @@ MODELOS_PAGO = {
 # Combinación global para mantener compatibilidad con el resto del sistema
 MODELOS_OPENROUTER = {**MODELOS_GRATIS, **MODELOS_PAGO}
 
-DEFAULT_MODEL_NAME = "Meta Llama 3.3 70B Instruct (Gratis)"
+DEFAULT_MODEL_NAME = "Nvidia Nemotron 3 Ultra 550 B (Gratis)"
 DEFAULT_MODEL_ID = MODELOS_OPENROUTER[DEFAULT_MODEL_NAME]
 
 TIPOS_RECURSO = [
