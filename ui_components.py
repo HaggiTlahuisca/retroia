@@ -10,7 +10,7 @@ from models import Actividad, Criterio, EjemploRetroalimentacion, Nivel, Recurso
 
 def header() -> None:
     """Renderiza el encabezado principal de la aplicación."""
-    st.title("Generador Inteligente de Retroalimentaciones Formativas con IA")
+    st.title("Generador inteligente de retroalimentaciones formativas")
     st.caption("Diseñado para evaluación transparente, personalizada y asistida por IA para Asesores Virtuales.")
     st.markdown("---")
 
@@ -75,7 +75,7 @@ def activity_form(rubricas: list[Any]) -> tuple[Actividad, int | None, bool]:
     rubric_options = {"Sin rúbrica": None} | {r["nombre"]: r["id"] for r in rubricas}
     with st.form("form_actividad"):
         nombre = st.text_input("Nombre de la actividad")
-        descripcion = st.text_area("Descripción general", height=80)
+        descripcion = st.text_area("Propósito de la actividad", height=80)
         instrucciones = st.text_area("Instrucciones detalladas de la actividad", height=120)
         selected_rubric = st.selectbox("Rúbrica asociada", list(rubric_options.keys()))
         submitted = st.form_submit_button("Guardar actividad")
