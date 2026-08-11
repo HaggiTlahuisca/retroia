@@ -81,10 +81,11 @@ ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "#
 4. **RECURSOS (PÁRRAFOS SEPARADOS, SIN VIÑETAS, SIN TÍTULOS):**
    RECUERDA: NO uses la palabra "Recursos" como título. NO uses viñetas (- o *).
    Redacta cada recurso en un PÁRRAFO INDEPENDIENTE usando prosa natural.
-   Ejemplo del estilo exacto que debes usar:
+   Ejemplo del estilo que debes usar:
    "Te comparto este recurso, que es un [tipo], en el que se explica [descripción]: [URL]."
    "También te comparto este otro recurso... [URL]."
-   "Para finalizar, te comparto este... [URL]."
+   "Por último, te comparto este... [URL]."
+   Pero puedes variar la redacción sin variar los recursos.
    Recursos a incluir:
 {rec_str if rec_str else "No hay recursos registrados."}
 
