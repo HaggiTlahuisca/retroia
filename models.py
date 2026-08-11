@@ -1,73 +1,82 @@
-"""Modelos de dominio del proyecto."""
+"""Definición de modelos de datos principales."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from dataclasses import dataclass, field
 from typing import Any
 
 
-@dataclass(slots=True)
+@dataclass
 class Nivel:
+    """Nivel de desempeño en una rúbrica."""
     nombre: str
-    descripcion: str = ""
+    descripcion: str
 
 
-@dataclass(slots=True)
+@dataclass
 class Criterio:
+    """Criterio a evaluar que contiene múltiples niveles."""
     nombre: str
     niveles: list[Nivel] = field(default_factory=list)
 
 
-@dataclass(slots=True)
+@dataclass
 class Rubrica:
+    """Rúbrica completa con sus criterios."""
     id: int | None = None
     nombre: str = ""
     contenido: str = ""
     criterios: list[Criterio] = field(default_factory=list)
 
 
-@dataclass(slots=True)
+@dataclass
 class Recurso:
+    """Recurso educativo del catálogo global."""
     titulo: str
-    tipo: str = "Enlace"
-    url: str = ""
-    descripcion: str = ""
+    tipo: str
+    url: str
+    descripcion: str
     id: int | None = None
-    actividad_id: int | None = None
 
 
-@dataclass(slots=True)
+@dataclass
+class Frase:
+    """Frase célebre independiente."""
+    texto: str
+    autor: str
+    id: int | None = None
+
+
+@dataclass
 class Actividad:
+    """Actividad que consolida rúbrica, frase y recursos."""
     id: int | None = None
     nombre: str = ""
-    descripcion: str = ""
+    proposito: str = ""
     instrucciones: str = ""
     rubrica: Rubrica | None = None
+    frase: Frase | None = None
     recursos: list[Recurso] = field(default_factory=list)
 
 
-@dataclass(slots=True)
+@dataclass
 class EjemploRetroalimentacion:
+    """Estructura obsoleta (se mantiene por compatibilidad)."""
     nombre: str
     contenido: str
     id: int | None = None
 
 
-@dataclass(slots=True)
+@dataclass
 class Retroalimentacion:
+    """Registro histórico de retroalimentación generada."""
     estudiante: str
     actividad: str
     texto: str
-    fecha: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
-    modelo: str = ""
+    modelo: str
+    calificacion: float
+    criterios: dict[str, Any]
+    observaciones: str
+    prompt: str
+    temperatura: float
     id: int | None = None
-    calificacion: float | None = None
-    criterios: dict[str, str] = field(default_factory=dict)
-    observaciones: str = ""
-    prompt: str = ""
-    temperatura: float | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convierte la instancia a diccionario serializable."""
-        return asdict(self)
