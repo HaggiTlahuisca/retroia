@@ -222,6 +222,7 @@ class DatabaseManager:
 
     def _init_default_directrices(self, conn: Any) -> None:
         defaults = {
+            "grupo": "M11C1G77-050",
             "saludo": "Coloca un saludo formal y dirígete al estudiante por su nombre.",
             "fortalezas": "Considera los aspectos destacables del producto que el estudiante entregó...",
             "areas_oportunidad": "Describe los aspectos en los que el estudiante requiere mejorar...",
@@ -252,6 +253,9 @@ class DatabaseManager:
             cur = conn.execute("INSERT INTO banco_frases(texto, autor) VALUES (?, ?)", (texto, autor))
             return int(cur.lastrowid)
 
+    def update_frase(self, id: int, texto: str, autor: str) -> None:
+        self._execute("UPDATE banco_frases SET texto=?, autor=? WHERE id=?", (texto, autor, id))
+
     def list_frases(self) -> list[Frase]:
         rows = self._fetchall("SELECT * FROM banco_frases ORDER BY id DESC")
         return [Frase(r["texto"], r["autor"], r["id"]) for r in rows]
@@ -265,6 +269,10 @@ class DatabaseManager:
             cur = conn.execute("INSERT INTO banco_recursos(titulo, tipo, url, descripcion) VALUES (?,?,?,?)",
                                (r.titulo, r.tipo, r.url, r.descripcion))
             return int(cur.lastrowid)
+
+    def update_recurso(self, id: int, r: Recurso) -> None:
+        self._execute("UPDATE banco_recursos SET titulo=?, tipo=?, url=?, descripcion=? WHERE id=?",
+                      (r.titulo, r.tipo, r.url, r.descripcion, id))
 
     def list_recursos_globales(self) -> list[Recurso]:
         rows = self._fetchall("SELECT * FROM banco_recursos ORDER BY titulo")
