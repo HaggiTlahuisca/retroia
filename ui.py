@@ -200,15 +200,18 @@ class RetroalimentacionApp:
         
         dirs = self.db.get_all_directrices()
         with st.form("form_directrices_estructuradas"):
+            d_grupo = st.text_input("Grupo asignado actual (Ej. M11C1G77-050)", dirs.get("grupo", "M11C1G77-050"))
+            st.markdown("---")
             d_saludo = st.text_area("1. Saludo", dirs.get("saludo", ""), height=70)
             d_fortalezas = st.text_area("2. Fortalezas", dirs.get("fortalezas", ""), height=90)
             d_areas = st.text_area("3. Áreas de oportunidad", dirs.get("areas_oportunidad", ""), height=90)
             d_sugerencias = st.text_area("4. Sugerencias", dirs.get("sugerencias", ""), height=90)
             d_recursos = st.text_area("5. Recursos de apoyo", dirs.get("recursos_apoyo", ""), height=70)
             d_despedida = st.text_area("6. Despedida", dirs.get("despedida", ""), height=70)
-            d_firma = st.text_area("7. Firma", dirs.get("firma", ""), height=70)
+            d_firma = st.text_area("7. Firma (Datos opcionales adicionales, el nombre y grupo van fijos)", dirs.get("firma", ""), height=70)
             
             if st.form_submit_button("Guardar Estructura Global", type="primary"):
+                self.db.update_directriz("grupo", d_grupo)
                 self.db.update_directriz("saludo", d_saludo)
                 self.db.update_directriz("fortalezas", d_fortalezas)
                 self.db.update_directriz("areas_oportunidad", d_areas)
@@ -216,7 +219,7 @@ class RetroalimentacionApp:
                 self.db.update_directriz("recursos_apoyo", d_recursos)
                 self.db.update_directriz("despedida", d_despedida)
                 self.db.update_directriz("firma", d_firma)
-                st.success("Estructura actualizada. ¡Reducción de tokens garantizada!")
+                st.success("Estructura actualizada. ¡Grupo modificado con éxito!")
                 st.rerun()
 
     def tab_settings(self) -> None:
