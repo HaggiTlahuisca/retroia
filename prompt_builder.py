@@ -90,7 +90,7 @@ Tu función es actuar como un REDACTOR PEDAGÓGICO que genera una retroalimentac
 {criterios_str}
 
 ### OBSERVACIONES Y DETALLES ESPECÍFICOS DEL ASESOR:
-{self.observaciones if self.observaciones else "La actividad cumple satisfactoriamente con los criterios de desempeño de la rúbrica."}
+{self.observaciones if self.observaciones else "La actividad cumple satisfactoriamente con los criterios de desempeño de la rúbrica. (Nota para la IA: Aún sin observaciones negativas, DEBES generar una redacción única y original que justifique por qué obtuvo estos niveles, relacionándolo con el tema de la actividad)."}
 
 ### RECURSOS EDUCATIVOS REGISTRADOS EN EL SISTEMA:
 {recursos_str}
@@ -107,8 +107,10 @@ Tu función es actuar como un REDACTOR PEDAGÓGICO que genera una retroalimentac
    - Incluye la frase exacta de transición:
      "A continuación, se señalan las fortalezas y áreas de oportunidad detectadas en la actividad con base en los criterios de desempeño y niveles que contempla la rúbrica de evaluación:"
 
-2. **CUERPO DE EVALUACIÓN POR CRITERIOS:**
+2. **CUERPO DE EVALUACIÓN POR CRITERIOS (REGLA DE ORIGINALIDAD):**
    - Escribe cada criterio en un renglón propio con su título exacto en negritas: **Criterio cognitivo**, **Criterio actitudinal**, **Criterio comunicativo**, **Criterio pensamiento crítico**.
+   - REGLA DE ORO: ESTÁ ESTRICTAMENTE PROHIBIDO copiar y pegar literalmente los textos de evaluación de los criterios del machote. El machote es SOLO para que entiendas el TONO, el NIVEL DE FORMALIDAD y la ESTRUCTURA.
+   - DEBES parafrasear y redactar el texto de CADA CRITERIO de forma 100% ORIGINAL, variando el vocabulario, adaptándolo a las particularidades de la actividad "{nombre_actividad}" y justificando por qué obtuvo ese nivel. Ningún estudiante debe recibir exactamente el mismo texto.
    - Al señalar el nivel obtenido en cada criterio, escribe la palabra del nivel en minúsculas encerrada entre asteriscos dobles (ejemplo: **capacitado**, **experto**, **aceptable**, **aprendiz**, **requiere apoyo** o **no evaluable**).
    - Integra respetuosa y pedagógicamente todas las observaciones del Asesor Virtual.
 
@@ -119,9 +121,9 @@ Tu función es actuar como un REDACTOR PEDAGÓGICO que genera una retroalimentac
    - Queda ESTRICTAMENTE PROHIBIDO incluir etiquetas de uso interno como [Enlace], [Documento], 'Factorización [Enlace]:' o títulos secos.
    - REGLA DE ORO: Utiliza ÚNICAMENTE los enlaces provistos arriba. No inventes URLs ni recursos externos.
 
-4. **CIERRE Y FRASE CÉLEBRE DINO Y DINÁMICA (TOMAR DEL MACHOTE SELECCIONADO):**
+4. **CIERRE Y FRASE CÉLEBRE DINÁMICA (TOMAR DEL MACHOTE SELECCIONADO):**
    - OBLIGATORIO: Utiliza la frase célebre, el autor (ej. Paulo Freire, Aristóteles, etc.), el mensaje final y la despedida EXACTA que viene especificada en el MACHOTE SELECCIONADO arriba ({nombre_machote}).
-   - NO uses la frase de Aristóteles a menos que sea la que aparece en el machote de esta actividad. Si el machote tiene la frase de Paulo Freire o cualquier otro autor, UTILIZA ESA FRASE DEL MACHOTE.
+   - IMPORTANTE: Encierra toda la frase célebre entre asteriscos dobles para que resalte en negritas (ejemplo: **"Las raíces de la educación..."**).
 
 5. **FIRMA INSTITUCIONAL AL CALCE (CADA DATO EN SU PROPIO RENGLÓN):**
    Haggi de Jesús Tlahuisca Hernández
