@@ -110,11 +110,11 @@ def recibir_cognitivo(call):
     bot.edit_message_text(
         "🤝 *Criterio Actitudinal*\nSelecciona el nivel alcanzado:",
         chat_id=chat_id, message_id=call.message.message_id,
-        reply_markup=obtener_teclado_niveles("act"), parse_mode="Markdown"
+        reply_markup=obtener_teclado_niveles("actitud"), parse_mode="Markdown"
     )
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('act_') and len(call.data) > 6)
+@bot.callback_query_handler(func=lambda call: call.data.startswith('actitud_'))
 def recibir_actitudinal(call):
     chat_id = call.message.chat.id
     nivel_nombre, puntos = NIVELES[call.data.split('_', 1)[1]]
@@ -129,6 +129,7 @@ def recibir_actitudinal(call):
         chat_id=chat_id, message_id=call.message.message_id,
         reply_markup=obtener_teclado_niveles("com"), parse_mode="Markdown"
     )
+
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('com_'))
