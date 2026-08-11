@@ -1,135 +1,80 @@
-"""Constructor de prompts para la generación de retroalimentaciones."""
+"""Constructor de prompts optimizado para redacción pedagógica modular."""
 
 from __future__ import annotations
-
 from typing import Any
-from models import Actividad, EjemploRetroalimentacion, Recurso, Rubrica
+from models import Actividad
 from validators import ValidationResult
 
 
 class PromptBuilder:
-    """Construye prompts estructurados para la IA actuando como redactor pedagógico."""
-
-    def __init__(
-        self,
-        directrices: str,
-        ejemplo: EjemploRetroalimentacion | None,
-        actividad: Actividad | None,
-        rubrica: Rubrica | None,
-        recursos: list[Recurso] | None,
-        estudiante: str,
-        calificacion: float,
-        criterios_evaluados: dict[str, dict[str, Any]],
-        observaciones: str,
-    ) -> None:
-        self.directrices = directrices
-        self.ejemplo = ejemplo
+    def __init__(self, directrices: dict[str, str], actividad: Actividad | None, estudiante: str, calificacion: float, criterios_evaluados: dict[str, dict[str, Any]], observaciones: str) -> None:
+        self.dirs = directrices
         self.actividad = actividad
-        self.rubrica = rubrica
-        self.recursos = recursos or []
         self.estudiante = estudiante.strip()
         self.calificacion = calificacion
         self.criterios_evaluados = criterios_evaluados
         self.observaciones = observaciones.strip()
 
     def count_tokens(self) -> int:
-        """Estima aproximadamente la cantidad de tokens del prompt."""
-        text = self.build()
-        return len(text) // 4
+        return len(self.build()) // 4
 
     def validate(self) -> ValidationResult:
-        """Valida que existan los elementos mínimos para construir el prompt."""
         res = ValidationResult()
-        if not self.estudiante:
-            res.add_error("El nombre del estudiante es obligatorio.")
-        if not self.actividad:
-            res.add_error("Debes seleccionar una actividad.")
-        if not self.criterios_evaluados:
-            res.add_error("Debes evaluar los criterios de desempeño.")
+        if not self.estudiante: res.add_error("El nombre del estudiante es obligatorio.")
+        if not self.actividad: res.add_error("Debes seleccionar una actividad.")
         return res
 
     def preview(self) -> str:
-        """Genera una vista previa del prompt."""
         return self.build()
 
     def build(self) -> str:
-        """Construye el prompt completo orientado a la redacción pedagógica asistida."""
-        nombre_actividad = self.actividad.nombre if self.actividad else "Actividad Integradora"
-        desc_actividad = self.actividad.descripcion if self.actividad else ""
-        instrucciones_actividad = self.actividad.instrucciones if self.actividad else ""
+        act = self.actividad
+        n_act = act.nombre if act else "Actividad"
+        prop_act = act.proposito if act else ""
+        
+        frase = f'"{act.frase.texto}" - {act.frase.autor}' if act and act.frase else '"Las raíces de la educación son amargas, pero el fruto es dulce" - Aristóteles'
+        
+        crit_str = "".join([f"- Criterio {k}: Nivel **{v['nivel']}**.\n" for k, v in self.criterios_evaluados.items()])
+        
+        rec_str = "No hay recursos registrados.\n"
+        if act and act.recursos:
+            rec_str = "".join([f"- URL: {r.url} (Propósito: {r.descripcion})\n" for r in act.recursos])
 
-        criterios_str = ""
-        for crit_nombre, datos in self.criterios_evaluados.items():
-            nivel = datos.get("nivel", "Experto")
-            puntos = datos.get("puntos", 0)
-            criterios_str += f"- Criterio {crit_nombre}: Nivel alcanzado **{nivel}** ({puntos} puntos).\n"
+        return f"""Eres un Asesor Virtual empático y profesional de Prepa en Línea SEP llamado Haggi de Jesús Tlahuisca Hernández.
+Debes redactar una retroalimentación ÚNICA y PERSONALIZADA, integrando las instrucciones de cada sección. Tienes PROHIBIDO repetir exactamente los textos; debes variar el vocabulario en cada evaluación que generes.
 
-        recursos_str = ""
-        if self.recursos:
-            for rec in self.recursos:
-                desc = f" (Propósito o tema: {rec.descripcion})" if rec.descripcion else ""
-                recursos_str += f"- URL: {rec.url}{desc}\n"
-        else:
-            recursos_str = "No hay recursos adicionales configurados para esta actividad.\n"
-
-        nombre_machote = self.ejemplo.nombre if self.ejemplo else "Machote General"
-        contenido_machote = self.ejemplo.contenido if self.ejemplo else "Sin machote específico."
-
-        prompt = f"""Eres un Asesor Virtual empático, profesional y riguroso de Prepa en Línea SEP llamado Haggi de Jesús Tlahuisca Hernández.
-Tu función es actuar como un REDACTOR PEDAGÓGICO que genera una retroalimentación formal, motivadora y rigurosa basada ESTRICTAMENTE en las evaluaciones y notas proporcionadas.
-
-### CONTEXTO DE LA ACTIVIDAD:
-- Nombre de la actividad: {nombre_actividad}
-- Descripción: {desc_actividad}
-- Instrucciones clave: {instrucciones_actividad}
-
-### EVALUACIÓN Y NOTAS DEL ASESOR VIRTUAL:
+### DATOS DEL ALUMNO Y ACTIVIDAD:
 - Estudiante: {self.estudiante}
-- Calificación final: {self.calificacion:.1f} / 100 puntos.
-- Niveles por Criterio de Desempeño:
-{criterios_str}
+- Actividad: {n_act}
+- Propósito de la actividad: {prop_act}
+- Calificación: {self.calificacion:.1f}/100
+- Evaluaciones:
+{crit_str}
+- Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles. Redacta justificando por qué alcanzó esos niveles en el contexto de la actividad."}
 
-### OBSERVACIONES Y DETALLES ESPECÍFICOS DEL ASESOR:
-{self.observaciones if self.observaciones else "La actividad cumple satisfactoriamente con los criterios de desempeño de la rúbrica. (Nota para la IA: Aún sin observaciones negativas, DEBES generar una redacción única y original que justifique por qué obtuvo estos niveles, relacionándolo con el tema de la actividad)."}
+### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
-### RECURSOS EDUCATIVOS REGISTRADOS EN EL SISTEMA:
-{recursos_str}
+1. **SALUDO Y FORTALEZAS:**
+   Inicia con **Apreciable, {self.estudiante}.** Sigue esta directriz: {self.dirs.get('saludo', '')} {self.dirs.get('fortalezas', '')}
 
-### MACHOTE OBLIGATORIO Y EJEMPLO DE ESTILO SELECCIONADO ({nombre_machote}):
-{contenido_machote}
+2. **EVALUACIÓN POR CRITERIOS (REGLA DE ORIGINALIDAD):**
+   Escribe los 4 criterios (Criterio cognitivo, Criterio actitudinal, Criterio comunicativo, Criterio pensamiento crítico) en negritas. Describe detalladamente por qué obtuvo su nivel, basándote en el propósito de la actividad y las notas del asesor. Menciona explícitamente el nivel en minúsculas y entre asteriscos (ej. **experto**).
 
-### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y FORMATO:
+3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS:**
+   {self.dirs.get('areas_oportunidad', '')} {self.dirs.get('sugerencias', '')}
 
-1. **SALUDO E INTRODUCCIÓN:**
-   - Inicia exactamente con el saludo en negritas usando Markdown: **Apreciable, {self.estudiante}.**
-   - Felicita al estudiante por la entrega de la actividad "{nombre_actividad}".
-   - Agrega la breve reflexión pedagógica sobre la utilidad práctica de los contenidos en su vida cotidiana.
-   - Incluye la frase exacta de transición:
-     "A continuación, se señalan las fortalezas y áreas de oportunidad detectadas en la actividad con base en los criterios de desempeño y niveles que contempla la rúbrica de evaluación:"
+4. **RECURSOS (PROSA NATURAL):**
+   Usa esta instrucción: {self.dirs.get('recursos_apoyo', '')}
+   Redacta en prosa fluida utilizando SOLO estos recursos:
+{rec_str}
 
-2. **CUERPO DE EVALUACIÓN POR CRITERIOS (REGLA DE ORIGINALIDAD):**
-   - Escribe cada criterio en un renglón propio con su título exacto en negritas: **Criterio cognitivo**, **Criterio actitudinal**, **Criterio comunicativo**, **Criterio pensamiento crítico**.
-   - REGLA DE ORO: ESTÁ ESTRICTAMENTE PROHIBIDO copiar y pegar literalmente los textos de evaluación de los criterios del machote. El machote es SOLO para que entiendas el TONO, el NIVEL DE FORMALIDAD y la ESTRUCTURA.
-   - DEBES parafrasear y redactar el texto de CADA CRITERIO de forma 100% ORIGINAL, variando el vocabulario, adaptándolo a las particularidades de la actividad "{nombre_actividad}" y justificando por qué obtuvo ese nivel. Ningún estudiante debe recibir exactamente el mismo texto.
-   - Al señalar el nivel obtenido en cada criterio, escribe la palabra del nivel en minúsculas encerrada entre asteriscos dobles (ejemplo: **capacitado**, **experto**, **aceptable**, **aprendiz**, **requiere apoyo** o **no evaluable**).
-   - Integra respetuosa y pedagógicamente todas las observaciones del Asesor Virtual.
+5. **CIERRE Y FRASE:**
+   {self.dirs.get('despedida', '')}
+   Cierra exactamente con esta frase en negritas: **{frase}**
 
-3. **SECCIÓN DE RECURSOS (EN PROSA NATURAL Y RECURSOS ESTRICTOS):**
-   - Transición obligatoria:
-     "A continuación, comparto contigo una serie de recursos que tienen como fin el reforzamiento y una mejor comprensión de los temas que viste para realizar esta actividad:"
-   - Redacta los recursos en PROSA FLUIDA Y NATURAL (ejemplo: 'El primero es un video del profe Jozh en el que explica... https://...' o 'El segundo es un artículo sobre... https://...').
-   - Queda ESTRICTAMENTE PROHIBIDO incluir etiquetas de uso interno como [Enlace], [Documento], 'Factorización [Enlace]:' o títulos secos.
-   - REGLA DE ORO: Utiliza ÚNICAMENTE los enlaces provistos arriba. No inventes URLs ni recursos externos.
-
-4. **CIERRE Y FRASE CÉLEBRE DINÁMICA (TOMAR DEL MACHOTE SELECCIONADO):**
-   - OBLIGATORIO: Utiliza la frase célebre, el autor (ej. Paulo Freire, Aristóteles, etc.), el mensaje final y la despedida EXACTA que viene especificada en el MACHOTE SELECCIONADO arriba ({nombre_machote}).
-   - IMPORTANTE: Encierra toda la frase célebre entre asteriscos dobles para que resalte en negritas (ejemplo: **"Las raíces de la educación..."**).
-
-5. **FIRMA INSTITUCIONAL AL CALCE (CADA DATO EN SU PROPIO RENGLÓN):**
+6. **FIRMA (CADA DATO EN UN RENGLÓN):**
+   {self.dirs.get('firma', '')}
    Haggi de Jesús Tlahuisca Hernández
    Asesor virtual
    21D28277
-   M11C1G77-050
-
-Genera directamente el texto completo de la retroalimentación sin preámbulos ni notas explicativas."""
-        return prompt
+   M11C1G77-050"""
