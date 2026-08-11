@@ -1,8 +1,8 @@
-"""Bot de Telegram para generación de retroalimentaciones alojado en Render."""
+"""Bot de Telegram para generación de retroalimentaciones alojado en Render con Webhooks."""
 
 import os
-import threading
-from flask import Flask
+import time
+from flask import Flask, request, abort
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
@@ -13,18 +13,7 @@ from ia_client import IAClient
 from models import Retroalimentacion
 from utils import docx_bytes, sanitize_filename
 
-# 1. SERVIDOR WEB FANTASMA PARA ENGAÑAR A RENDER
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "🤖 El bot de Telegram está activo y funcionando en segundo plano."
-
-def run_web_server():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
-
-# 2. LÓGICA DEL BOT DE TELEGRAM
+# 1. CARGA DE CREDENCIALES
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
@@ -35,6 +24,25 @@ bot = telebot.TeleBot(TOKEN)
 db = DatabaseManager()
 ia_client = IAClient("openrouter")
 
+# 2. CONFIGURACIÓN DEL SERVIDOR WEBHOOK (FLASK)
+app = Flask(__name__)
+
+@app.route(f'/{TOKEN}', methods=['POST'])
+def webhook():
+    """Ruta secreta que Telegram usará para enviarnos las respuestas."""
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return ''
+    else:
+        abort(403)
+
+@app.route('/')
+def home():
+    return "🤖 El bot de Telegram está activo en modo Webhook."
+
+# 3. LÓGICA DE LA EVALUACIÓN
 sesiones = {}
 
 NIVELES = {
@@ -69,6 +77,16 @@ def iniciar_evaluacion(message):
         markup.add(InlineKeyboardButton(act["nombre"], callback_data=f"act_{act['id']}"))
         
     bot.send_message(message.chat.id, "👋 ¡Hola, Haggi! Selecciona la actividad a evaluar:", reply_markup=markup)
+
+
+@bot.message_handler(commands=['cancelar'])
+def cancelar_evaluacion(message):
+    chat_id = message.chat.id
+    if chat_id in sesiones:
+        del sesiones[chat_id]
+        bot.send_message(chat_id, "🚫 Evaluación cancelada. Puedes empezar de nuevo enviando /evaluar.")
+    else:
+        bot.send_message(chat_id, "No hay ninguna evaluación en curso para cancelar.")
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('act_'))
@@ -131,7 +149,6 @@ def recibir_actitudinal(call):
     )
 
 
-
 @bot.callback_query_handler(func=lambda call: call.data.startswith('com_'))
 def recibir_comunicativo(call):
     chat_id = call.message.chat.id
@@ -168,6 +185,10 @@ def recibir_pensamiento(call):
 @bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "observaciones")
 def generar_documento(message):
     chat_id = message.chat.id
+    
+    if message.text.startswith('/'):
+        return
+        
     datos = sesiones[chat_id]
     obs = "" if message.text.lower().strip() == "ninguna" else message.text
     msg_espera = bot.send_message(chat_id, "⏳ Redactando retroalimentación...")
@@ -183,7 +204,6 @@ def generar_documento(message):
         )
         prompt = builder.build()
         
-        # Modelo fijo que nos dio los mejores resultados
         modelo_id = "openai/gpt-5.6-luna" 
         api_key = os.getenv("OPENROUTER_API_KEY")
         
@@ -211,9 +231,18 @@ def generar_documento(message):
 
 
 if __name__ == '__main__':
-    # Arrancamos el servidor web en un hilo secundario
-    web_thread = threading.Thread(target=run_web_server)
-    web_thread.start()
+    # 4. ARRANQUE DEL SISTEMA CON WEBHOOKS
+    bot.remove_webhook()
+    time.sleep(1)
     
-    print("🤖 Bot de Telegram activo en Render...")
-    bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if webhook_url:
+        # Le decimos a Telegram que nos envíe los datos a nuestra URL de Render
+        bot.set_webhook(url=f"{webhook_url.rstrip('/')}/{TOKEN}")
+        print(f"✅ Webhook configurado en: {webhook_url}")
+    else:
+        print("⚠️ ADVERTENCIA: No hay WEBHOOK_URL. El bot no recibirá mensajes.")
+
+    port = int(os.environ.get("PORT", 10000))
+    # Arrancamos Flask como proceso principal (Reemplaza al polling)
+    app.run(host='0.0.0.0', port=port)
