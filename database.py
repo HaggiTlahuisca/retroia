@@ -9,12 +9,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from config import DB_PATH, EXPORTS_DIR
-from models import Actividad, Criterio, EjemploRetroalimentacion, Nivel, Recurso, Retroalimentacion, Rubrica
+from models import Actividad, Criterio, Frase, Nivel, Recurso, Retroalimentacion, Rubrica
 from utils import now_slug
 
 
 class CustomRow:
-    """Formateador seguro de filas para compatibilidad entre SQLite tradicional y libSQL remoto."""
     def __init__(self, cursor: Any, row_tuple: tuple[Any, ...]) -> None:
         columns = [col[0] for col in cursor.description]
         self._data = dict(zip(columns, row_tuple))
@@ -39,7 +38,6 @@ class CustomRow:
 
 
 class LibSQLCursorWrapper:
-    """Wrapper para cursores de libSQL para simular row_factory."""
     def __init__(self, cursor: Any, conn_wrapper: LibSQLConnectionWrapper) -> None:
         self._cursor = cursor
         self._conn_wrapper = conn_wrapper
@@ -78,7 +76,6 @@ class LibSQLCursorWrapper:
 
 
 class LibSQLConnectionWrapper:
-    """Wrapper para conexiones de libSQL que permite la asignación segura de row_factory."""
     def __init__(self, conn: Any) -> None:
         self._conn = conn
         self.row_factory = None
@@ -129,7 +126,7 @@ class DatabaseManager:
         with self.connect() as conn:
             self._create_tables(conn)
             self._add_missing_columns(conn)
-            self._migrate_legacy(conn)
+            self._init_default_directrices(conn)
             conn.commit()
 
     def connect(self) -> Any:
@@ -162,37 +159,40 @@ class DatabaseManager:
                 fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP,
                 fecha_actualizacion TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS banco_frases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                texto TEXT NOT NULL,
+                autor TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS banco_recursos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                titulo TEXT NOT NULL,
+                tipo TEXT DEFAULT 'Enlace',
+                url TEXT DEFAULT '',
+                descripcion TEXT DEFAULT ''
+            );
             CREATE TABLE IF NOT EXISTS actividades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre TEXT UNIQUE NOT NULL,
                 descripcion TEXT DEFAULT '',
                 instrucciones TEXT DEFAULT '',
                 rubrica_id INTEGER,
+                frase_id INTEGER,
                 fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP,
                 fecha_actualizacion TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (rubrica_id) REFERENCES rubricas(id) ON DELETE SET NULL
+                FOREIGN KEY (rubrica_id) REFERENCES rubricas(id) ON DELETE SET NULL,
+                FOREIGN KEY (frase_id) REFERENCES banco_frases(id) ON DELETE SET NULL
             );
-            CREATE TABLE IF NOT EXISTS recursos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                actividad_id INTEGER NOT NULL,
-                titulo TEXT NOT NULL,
-                tipo TEXT DEFAULT 'Enlace',
-                url TEXT DEFAULT '',
-                descripcion TEXT DEFAULT '',
-                fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP,
-                fecha_actualizacion TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (actividad_id) REFERENCES actividades(id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS ejemplos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT UNIQUE NOT NULL,
-                contenido TEXT NOT NULL,
-                fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP,
-                fecha_actualizacion TEXT DEFAULT CURRENT_TIMESTAMP
+            CREATE TABLE IF NOT EXISTS rel_actividad_recurso (
+                actividad_id INTEGER,
+                recurso_id INTEGER,
+                PRIMARY KEY (actividad_id, recurso_id),
+                FOREIGN KEY (actividad_id) REFERENCES actividades(id) ON DELETE CASCADE,
+                FOREIGN KEY (recurso_id) REFERENCES banco_recursos(id) ON DELETE CASCADE
             );
             CREATE TABLE IF NOT EXISTS directrices (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT UNIQUE NOT NULL DEFAULT 'default',
+                nombre TEXT UNIQUE NOT NULL,
                 contenido TEXT NOT NULL DEFAULT '',
                 activo INTEGER DEFAULT 1,
                 fecha_creacion TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -212,91 +212,96 @@ class DatabaseManager:
                 fecha TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (actividad_id) REFERENCES actividades(id) ON DELETE SET NULL
             );
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS migrations (
-                name TEXT PRIMARY KEY,
-                applied_at TEXT DEFAULT CURRENT_TIMESTAMP
-            );
             """
         for statement in script.split(";"):
             if statement.strip():
                 conn.execute(statement)
 
     def _add_missing_columns(self, conn: Any) -> None:
-        self._ensure_columns(conn, "actividades", {"instrucciones": "TEXT DEFAULT ''", "fecha_actualizacion": "TEXT"})
-        self._ensure_columns(conn, "historial", {"prompt": "TEXT", "temperatura": "REAL"})
+        self._ensure_columns(conn, "actividades", {"frase_id": "INTEGER"})
+
+    def _init_default_directrices(self, conn: Any) -> None:
+        defaults = {
+            "saludo": "Coloca un saludo formal y dirígete al estudiante por su nombre.",
+            "fortalezas": "Considera los aspectos destacables del producto que el estudiante entregó...",
+            "areas_oportunidad": "Describe los aspectos en los que el estudiante requiere mejorar...",
+            "sugerencias": "Brinda información suficiente, variada y pertinente...",
+            "recursos_apoyo": "Recomienda materiales y recursos de fuentes confiables...",
+            "despedida": "Incluye una frase cordial como muestra de atención.",
+            "firma": "Coloca tu nombre y cargo para que el estudiante identifique quién envía."
+        }
+        for name, content in defaults.items():
+            conn.execute(
+                "INSERT OR IGNORE INTO directrices(nombre, contenido) VALUES(?, ?)",
+                (name, content)
+            )
 
     @staticmethod
     def _ensure_columns(conn: Any, table: str, columns: dict[str, str]) -> None:
-        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
-        for name, ddl in columns.items():
-            if name not in existing:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+        try:
+            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            for name, ddl in columns.items():
+                if name not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+        except Exception:
+            pass
 
-    def _migrate_legacy(self, conn: Any) -> None:
-        tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if "instrucciones" in tables:
-            conn.execute(
-                """INSERT OR IGNORE INTO directrices(nombre, contenido)
-                   SELECT nombre, contenido FROM instrucciones"""
-            )
-        if "recursos_actividad" in tables:
-            conn.execute(
-                """INSERT OR IGNORE INTO recursos(id, actividad_id, titulo, url, tipo, descripcion, fecha_creacion)
-                   SELECT id, actividad_id, titulo, url, COALESCE(tipo,'Enlace'), COALESCE(descripcion,''), fecha_agregado
-                   FROM recursos_actividad"""
-            )
-        if "ejemplos_retroalimentacion" in tables:
-            conn.execute(
-                """INSERT OR IGNORE INTO ejemplos(id, nombre, contenido, fecha_creacion)
-                   SELECT id, nombre, contenido, fecha_creacion FROM ejemplos_retroalimentacion"""
-            )
-        if "retroalimentaciones" in tables:
-            conn.execute(
-                """INSERT OR IGNORE INTO historial(
-                       id, actividad_id, estudiante, calificacion, criterios, observaciones,
-                       retroalimentacion, modelo, temperatura, fecha)
-                   SELECT id, actividad_id, estudiante_nombre, calificacion, criterios_cumplidos,
-                          observaciones, retroalimentacion_texto, modelo_usado, temperatura, fecha_creacion
-                   FROM retroalimentaciones"""
-            )
-
-    def create_activity(self, item: Actividad, rubrica_id: int | None = None) -> int:
+    # --- Frases ---
+    def create_frase(self, texto: str, autor: str) -> int:
         with self.connect() as conn:
-            cur = conn.execute(
-                """INSERT INTO actividades(nombre, descripcion, instrucciones, rubrica_id)
-                   VALUES (?, ?, ?, ?)""",
-                (item.nombre, item.descripcion, item.instrucciones, rubrica_id),
-            )
+            cur = conn.execute("INSERT INTO banco_frases(texto, autor) VALUES (?, ?)", (texto, autor))
             return int(cur.lastrowid)
 
-    def update_activity(self, item_id: int, item: Actividad, rubrica_id: int | None = None) -> None:
-        self._execute(
-            """UPDATE actividades SET nombre=?, descripcion=?, instrucciones=?, rubrica_id=?,
-               fecha_actualizacion=CURRENT_TIMESTAMP WHERE id=?""",
-            (item.nombre, item.descripcion, item.instrucciones, rubrica_id, item_id),
-        )
+    def list_frases(self) -> list[Frase]:
+        rows = self._fetchall("SELECT * FROM banco_frases ORDER BY id DESC")
+        return [Frase(r["texto"], r["autor"], r["id"]) for r in rows]
+        
+    def delete_frase(self, id: int) -> None:
+        self._execute("DELETE FROM banco_frases WHERE id=?", (id,))
+
+    # --- Recursos Globales ---
+    def create_recurso(self, r: Recurso) -> int:
+        with self.connect() as conn:
+            cur = conn.execute("INSERT INTO banco_recursos(titulo, tipo, url, descripcion) VALUES (?,?,?,?)",
+                               (r.titulo, r.tipo, r.url, r.descripcion))
+            return int(cur.lastrowid)
+
+    def list_recursos_globales(self) -> list[Recurso]:
+        rows = self._fetchall("SELECT * FROM banco_recursos ORDER BY titulo")
+        return [Recurso(r["titulo"], r["tipo"], r["url"], r["descripcion"], r["id"]) for r in rows]
+
+    def delete_recurso(self, id: int) -> None:
+        self._execute("DELETE FROM banco_recursos WHERE id=?", (id,))
+        self._execute("DELETE FROM rel_actividad_recurso WHERE recurso_id=?", (id,))
+
+    # --- Actividades ---
+    def create_activity(self, item: Actividad, rubrica_id: int | None, frase_id: int | None, recursos_ids: list[int]) -> int:
+        with self.connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO actividades(nombre, descripcion, instrucciones, rubrica_id, frase_id) VALUES (?, ?, ?, ?, ?)",
+                (item.nombre, item.proposito, item.instrucciones, rubrica_id, frase_id)
+            )
+            act_id = int(cur.lastrowid)
+            for r_id in recursos_ids:
+                conn.execute("INSERT INTO rel_actividad_recurso(actividad_id, recurso_id) VALUES (?, ?)", (act_id, r_id))
+            return act_id
+
+    def update_activity(self, item_id: int, item: Actividad, rubrica_id: int | None, frase_id: int | None, recursos_ids: list[int]) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE actividades SET nombre=?, descripcion=?, instrucciones=?, rubrica_id=?, frase_id=?, fecha_actualizacion=CURRENT_TIMESTAMP WHERE id=?",
+                (item.nombre, item.proposito, item.instrucciones, rubrica_id, frase_id, item_id)
+            )
+            conn.execute("DELETE FROM rel_actividad_recurso WHERE actividad_id=?", (item_id,))
+            for r_id in recursos_ids:
+                conn.execute("INSERT INTO rel_actividad_recurso(actividad_id, recurso_id) VALUES (?, ?)", (item_id, r_id))
 
     def delete_activity(self, item_id: int) -> None:
         self._execute("DELETE FROM actividades WHERE id=?", (item_id,))
-
-    def duplicate_activity(self, item_id: int) -> int:
-        item = self.get_activity(item_id)
-        if not item:
-            raise ValueError("Actividad no encontrada")
-        item.nombre = f"{item.nombre} (copia)"
-        new_id = self.create_activity(item, item.rubrica.id if item.rubrica else None)
-        for recurso in self.list_resources(item_id):
-            recurso.actividad_id = new_id
-            self.create_resource(recurso)
-        return new_id
+        self._execute("DELETE FROM rel_actividad_recurso WHERE actividad_id=?", (item_id,))
 
     def list_activities(self, query: str = "") -> list[Any]:
-        sql = """SELECT a.*, r.nombre AS rubrica_nombre FROM actividades a
-                 LEFT JOIN rubricas r ON r.id=a.rubrica_id"""
+        sql = "SELECT a.*, r.nombre AS rubrica_nombre FROM actividades a LEFT JOIN rubricas r ON r.id=a.rubrica_id"
         params: tuple[Any, ...] = ()
         if query:
             sql += " WHERE a.nombre LIKE ? OR a.descripcion LIKE ?"
@@ -308,34 +313,36 @@ class DatabaseManager:
         if not row:
             return None
         rubrica = self.get_rubric(row["rubrica_id"]) if row["rubrica_id"] else None
-        recursos = self.list_resources(item_id)
-        return Actividad(row["id"], row["nombre"], row["descripcion"] or "", row["instrucciones"] or "", rubrica, recursos)
+        
+        frase = None
+        if row["frase_id"]:
+            f_row = self._fetchone("SELECT * FROM banco_frases WHERE id=?", (row["frase_id"],))
+            if f_row:
+                frase = Frase(f_row["texto"], f_row["autor"], f_row["id"])
+                
+        rec_rows = self._fetchall(
+            "SELECT b.* FROM banco_recursos b JOIN rel_actividad_recurso rel ON b.id = rel.recurso_id WHERE rel.actividad_id=?", 
+            (item_id,)
+        )
+        recursos = [Recurso(r["titulo"], r["tipo"], r["url"], r["descripcion"], r["id"]) for r in rec_rows]
+        
+        return Actividad(row["id"], row["nombre"], row["descripcion"] or "", row["instrucciones"] or "", rubrica, frase, recursos)
 
+    # --- Rúbricas ---
     def create_rubric(self, item: Rubrica) -> int:
-        criterios_json = self._rubric_json(item)
         with self.connect() as conn:
-            cur = conn.execute(
-                "INSERT INTO rubricas(nombre, contenido, criterios_json) VALUES (?, ?, ?)",
-                (item.nombre, item.contenido, criterios_json),
-            )
+            cur = conn.execute("INSERT INTO rubricas(nombre, contenido, criterios_json) VALUES (?, ?, ?)",
+                               (item.nombre, item.contenido, self._rubric_json(item)))
             return int(cur.lastrowid)
 
     def update_rubric(self, item_id: int, item: Rubrica) -> None:
         self._execute(
-            """UPDATE rubricas SET nombre=?, contenido=?, criterios_json=?,
-               fecha_actualizacion=CURRENT_TIMESTAMP WHERE id=?""",
-            (item.nombre, item.contenido, self._rubric_json(item), item_id),
+            "UPDATE rubricas SET nombre=?, contenido=?, criterios_json=?, fecha_actualizacion=CURRENT_TIMESTAMP WHERE id=?",
+            (item.nombre, item.contenido, self._rubric_json(item), item_id)
         )
 
     def delete_rubric(self, item_id: int) -> None:
         self._execute("DELETE FROM rubricas WHERE id=?", (item_id,))
-
-    def duplicate_rubric(self, item_id: int) -> int:
-        item = self.get_rubric(item_id)
-        if not item:
-            raise ValueError("Rúbrica no encontrada")
-        item.nombre = f"{item.nombre} (copia)"
-        return self.create_rubric(item)
 
     def list_rubrics(self, query: str = "") -> list[Any]:
         sql, params = "SELECT * FROM rubricas", ()
@@ -350,75 +357,26 @@ class DatabaseManager:
             return None
         return Rubrica(row["id"], row["nombre"], row["contenido"] or "", self._criteria_from_json(row["criterios_json"]))
 
-    def create_resource(self, item: Recurso) -> int:
-        with self.connect() as conn:
-            cur = conn.execute(
-                """INSERT INTO recursos(actividad_id,titulo,tipo,url,descripcion) VALUES(?,?,?,?,?)""",
-                (item.actividad_id, item.titulo, item.tipo, item.url, item.descripcion),
-            )
-            return int(cur.lastrowid)
+    # --- Directrices Seccionadas ---
+    def get_all_directrices(self) -> dict[str, str]:
+        rows = self._fetchall("SELECT nombre, contenido FROM directrices")
+        return {r["nombre"]: r["contenido"] for r in rows}
 
-    def update_resource(self, item_id: int, item: Recurso) -> None:
-        self._execute(
-            """UPDATE recursos SET titulo=?, tipo=?, url=?, descripcion=?,
-               fecha_actualizacion=CURRENT_TIMESTAMP WHERE id=?""",
-            (item.titulo, item.tipo, item.url, item.descripcion, item_id),
-        )
+    def update_directriz(self, nombre: str, contenido: str) -> None:
+        self._execute("UPDATE directrices SET contenido=?, fecha_actualizacion=CURRENT_TIMESTAMP WHERE nombre=?", (contenido, nombre))
 
-    def delete_resource(self, item_id: int) -> None:
-        self._execute("DELETE FROM recursos WHERE id=?", (item_id,))
-
-    def list_resources(self, activity_id: int) -> list[Recurso]:
-        rows = self._fetchall("SELECT * FROM recursos WHERE actividad_id=? ORDER BY titulo", (activity_id,))
-        return [Recurso(r["titulo"], r["tipo"], r["url"], r["descripcion"], r["id"], r["actividad_id"]) for r in rows]
-
-    def upsert_example(self, item: EjemploRetroalimentacion) -> int:
-        with self.connect() as conn:
-            cur = conn.execute(
-                """INSERT INTO ejemplos(nombre,contenido) VALUES(?,?)
-                   ON CONFLICT(nombre) DO UPDATE SET contenido=excluded.contenido,
-                   fecha_actualizacion=CURRENT_TIMESTAMP""",
-                (item.nombre, item.contenido),
-            )
-            return int(cur.lastrowid or 0)
-
-    def delete_example(self, item_id: int) -> None:
-        self._execute("DELETE FROM ejemplos WHERE id=?", (item_id,))
-
-    def duplicate_example(self, item_id: int) -> int:
-        row = self._fetchone("SELECT * FROM ejemplos WHERE id=?", (item_id,))
-        if not row:
-            raise ValueError("Ejemplo no encontrado")
-        return self.upsert_example(EjemploRetroalimentacion(f"{row['nombre']} (copia)", row["contenido"]))
-
-    def list_examples(self) -> list[Any]:
-        return self._fetchall("SELECT * FROM ejemplos ORDER BY nombre")
-
-    def get_directrices(self, name: str = "default") -> str:
-        row = self._fetchone("SELECT contenido FROM directrices WHERE nombre=?", (name,))
-        return row["contenido"] if row else ""
-
-    def upsert_directrices(self, contenido: str, name: str = "default") -> None:
-        self._execute(
-            """INSERT INTO directrices(nombre,contenido) VALUES(?,?)
-               ON CONFLICT(nombre) DO UPDATE SET contenido=excluded.contenido,
-               fecha_actualizacion=CURRENT_TIMESTAMP""",
-            (name, contenido),
-        )
-
+    # --- Historial ---
     def create_history(self, item: Retroalimentacion, activity_id: int | None) -> int:
         with self.connect() as conn:
             cur = conn.execute(
-                """INSERT INTO historial(actividad_id,estudiante,calificacion,criterios,observaciones,
-                   retroalimentacion,prompt,modelo,temperatura) VALUES(?,?,?,?,?,?,?,?,?)""",
+                "INSERT INTO historial(actividad_id,estudiante,calificacion,criterios,observaciones,retroalimentacion,prompt,modelo,temperatura) VALUES(?,?,?,?,?,?,?,?,?)",
                 (activity_id, item.estudiante, item.calificacion, json.dumps(item.criterios, ensure_ascii=False),
-                 item.observaciones, item.texto, item.prompt, item.modelo, item.temperatura),
+                 item.observaciones, item.texto, item.prompt, item.modelo, item.temperatura)
             )
             return int(cur.lastrowid)
 
     def list_history(self, query: str = "", activity_id: int | None = None) -> list[Any]:
-        sql = """SELECT h.*, a.nombre AS actividad FROM historial h
-                 LEFT JOIN actividades a ON a.id=h.actividad_id WHERE 1=1"""
+        sql = "SELECT h.*, a.nombre AS actividad FROM historial h LEFT JOIN actividades a ON a.id=h.actividad_id WHERE 1=1"
         params: list[Any] = []
         if query:
             sql += " AND (h.estudiante LIKE ? OR h.retroalimentacion LIKE ?)"
@@ -428,12 +386,6 @@ class DatabaseManager:
             params.append(activity_id)
         return self._fetchall(sql + " ORDER BY h.fecha DESC", tuple(params))
 
-    def get_history(self, item_id: int) -> Any | None:
-        return self._fetchone("SELECT * FROM historial WHERE id=?", (item_id,))
-
-    def delete_history(self, item_id: int) -> None:
-        self._execute("DELETE FROM historial WHERE id=?", (item_id,))
-
     def backup(self) -> Path:
         EXPORTS_DIR.mkdir(exist_ok=True)
         target = EXPORTS_DIR / f"retroalimentaciones_backup_{now_slug()}.db"
@@ -441,15 +393,12 @@ class DatabaseManager:
         return target
 
     def export_all_json(self) -> dict[str, list[dict[str, Any]]]:
-        tables = ["actividades", "rubricas", "recursos", "ejemplos", "directrices", "historial"]
+        tables = ["actividades", "rubricas", "banco_recursos", "banco_frases", "directrices", "historial"]
         return {table: [dict(row) for row in self._fetchall(f"SELECT * FROM {table}")] for table in tables}
 
     def import_json(self, data: dict[str, Iterable[dict[str, Any]]]) -> None:
-        allowed = {"actividades", "rubricas", "recursos", "ejemplos", "directrices", "historial"}
         with self.connect() as conn:
             for table, rows in data.items():
-                if table not in allowed:
-                    continue
                 for row in rows:
                     cols = ",".join(row.keys())
                     marks = ",".join("?" for _ in row)
