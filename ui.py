@@ -10,41 +10,22 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from config import (
-    APP_ICON,
-    APP_LAYOUT,
-    APP_TITLE,
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_MODEL_ID,
-    DEFAULT_MODEL_NAME,
-    DEFAULT_TEMPERATURE,
-    MODELOS_GRATIS,
-    MODELOS_OPENROUTER,
-    MODELOS_PAGO,
+    APP_ICON, APP_LAYOUT, APP_TITLE, DEFAULT_MAX_TOKENS, DEFAULT_MODEL_ID,
+    DEFAULT_MODEL_NAME, DEFAULT_TEMPERATURE, MODELOS_GRATIS, MODELOS_OPENROUTER, MODELOS_PAGO
 )
 from database import DatabaseManager
 from ia_client import IAClient
-from models import Actividad, EjemploRetroalimentacion, Retroalimentacion
+from models import Actividad, Retroalimentacion
 from prompt_builder import PromptBuilder
 from styles import app_css
 from ui_components import (
-    activity_form,
-    download_buttons,
-    evaluation_inputs,
-    example_form,
-    header,
-    history_card,
-    info_card,
-    resource_form,
-    rubric_import_form,
-    rubric_manual_form,
+    activity_form, download_buttons, evaluation_inputs, frase_global_form,
+    header, history_card, recurso_global_form, rubric_import_form, rubric_manual_form
 )
 from utils import docx_bytes, export_json, pdf_bytes, sanitize_filename
-from validators import Validator
 
 
 class RetroalimentacionApp:
-    """Orquesta la interfaz y conecta UI con servicios."""
-
     def __init__(self, db: DatabaseManager) -> None:
         self.db = db
         self.ia_client = IAClient("openrouter")
@@ -57,33 +38,29 @@ class RetroalimentacionApp:
         header()
 
         opciones_navegacion = [
-            "📋 1. Configuración de actividades",
-            "🤖 2. Configuración IA",
-            "✨ 3. Generar retroalimentación",
-            "📜 4. Historial",
+            "✨ 1. Generar retroalimentación",
+            "📜 2. Historial",
+            "📋 3. Configuración de actividades",
+            "🤖 4. Configuración IA",
             "⚙️ 5. Configuración del Sistema"
         ]
         
         st.markdown("### 🧭 Panel de Navegación")
-        pagina_actual = st.selectbox(
-            "Selecciona la sección que deseas visualizar:", 
-            opciones_navegacion, 
-            label_visibility="collapsed"
-        )
+        pagina_actual = st.selectbox("Selecciona la sección:", opciones_navegacion, label_visibility="collapsed")
         st.markdown("---")
 
         if pagina_actual == opciones_navegacion[0]:
-            self.tab_activities()
-        elif pagina_actual == opciones_navegacion[1]:
-            self.tab_ai_config()
-        elif pagina_actual == opciones_navegacion[2]:
             self.tab_generate()
-        elif pagina_actual == opciones_navegacion[3]:
+        elif pagina_actual == opciones_navegacion[1]:
             self.tab_history()
+        elif pagina_actual == opciones_navegacion[2]:
+            self.tab_activities()
+        elif pagina_actual == opciones_navegacion[3]:
+            self.tab_ai_config()
         elif pagina_actual == opciones_navegacion[4]:
             self.tab_settings()
 
-        st.markdown("<br><hr><center><small class='small-muted'>Retroalimentaciones Formativas IA • Acceso Remoto Estable</small></center>", unsafe_allow_html=True)
+        st.markdown("<br><hr><center><small class='small-muted'>Retroalimentaciones Formativas IA</small></center>", unsafe_allow_html=True)
 
     def _state(self) -> None:
         defaults = {
@@ -98,183 +75,27 @@ class RetroalimentacionApp:
         for key, value in defaults.items():
             st.session_state.setdefault(key, value)
 
-    def tab_activities(self) -> None:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Rúbricas")
-            mode = st.radio("Modo", ["Manual", "Importar tabla"], horizontal=True)
-            rubrica, submitted = rubric_manual_form() if mode == "Manual" else rubric_import_form()
-            if submitted:
-                self._save_rubric(rubrica)
-            self._rubric_list()
-        with col2:
-            st.subheader("Actividades")
-            item, rubrica_id, submitted = activity_form(self.db.list_rubrics())
-            if submitted:
-                result = Validator.actividad(item.nombre, item.descripcion, item.instrucciones)
-                if result.ok:
-                    existing_acts = [row["nombre"] for row in self.db.list_activities()]
-                    result = Validator.duplicate_name(item.nombre, existing_acts)
-                self._show_validation(result)
-                if result.ok:
-                    try:
-                        self.db.create_activity(item, rubrica_id)
-                        st.success("Actividad guardada.")
-                        st.rerun()
-                    except Exception as exc:
-                        if "UNIQUE constraint" in str(exc) or "unique constraint" in str(exc).lower():
-                            st.error("Ya existe una actividad registrada con ese mismo nombre. Por favor, utiliza un nombre diferente.")
-                        else:
-                            st.error(f"No se pudo guardar la actividad: {exc}")
-            self._activity_list()
-            self._resource_manager()
-
-    def _save_rubric(self, rubrica: Any) -> None:
-        check = Validator.required(rubrica.nombre, "El nombre de la rúbrica")
-        if check.ok:
-            existing_names = [row["nombre"] for row in self.db.list_rubrics()]
-            check = Validator.duplicate_name(rubrica.nombre, existing_names)
-        self._show_validation(check)
-        if not check.ok:
-            return
-        try:
-            self.db.create_rubric(rubrica)
-            st.success("Rúbrica guardada.")
-            st.rerun()
-        except Exception as exc:
-            if "UNIQUE constraint" in str(exc) or "unique constraint" in str(exc).lower():
-                st.error("Ya existe una rúbrica registrada con ese mismo nombre. Por favor, utiliza un nombre diferente.")
-            else:
-                st.error(f"No se pudo guardar la rúbrica: {exc}")
-
-    def _rubric_list(self) -> None:
-        query = st.text_input("Buscar rúbricas", key="search_rubrics")
-        for row in self.db.list_rubrics(query):
-            with st.expander(f"{row['nombre']}"):
-                new_name = st.text_input("Nombre", row["nombre"], key=f"rub_name_{row['id']}")
-                new_content = st.text_area("Contenido", row["contenido"] or "", key=f"rub_cont_{row['id']}", height=180)
-                c1, c2, c3 = st.columns(3)
-                if c1.button("Actualizar", key=f"upd_rub_{row['id']}"):
-                    rubrica = self.db.get_rubric(row["id"])
-                    if rubrica:
-                        rubrica.nombre, rubrica.contenido = new_name, new_content
-                        self.db.update_rubric(row["id"], rubrica)
-                        st.rerun()
-                if c2.button("Duplicar", key=f"dup_rub_{row['id']}"):
-                    self.db.duplicate_rubric(row["id"])
-                    st.rerun()
-                if c3.button("Eliminar", key=f"del_rub_{row['id']}"):
-                    self.db.delete_rubric(row["id"])
-                    st.rerun()
-
-    def _activity_list(self) -> None:
-        query = st.text_input("Buscar actividades", key="search_activities")
-        rubrics = {"Sin rúbrica": None} | {r["nombre"]: r["id"] for r in self.db.list_rubrics()}
-        for row in self.db.list_activities(query):
-            with st.expander(f"{row['nombre']} — {row['rubrica_nombre'] or 'Sin rúbrica'}"):
-                name = st.text_input("Nombre", row["nombre"], key=f"act_name_{row['id']}")
-                desc = st.text_area("Descripción", row["descripcion"] or "", key=f"act_desc_{row['id']}", height=90)
-                instr = st.text_area("Instrucciones", row["instrucciones"] or "", key=f"act_inst_{row['id']}", height=110)
-                labels = list(rubrics.keys())
-                idx = next((i for i, label in enumerate(labels) if rubrics[label] == row["rubrica_id"]), 0)
-                selected = st.selectbox("Rúbrica", labels, index=idx, key=f"act_rub_{row['id']}")
-                c1, c2, c3 = st.columns(3)
-                if c1.button("Actualizar", key=f"upd_act_{row['id']}"):
-                    self.db.update_activity(row["id"], Actividad(nombre=name, descripcion=desc, instrucciones=instr), rubrics[selected])
-                    st.rerun()
-                if c2.button("Duplicar", key=f"dup_act_{row['id']}"):
-                    self.db.duplicate_activity(row["id"])
-                    st.rerun()
-                if c3.button("Eliminar", key=f"del_act_{row['id']}"):
-                    self.db.delete_activity(row["id"])
-                    st.rerun()
-
-    def _resource_manager(self) -> None:
-        activities = self.db.list_activities()
-        if not activities:
-            return
-        st.subheader("Recursos educativos")
-        labels = {f"{r['nombre']} ({r['id']})": r["id"] for r in activities}
-        selected = st.selectbox("Actividad para recursos", list(labels.keys()))
-        activity_id = labels[selected]
-        recurso, submitted = resource_form(activity_id)
-        if submitted:
-            check = Validator.required(recurso.titulo, "El título del recurso")
-            if recurso.url:
-                check.errors.extend(Validator.url(recurso.url).errors)
-                check.ok = not check.errors
-            self._show_validation(check)
-            if check.ok:
-                self.db.create_resource(recurso)
-                st.rerun()
-        for recurso in self.db.list_resources(activity_id):
-            with st.expander(f"{recurso.titulo} [{recurso.tipo}]"):
-                st.write(recurso.descripcion or "Sin descripción.")
-                if recurso.url:
-                    st.write(recurso.url)
-                if st.button("Eliminar recurso", key=f"del_res_{recurso.id}"):
-                    self.db.delete_resource(recurso.id or 0)
-                    st.rerun()
-
-    def tab_ai_config(self) -> None:
-        st.subheader("Directrices generales")
-        content = st.text_area("Contenido", self.db.get_directrices(), height=260)
-        if st.button("Guardar directrices", use_container_width=True):
-            self.db.upsert_directrices(content)
-            st.success("Directrices guardadas.")
-        st.subheader("Ejemplos de retroalimentación")
-        example, submitted = example_form()
-        if submitted:
-            result = Validator.required(example.nombre, "El nombre del ejemplo")
-            if not example.contenido.strip():
-                result.add_error("El contenido del ejemplo es obligatorio.")
-            self._show_validation(result)
-            if result.ok:
-                self.db.upsert_example(example)
-                st.rerun()
-        for row in self.db.list_examples():
-            with st.expander(row["nombre"]):
-                st.write(row["contenido"])
-                c1, c2 = st.columns(2)
-                if c1.button("Duplicar", key=f"dup_ex_{row['id']}"):
-                    self.db.duplicate_example(row["id"])
-                    st.rerun()
-                if c2.button("Eliminar", key=f"del_ex_{row['id']}"):
-                    self.db.delete_example(row["id"])
-                    st.rerun()
-
     def tab_generate(self) -> None:
         activities = self.db.list_activities()
         if not activities:
-            info_card("Sin actividades", "Primero registra una actividad y su rúbrica.")
+            st.warning("Primero registra una actividad en la Configuración de Actividades.")
             return
-        labels = {f"{r['nombre']} ({r['id']})": r["id"] for r in activities}
-        selected = st.selectbox("Selecciona la Actividad", list(labels.keys()))
+            
+        labels = {f"{r['nombre']}": r["id"] for r in activities}
+        selected = st.selectbox("Selecciona la Actividad a evaluar", list(labels.keys()))
         activity = self.db.get_activity(labels[selected])
-        if not activity:
-            return
+        if not activity: return
 
-        examples = self.db.list_examples()
-        example = self._select_example(examples)
-        
         st.markdown("---")
         st.markdown("### 📝 Datos de la Evaluación")
         estudiante = st.text_input("Nombre del Estudiante", placeholder="Ej. Argelia")
 
-        criterios_evaluados, calificacion_total = evaluation_inputs(activity.rubrica.criterios if activity.rubrica else [])
-
-        observaciones = st.text_area(
-            "Observaciones y notas del Asesor Virtual (detalles clave, evidencia de IA, faltas de ortografía, etc.):",
-            placeholder="Ej. Los ejemplos de lenguaje algebraico son muy genéricos y abstractos (cuadernos, taxis). La conclusión no conecta con su entorno ni vida cotidiana, reflejando redacción con evidencia de IA.",
-            height=130
-        )
+        criterios_evaluados, calificacion_total = evaluation_inputs()
+        observaciones = st.text_area("Observaciones y notas del Asesor Virtual:", height=100)
 
         builder = PromptBuilder(
-            directrices=self.db.get_directrices(),
-            ejemplo=example,
+            directrices=self.db.get_all_directrices(),
             actividad=activity,
-            rubrica=activity.rubrica,
-            recursos=activity.recursos,
             estudiante=estudiante,
             calificacion=calificacion_total,
             criterios_evaluados=criterios_evaluados,
@@ -282,8 +103,8 @@ class RetroalimentacionApp:
         )
 
         prompt = builder.preview()
-        st.caption(f"Tokens estimados para este prompt: {builder.count_tokens():,}")
-        with st.expander("🔍 Vista previa del prompt que se enviará a la IA"):
+        st.caption(f"Tokens estimados (Drásticamente reducidos): {builder.count_tokens():,}")
+        with st.expander("🔍 Vista previa del prompt interno"):
             st.text(prompt)
 
         col_a, col_b = st.columns(2)
@@ -293,122 +114,134 @@ class RetroalimentacionApp:
             self._generate_feedback(builder, activity.id)
 
         if st.session_state.last_feedback:
-            self._render_generated(estudiante or "estudiante")
-
-    def _select_example(self, rows: list[Any]) -> EjemploRetroalimentacion | None:
-        if not rows:
-            st.warning("No hay ejemplos o machotes configurados. La generación puede funcionar, pero será menos consistente.")
-            return None
-        labels = {r["nombre"]: r for r in rows}
-        selected = st.selectbox("Ejemplo / Machote Base de Estilo", list(labels.keys()))
-        row = labels[selected]
-        return EjemploRetroalimentacion(row["nombre"], row["contenido"], row["id"])
+            title = f"retroalimentacion_{sanitize_filename(estudiante)}"
+            st.subheader("Resultado")
+            st.markdown(st.session_state.last_feedback)
+            payload = json.dumps({"retroalimentacion": st.session_state.last_feedback, "prompt": st.session_state.last_prompt}, ensure_ascii=False, indent=2)
+            download_buttons(title, st.session_state.last_feedback, docx_bytes("Retro", st.session_state.last_feedback), pdf_bytes("Retro", st.session_state.last_feedback), payload)
 
     def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None) -> None:
         validation = builder.validate()
-        self._show_validation(validation)
-        if not validation.ok:
-            return
+        for error in validation.errors: st.error(error)
+        if not validation.ok: return
+        
         try:
-            with st.spinner("Generando retroalimentación pedagógica personalizada..."):
+            with st.spinner("Generando redacción pedagógica original..."):
                 prompt = builder.build()
-                text = self.ia_client.generar(
-                    prompt=prompt,
-                    api_key=st.session_state.api_key,
-                    model=st.session_state.model_id,
-                    temperature=st.session_state.temperature,
-                    max_tokens=st.session_state.max_tokens,
-                )
+                text = self.ia_client.generar(prompt, st.session_state.api_key, st.session_state.model_id, st.session_state.temperature, st.session_state.max_tokens)
             st.session_state.last_feedback = text
             st.session_state.last_prompt = prompt
-            item = Retroalimentacion(
-                estudiante=builder.estudiante,
-                actividad=builder.actividad.nombre if builder.actividad else "",
-                texto=text,
-                modelo=st.session_state.model_name,
-                calificacion=builder.calificacion,
-                criterios=builder.criterios_evaluados,
-                observaciones=builder.observaciones,
-                prompt=prompt,
-                temperatura=st.session_state.temperature,
-            )
+            
+            item = Retroalimentacion(builder.estudiante, builder.actividad.nombre if builder.actividad else "", text, st.session_state.model_name, builder.calificacion, builder.criterios_evaluados, builder.observaciones, prompt, st.session_state.temperature)
             self.db.create_history(item, activity_id)
-            st.success("Retroalimentación generada y guardada exitosamente en el historial.")
+            st.success("Guardado en el historial.")
         except Exception as exc:
-            st.error(f"No se pudo generar la retroalimentación: {exc}")
-
-    def _render_generated(self, estudiante: str) -> None:
-        title = f"retroalimentacion_{sanitize_filename(estudiante)}"
-        st.subheader("Resultado de la Retroalimentación")
-        st.markdown(st.session_state.last_feedback)
-        payload = json.dumps({"retroalimentacion": st.session_state.last_feedback, "prompt": st.session_state.last_prompt}, ensure_ascii=False, indent=2)
-        download_buttons(
-            title,
-            st.session_state.last_feedback,
-            docx_bytes("Retroalimentación Formativa", st.session_state.last_feedback),
-            pdf_bytes("Retroalimentación Formativa", st.session_state.last_feedback),
-            payload,
-        )
+            st.error(f"Error: {exc}")
 
     def tab_history(self) -> None:
         col1, col2 = st.columns(2)
         query = col1.text_input("Buscar en historial")
-        activities = self.db.list_activities()
-        options = {"Todas": None} | {r["nombre"]: r["id"] for r in activities}
-        selected = col2.selectbox("Filtrar por actividad", list(options.keys()))
-        rows = self.db.list_history(query, options[selected])
-        if not rows:
-            st.info("No hay registros en el historial.")
-            return
-        st.caption(f"Registros encontrados: {len(rows)}")
-        for row in rows:
-            history_card(row)
+        activities = {"Todas": None} | {r["nombre"]: r["id"] for r in self.db.list_activities()}
+        selected = col2.selectbox("Filtrar por actividad", list(activities.keys()))
+        
+        rows = self.db.list_history(query, activities[selected])
+        if not rows: st.info("No hay registros."); return
+        st.caption(f"Registros: {len(rows)}")
+        for row in rows: history_card(row)
+
+    def tab_activities(self) -> None:
+        t1, t2, t3, t4 = st.tabs(["📚 Banco de Recursos", "✍️ Banco de Frases", "📐 Rúbricas", "🔗 Ensamblar Actividad"])
+        
+        with t1:
+            st.subheader("Catálogo Global de Recursos")
+            rec, sub_rec = recurso_global_form()
+            if sub_rec and rec.titulo:
+                self.db.create_recurso(rec); st.success("Recurso guardado."); st.rerun()
+            for r in self.db.list_recursos_globales():
+                with st.expander(f"{r.titulo} [{r.tipo}]"):
+                    st.write(r.url); st.write(r.descripcion)
+                    if st.button("Eliminar", key=f"del_rec_{r.id}"): self.db.delete_recurso(r.id); st.rerun()
+                    
+        with t2:
+            st.subheader("Catálogo Global de Frases Célebres")
+            frase, sub_fra = frase_global_form()
+            if sub_fra and frase.texto:
+                self.db.create_frase(frase.texto, frase.autor); st.success("Frase guardada."); st.rerun()
+            for f in self.db.list_frases():
+                with st.expander(f"{f.autor} - {f.texto[:30]}..."):
+                    st.write(f'"{f.texto}"'); st.caption(f.autor)
+                    if st.button("Eliminar", key=f"del_fra_{f.id}"): self.db.delete_frase(f.id); st.rerun()
+
+        with t3:
+            st.subheader("Rúbricas Institucionales")
+            mode = st.radio("Modo", ["Manual", "Importar tabla"], horizontal=True)
+            rubrica, sub_rub = rubric_manual_form() if mode == "Manual" else rubric_import_form()
+            if sub_rub and rubrica.nombre:
+                try: self.db.create_rubric(rubrica); st.success("Rúbrica guardada."); st.rerun()
+                except Exception as e: st.error(f"Error: {e}")
+            for r in self.db.list_rubrics():
+                with st.expander(r["nombre"]):
+                    if st.button("Eliminar", key=f"del_rub_{r['id']}"): self.db.delete_rubric(r["id"]); st.rerun()
+
+        with t4:
+            st.subheader("Configurar Nueva Actividad")
+            st.caption("Une la rúbrica, la frase y los recursos para crear la actividad final.")
+            act, r_id, f_id, rec_ids, sub_act = activity_form(self.db.list_rubrics(), self.db.list_frases(), self.db.list_recursos_globales())
+            if sub_act and act.nombre:
+                try: self.db.create_activity(act, r_id, f_id, rec_ids); st.success("Actividad Ensamblada."); st.rerun()
+                except Exception as e: st.error(f"Error: {e}")
+            for a in self.db.list_activities():
+                with st.expander(a["nombre"]):
+                    if st.button("Eliminar Actividad", key=f"del_act_{a['id']}"): self.db.delete_activity(a["id"]); st.rerun()
+
+    def tab_ai_config(self) -> None:
+        st.subheader("Directrices de Estructura Pedagógica")
+        st.caption("Define cómo redacta la IA cada sección. Esta estructura reemplaza a los machotes tradicionales.")
+        
+        dirs = self.db.get_all_directrices()
+        with st.form("form_directrices_estructuradas"):
+            d_saludo = st.text_area("1. Saludo", dirs.get("saludo", ""), height=70)
+            d_fortalezas = st.text_area("2. Fortalezas", dirs.get("fortalezas", ""), height=90)
+            d_areas = st.text_area("3. Áreas de oportunidad", dirs.get("areas_oportunidad", ""), height=90)
+            d_sugerencias = st.text_area("4. Sugerencias", dirs.get("sugerencias", ""), height=90)
+            d_recursos = st.text_area("5. Recursos de apoyo", dirs.get("recursos_apoyo", ""), height=70)
+            d_despedida = st.text_area("6. Despedida", dirs.get("despedida", ""), height=70)
+            d_firma = st.text_area("7. Firma", dirs.get("firma", ""), height=70)
+            
+            if st.form_submit_button("Guardar Estructura Global", type="primary"):
+                self.db.update_directriz("saludo", d_saludo)
+                self.db.update_directriz("fortalezas", d_fortalezas)
+                self.db.update_directriz("areas_oportunidad", d_areas)
+                self.db.update_directriz("sugerencias", d_sugerencias)
+                self.db.update_directriz("recursos_apoyo", d_recursos)
+                self.db.update_directriz("despedida", d_despedida)
+                self.db.update_directriz("firma", d_firma)
+                st.success("Estructura actualizada. ¡Reducción de tokens garantizada!")
+                st.rerun()
 
     def tab_settings(self) -> None:
         st.subheader("API y modelo")
         st.session_state.api_key = st.text_input("Clave de API OpenRouter", st.session_state.api_key, type="password")
         
-        if st.session_state.model_name in MODELOS_PAGO:
-            cat_idx = 1
-        else:
-            cat_idx = 0
-            
+        cat_idx = 1 if st.session_state.model_name in MODELOS_PAGO else 0
         categoria = st.radio("Categoría de modelo", ["Gratis", "De pago"], index=cat_idx, horizontal=True)
         modelos_disponibles = MODELOS_GRATIS if categoria == "Gratis" else MODELOS_PAGO
         
-        if st.session_state.model_name in modelos_disponibles:
-            default_index = list(modelos_disponibles.keys()).index(st.session_state.model_name)
-        else:
-            default_index = 0
-            
+        default_index = list(modelos_disponibles.keys()).index(st.session_state.model_name) if st.session_state.model_name in modelos_disponibles else 0
         model_name = st.selectbox("Modelo", list(modelos_disponibles.keys()), index=default_index)
+        
         st.session_state.model_name = model_name
         st.session_state.model_id = modelos_disponibles[model_name]
-        
         st.session_state.temperature = st.slider("Temperatura", 0.0, 1.5, float(st.session_state.temperature), 0.1)
         st.session_state.max_tokens = st.slider("Máximo de tokens", 200, 8000, int(st.session_state.max_tokens), 100)
+        
         if st.button("Probar conexión"):
-            ok, message = self.ia_client.probar_conexion(st.session_state.api_key, st.session_state.model_id)
-            st.success(message) if ok else st.error(message)
+            ok, msg = self.ia_client.probar_conexion(st.session_state.api_key, st.session_state.model_id)
+            st.success(msg) if ok else st.error(msg)
+            
         st.subheader("Base de datos")
         c1, c2 = st.columns(2)
         if c1.button("Crear respaldo", use_container_width=True):
-            path = self.db.backup()
-            st.success(f"Respaldo creado: {path.name}")
+            path = self.db.backup(); st.success(f"Respaldo: {path.name}")
         data = self.db.export_all_json()
-        c2.download_button("Exportar BD JSON", json.dumps(data, ensure_ascii=False, indent=2), "retroalimentaciones_export.json", "application/json", use_container_width=True)
-        uploaded = st.file_uploader("Importar JSON", type=["json"])
-        if uploaded and st.button("Importar datos"):
-            self.db.import_json(json.loads(uploaded.getvalue().decode("utf-8")))
-            st.success("Datos importados.")
-            st.rerun()
-        if st.button("Guardar exportación JSON en carpeta exports"):
-            path = export_json(data, "retroalimentaciones_export")
-            st.success(f"Archivo creado: {path.name}")
-
-    @staticmethod
-    def _show_validation(result: Any) -> None:
-        for error in result.errors:
-            st.error(error)
-        for warning in result.warnings:
-            st.warning(warning)
+        c2.download_button("Exportar BD JSON", json.dumps(data, ensure_ascii=False, indent=2), "retro_export.json", "application/json", use_container_width=True)
