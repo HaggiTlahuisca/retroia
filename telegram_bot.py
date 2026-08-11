@@ -1,6 +1,8 @@
-"""Bot de Telegram para generación de retroalimentaciones alojado en Koyeb."""
+"""Bot de Telegram para generación de retroalimentaciones alojado en Render."""
 
 import os
+import threading
+from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
@@ -11,7 +13,18 @@ from ia_client import IAClient
 from models import Retroalimentacion
 from utils import docx_bytes, sanitize_filename
 
-# Cargar variables de entorno (Koyeb las inyectará automáticamente)
+# 1. SERVIDOR WEB FANTASMA PARA ENGAÑAR A RENDER
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🤖 El bot de Telegram está activo y funcionando en segundo plano."
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
+# 2. LÓGICA DEL BOT DE TELEGRAM
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
@@ -22,7 +35,6 @@ bot = telebot.TeleBot(TOKEN)
 db = DatabaseManager()
 ia_client = IAClient("openrouter")
 
-# Memoria temporal para la sesión de calificación
 sesiones = {}
 
 NIVELES = {
@@ -170,7 +182,7 @@ def generar_documento(message):
         )
         prompt = builder.build()
         
-        # Puedes fijar tu modelo favorito aquí (Ej. GPT 5.6 Luna)
+        # Modelo fijo que nos dio los mejores resultados
         modelo_id = "openai/gpt-5.6-luna" 
         api_key = os.getenv("OPENROUTER_API_KEY")
         
@@ -198,5 +210,9 @@ def generar_documento(message):
 
 
 if __name__ == '__main__':
-    print("🤖 Bot de Telegram activo en Koyeb...")
+    # Arrancamos el servidor web en un hilo secundario
+    web_thread = threading.Thread(target=run_web_server)
+    web_thread.start()
+    
+    print("🤖 Bot de Telegram activo en Render...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
