@@ -1,4 +1,4 @@
-"""Componentes reutilizables de la interfaz de usuario."""
+"""Componentes reutilizables de la interfaz de usuario con edición habilitada."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from models import Actividad, Criterio, Nivel, Recurso, Rubrica, Frase
 
 
 def header() -> None:
-    st.title("Generador inteligente de retroalimentaciones formativas con IA")
-    st.caption("Diseñado para evaluación transparente, personalizada y asistida por IA para asesores virtuales.")
+    st.title("Generador Inteligente de Retroalimentaciones Formativas con IA")
+    st.caption("Diseñado para evaluación transparente, personalizada y asistida por IA para Asesores Virtuales.")
     st.markdown("---")
 
 
@@ -19,9 +19,9 @@ def info_card(title: str, text: str) -> None:
 
 
 def rubric_manual_form() -> tuple[Rubrica, bool]:
-    st.markdown("#### 📐 Matriz de desempeño de la rúbrica")
+    st.markdown("#### 📐 Matriz de Desempeño de la Rúbrica")
     with st.form("form_rubrica_manual_matriz"):
-        nombre = st.text_input("Nombre de la rúbrica", placeholder="Ej. Rúbrica actividad 4")
+        nombre = st.text_input("Nombre de la rúbrica", placeholder="Ej. Rúbrica Actividad 4")
         criterios_nombres = ["Cognitivo", "Actitudinal", "Comunicativo", "Pensamiento crítico"]
         niveles_nombres = ["Experto", "Capacitado", "Aceptable", "Aprendiz", "Requiere apoyo", "No evaluable"]
 
