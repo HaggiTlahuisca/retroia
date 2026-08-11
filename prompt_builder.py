@@ -79,14 +79,14 @@ ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos o encabezados para las secciones 
    Ejemplo del estilo exacto que debes usar:
    "Te comparto este recurso, que es un [tipo], en el que se explica [descripción]: [URL]."
    "También te comparto este otro recurso... [URL]."
-   "Para finalizar, te comparto este... [URL]."
+   "Por último, te comparto este... [URL]."
    Recursos a incluir:
 {rec_str if rec_str else "No hay recursos registrados."}
 
 5. **CIERRE EXACTO Y DESPEDIDA:**
    Usa EXACTAMENTE esta redacción final. Solo asegúrate de copiarla tal cual:
 
-Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu actividad denominada "{n_act}", como siempre me gustaría dejarte esta frase de {autor_frase} "{texto_frase}" una frase que aplica muy bien para nuestro módulo, al principio parece que se nos habla en otro idioma, pero una vez que iniciamos vemos que no es tan difícil como se veía.
+Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu actividad denominada "{n_act}", como siempre me gustaría dejarte esta frase de {autor_frase} **"{texto_frase}"** una frase que aplica muy bien para nuestro módulo, al principio parece que se nos habla en otro idioma, pero una vez que iniciamos vemos que no es tan difícil como se veía.
 
 Recuerda que siempre estoy para ti al otro lado de la pantalla, me puedes contactar por medio de los canales institucionales.
 
