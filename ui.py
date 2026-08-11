@@ -1,4 +1,4 @@
-"""Interfaz Streamlit de la aplicación."""
+"""Interfaz Streamlit con módulos de edición integrados."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from config import (
 )
 from database import DatabaseManager
 from ia_client import IAClient
-from models import Actividad, Retroalimentacion
+from models import Actividad, Recurso, Retroalimentacion
 from prompt_builder import PromptBuilder
 from styles import app_css
 from ui_components import (
@@ -157,20 +157,42 @@ class RetroalimentacionApp:
             rec, sub_rec = recurso_global_form()
             if sub_rec and rec.titulo:
                 self.db.create_recurso(rec); st.success("Recurso guardado."); st.rerun()
+            
+            st.markdown("---")
+            st.markdown("#### Recursos Guardados (Editar o Eliminar)")
             for r in self.db.list_recursos_globales():
-                with st.expander(f"{r.titulo} [{r.tipo}]"):
-                    st.write(r.url); st.write(r.descripcion)
-                    if st.button("Eliminar", key=f"del_rec_{r.id}"): self.db.delete_recurso(r.id); st.rerun()
+                with st.expander(f"📌 {r.titulo} [{r.tipo}]"):
+                    with st.form(f"form_edit_rec_{r.id}"):
+                        e_tit = st.text_input("Título", r.titulo)
+                        e_tip = st.selectbox("Tipo", ["Video", "Artículo", "Enlace", "PDF", "Otro"], index=["Video", "Artículo", "Enlace", "PDF", "Otro"].index(r.tipo) if r.tipo in ["Video", "Artículo", "Enlace", "PDF", "Otro"] else 0)
+                        e_url = st.text_input("URL", r.url)
+                        e_des = st.text_area("Descripción", r.descripcion, height=60)
+                        c1, c2 = st.columns(2)
+                        if c1.form_submit_button("Actualizar Recurso"):
+                            self.db.update_recurso(r.id, Recurso(e_tit, e_tip, e_url, e_des))
+                            st.success("Recurso actualizado."); st.rerun()
+                        if c2.form_submit_button("Eliminar Recurso"):
+                            self.db.delete_recurso(r.id); st.rerun()
                     
         with t2:
             st.subheader("Catálogo Global de Frases Célebres")
             frase, sub_fra = frase_global_form()
             if sub_fra and frase.texto:
                 self.db.create_frase(frase.texto, frase.autor); st.success("Frase guardada."); st.rerun()
+            
+            st.markdown("---")
+            st.markdown("#### Frases Guardadas (Editar o Eliminar)")
             for f in self.db.list_frases():
-                with st.expander(f"{f.autor} - {f.texto[:30]}..."):
-                    st.write(f'"{f.texto}"'); st.caption(f.autor)
-                    if st.button("Eliminar", key=f"del_fra_{f.id}"): self.db.delete_frase(f.id); st.rerun()
+                with st.expander(f"💬 {f.autor} - {f.texto[:30]}..."):
+                    with st.form(f"form_edit_fra_{f.id}"):
+                        e_txt = st.text_area("Frase", f.texto, height=60)
+                        e_aut = st.text_input("Autor", f.autor)
+                        c1, c2 = st.columns(2)
+                        if c1.form_submit_button("Actualizar Frase"):
+                            self.db.update_frase(f.id, e_txt, e_aut)
+                            st.success("Frase actualizada."); st.rerun()
+                        if c2.form_submit_button("Eliminar Frase"):
+                            self.db.delete_frase(f.id); st.rerun()
 
         with t3:
             st.subheader("Rúbricas Institucionales")
@@ -190,61 +212,42 @@ class RetroalimentacionApp:
             if sub_act and act.nombre:
                 try: self.db.create_activity(act, r_id, f_id, rec_ids); st.success("Actividad Ensamblada."); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
-            for a in self.db.list_activities():
-                with st.expander(a["nombre"]):
-                    if st.button("Eliminar Actividad", key=f"del_act_{a['id']}"): self.db.delete_activity(a["id"]); st.rerun()
 
-    def tab_ai_config(self) -> None:
-        st.subheader("Directrices de Estructura Pedagógica")
-        st.caption("Define cómo redacta la IA cada sección. Esta estructura reemplaza a los machotes tradicionales.")
-        
-        dirs = self.db.get_all_directrices()
-        with st.form("form_directrices_estructuradas"):
-            d_grupo = st.text_input("Grupo asignado actual (Ej. M11C1G77-050)", dirs.get("grupo", "M11C1G77-050"))
             st.markdown("---")
-            d_saludo = st.text_area("1. Saludo", dirs.get("saludo", ""), height=70)
-            d_fortalezas = st.text_area("2. Fortalezas", dirs.get("fortalezas", ""), height=90)
-            d_areas = st.text_area("3. Áreas de oportunidad", dirs.get("areas_oportunidad", ""), height=90)
-            d_sugerencias = st.text_area("4. Sugerencias", dirs.get("sugerencias", ""), height=90)
-            d_recursos = st.text_area("5. Recursos de apoyo", dirs.get("recursos_apoyo", ""), height=70)
-            d_despedida = st.text_area("6. Despedida", dirs.get("despedida", ""), height=70)
-            d_firma = st.text_area("7. Firma (Datos opcionales adicionales, el nombre y grupo van fijos)", dirs.get("firma", ""), height=70)
-            
-            if st.form_submit_button("Guardar Estructura Global", type="primary"):
-                self.db.update_directriz("grupo", d_grupo)
-                self.db.update_directriz("saludo", d_saludo)
-                self.db.update_directriz("fortalezas", d_fortalezas)
-                self.db.update_directriz("areas_oportunidad", d_areas)
-                self.db.update_directriz("sugerencias", d_sugerencias)
-                self.db.update_directriz("recursos_apoyo", d_recursos)
-                self.db.update_directriz("despedida", d_despedida)
-                self.db.update_directriz("firma", d_firma)
-                st.success("Estructura actualizada. ¡Grupo modificado con éxito!")
-                st.rerun()
+            st.markdown("#### Actividades Configuradas (Editar Ensamblado o Eliminar)")
+            all_rubrics = self.db.list_rubrics()
+            all_frases = self.db.list_frases()
+            all_recursos = self.db.list_recursos_globales()
 
-    def tab_settings(self) -> None:
-        st.subheader("API y modelo")
-        st.session_state.api_key = st.text_input("Clave de API OpenRouter", st.session_state.api_key, type="password")
-        
-        cat_idx = 1 if st.session_state.model_name in MODELOS_PAGO else 0
-        categoria = st.radio("Categoría de modelo", ["Gratis", "De pago"], index=cat_idx, horizontal=True)
-        modelos_disponibles = MODELOS_GRATIS if categoria == "Gratis" else MODELOS_PAGO
-        
-        default_index = list(modelos_disponibles.keys()).index(st.session_state.model_name) if st.session_state.model_name in modelos_disponibles else 0
-        model_name = st.selectbox("Modelo", list(modelos_disponibles.keys()), index=default_index)
-        
-        st.session_state.model_name = model_name
-        st.session_state.model_id = modelos_disponibles[model_name]
-        st.session_state.temperature = st.slider("Temperatura", 0.0, 1.5, float(st.session_state.temperature), 0.1)
-        st.session_state.max_tokens = st.slider("Máximo de tokens", 200, 8000, int(st.session_state.max_tokens), 100)
-        
-        if st.button("Probar conexión"):
-            ok, msg = self.ia_client.probar_conexion(st.session_state.api_key, st.session_state.model_id)
-            st.success(msg) if ok else st.error(msg)
-            
-        st.subheader("Base de datos")
-        c1, c2 = st.columns(2)
-        if c1.button("Crear respaldo", use_container_width=True):
-            path = self.db.backup(); st.success(f"Respaldo: {path.name}")
-        data = self.db.export_all_json()
-        c2.download_button("Exportar BD JSON", json.dumps(data, ensure_ascii=False, indent=2), "retro_export.json", "application/json", use_container_width=True)
+            for a_raw in self.db.list_activities():
+                act_obj = self.db.get_activity(a_raw["id"])
+                if not act_obj: continue
+                
+                with st.expander(f"⚙️ Editar: {act_obj.nombre}"):
+                    with st.form(f"form_edit_act_{act_obj.id}"):
+                        e_nom = st.text_input("Nombre de la actividad", act_obj.nombre)
+                        e_pro = st.text_area("Propósito de la actividad", act_obj.proposito, height=60)
+                        e_ins = st.text_area("Instrucciones detalladas", act_obj.instrucciones, height=90)
+
+                        rubric_opts = {"Sin rúbrica": None} | {r["nombre"]: r["id"] for r in all_rubrics}
+                        frase_opts = {"Sin frase": None} | {f'"{f.texto[:40]}..." - {f.autor}': f.id for f in all_frases}
+                        recurso_opts = {r.titulo: r.id for r in all_recursos}
+
+                        curr_rub_idx = list(rubric_opts.values()).index(act_obj.rubrica.id if act_obj.rubrica else None)
+                        curr_fra_idx = list(frase_opts.values()).index(act_obj.frase.id if act_obj.frase else None)
+                        curr_recs_nombres = [r.titulo for r in act_obj.recursos if r.titulo in recurso_opts]
+
+                        col1, col2 = st.columns(2)
+                        e_rub = col1.selectbox("Rúbrica asociada", list(rubric_opts.keys()), index=curr_rub_idx)
+                        e_fra = col2.selectbox("Frase de cierre asociada", list(frase_opts.keys()), index=curr_fra_idx)
+                        
+                        e_recs = st.multiselect("Recursos asociados", list(recurso_opts.keys()), default=curr_recs_nombres)
+                        e_recs_ids = [recurso_opts[n] for n in e_recs if n in recurso_opts]
+
+                        c1, c2 = st.columns(2)
+                        if c1.form_submit_button("Actualizar Ensamblado"):
+                            updated_act = Actividad(nombre=e_nom, proposito=e_pro, instrucciones=e_ins)
+                            self.db.update_activity(act_obj.id, updated_act, rubric_opts[e_rub], frase_opts[e_fra], e_recs_ids)
+                            st.success("Actividad actualizada correctamente."); st.rerun()
+                        if c2.form_submit_button("Eliminar Actividad"):
+                            self.db.delete_activity(act_obj.id); st.rerun()
