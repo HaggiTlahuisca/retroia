@@ -6,6 +6,7 @@ from typing import Any
 import streamlit as st
 
 from models import Actividad, Criterio, Nivel, Recurso, Rubrica, Frase
+from utils import docx_bytes, pdf_bytes, sanitize_filename
 
 
 def header() -> None:
@@ -128,6 +129,17 @@ def history_card(row: Any) -> None:
     estudiante = row["estudiante"] if "estudiante" in row.keys() else "Estudiante"
     actividad = row["actividad"] if "actividad" in row.keys() and row["actividad"] else "General"
     calificacion = row["calificacion"] if "calificacion" in row.keys() else 0.0
+    row_id = row["id"]
 
     with st.expander(f"👤 {estudiante} — {actividad} ({calificacion:.1f} pts) — 📅 {fecha}"):
         st.markdown(row["retroalimentacion"])
+        
+        st.markdown("---")
+        c1, c2 = st.columns(2)
+        
+        clean_name = sanitize_filename(estudiante)
+        docx_data = docx_bytes("Retro", row["retroalimentacion"])
+        pdf_data = pdf_bytes("Retro", row["retroalimentacion"])
+        
+        c1.download_button("📄 Descargar Word (.docx)", docx_data, f"retro_{clean_name}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{row_id}", use_container_width=True)
+        c2.download_button("📕 Descargar PDF (.pdf)", pdf_data, f"retro_{clean_name}.pdf", "application/pdf", key=f"dl_pdf_{row_id}", use_container_width=True)
