@@ -11,7 +11,7 @@ from database import DatabaseManager
 from prompt_builder import PromptBuilder
 from ia_client import IAClient
 from models import Retroalimentacion
-from utils import docx_bytes, sanitize_filename
+from utils import docx_bytes, pdf_bytes, sanitize_filename
 
 # 1. CARGA DE CREDENCIALES
 load_dotenv()
@@ -204,7 +204,7 @@ def generar_documento(message):
         )
         prompt = builder.build()
         
-        modelo_id = "openai/gpt-5.6-luna" 
+        modelo_id = "openai/gpt-5.6-luna-pro" 
         api_key = os.getenv("OPENROUTER_API_KEY")
         
         texto_generado = ia_client.generar(prompt, api_key, modelo_id, 0.5, 4000)
@@ -215,16 +215,27 @@ def generar_documento(message):
         )
         db.create_history(item, datos["actividad"].id)
         
+        # Generación de ambos archivos
         word_bytes = docx_bytes("Retro", texto_generado)
-        nombre_archivo = f"retro_{sanitize_filename(datos['estudiante'])}.docx"
+        pdf_data = pdf_bytes("Retro", texto_generado)
+        
+        nombre_base = f"retro_{sanitize_filename(datos['estudiante'])}"
         
         bot.delete_message(chat_id, msg_espera.message_id)
+        
+        # Enviando Word
         bot.send_document(
-            chat_id, document=(nombre_archivo, word_bytes),
-            caption=f"✨ ¡Listo! Aquí tienes la retroalimentación de {datos['estudiante']}."
+            chat_id, document=(f"{nombre_base}.docx", word_bytes),
+            caption=f"📄 Word: Retroalimentación de {datos['estudiante']}."
         )
+        # Enviando PDF
+        bot.send_document(
+            chat_id, document=(f"{nombre_base}.pdf", pdf_data),
+            caption=f"📕 PDF: Retroalimentación de {datos['estudiante']}."
+        )
+        
         del sesiones[chat_id]
-        bot.send_message(chat_id, "Escribe /evaluar para generar otra.")
+        bot.send_message(chat_id, "✨ ¡Listo! Escribe /evaluar para generar otra.")
         
     except Exception as e:
         bot.edit_message_text(f"❌ Ocurrió un error: {e}", chat_id, msg_espera.message_id)
