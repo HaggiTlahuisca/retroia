@@ -204,7 +204,7 @@ def generar_documento(message):
         )
         prompt = builder.build()
         
-        modelo_id = "openai/gpt-5.6-luna-pro" 
+        modelo_id = "openai/gpt-5.6-luna"
         api_key = os.getenv("OPENROUTER_API_KEY")
         
         texto_generado = ia_client.generar(prompt, api_key, modelo_id, 0.5, 4000)
