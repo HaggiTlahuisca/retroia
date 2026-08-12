@@ -251,3 +251,58 @@ class RetroalimentacionApp:
                             st.success("Actividad actualizada correctamente."); st.rerun()
                         if c2.form_submit_button("Eliminar Actividad"):
                             self.db.delete_activity(act_obj.id); st.rerun()
+
+    def tab_ai_config(self) -> None:
+        st.subheader("Directrices de Estructura Pedagógica")
+        st.caption("Define cómo redacta la IA cada sección. Esta estructura reemplaza a los machotes tradicionales.")
+        
+        dirs = self.db.get_all_directrices()
+        with st.form("form_directrices_estructuradas"):
+            d_grupo = st.text_input("Grupo asignado actual (Ej. M11C1G77-050)", dirs.get("grupo", "M11C1G77-050"))
+            st.markdown("---")
+            d_saludo = st.text_area("1. Saludo", dirs.get("saludo", ""), height=70)
+            d_fortalezas = st.text_area("2. Fortalezas", dirs.get("fortalezas", ""), height=90)
+            d_areas = st.text_area("3. Áreas de oportunidad", dirs.get("areas_oportunidad", ""), height=90)
+            d_sugerencias = st.text_area("4. Sugerencias", dirs.get("sugerencias", ""), height=90)
+            d_recursos = st.text_area("5. Recursos de apoyo", dirs.get("recursos_apoyo", ""), height=70)
+            d_despedida = st.text_area("6. Despedida", dirs.get("despedida", ""), height=70)
+            d_firma = st.text_area("7. Firma (Datos opcionales adicionales, el nombre y grupo van fijos)", dirs.get("firma", ""), height=70)
+            
+            if st.form_submit_button("Guardar Estructura Global", type="primary"):
+                self.db.update_directriz("grupo", d_grupo)
+                self.db.update_directriz("saludo", d_saludo)
+                self.db.update_directriz("fortalezas", d_fortalezas)
+                self.db.update_directriz("areas_oportunidad", d_areas)
+                self.db.update_directriz("sugerencias", d_sugerencias)
+                self.db.update_directriz("recursos_apoyo", d_recursos)
+                self.db.update_directriz("despedida", d_despedida)
+                self.db.update_directriz("firma", d_firma)
+                st.success("Estructura actualizada. ¡Grupo modificado con éxito!")
+                st.rerun()
+
+    def tab_settings(self) -> None:
+        st.subheader("API y modelo")
+        st.session_state.api_key = st.text_input("Clave de API OpenRouter", st.session_state.api_key, type="password")
+        
+        cat_idx = 1 if st.session_state.model_name in MODELOS_PAGO else 0
+        categoria = st.radio("Categoría de modelo", ["Gratis", "De pago"], index=cat_idx, horizontal=True)
+        modelos_disponibles = MODELOS_GRATIS if categoria == "Gratis" else MODELOS_PAGO
+        
+        default_index = list(modelos_disponibles.keys()).index(st.session_state.model_name) if st.session_state.model_name in modelos_disponibles else 0
+        model_name = st.selectbox("Modelo", list(modelos_disponibles.keys()), index=default_index)
+        
+        st.session_state.model_name = model_name
+        st.session_state.model_id = modelos_disponibles[model_name]
+        st.session_state.temperature = st.slider("Temperatura", 0.0, 1.5, float(st.session_state.temperature), 0.1)
+        st.session_state.max_tokens = st.slider("Máximo de tokens", 200, 8000, int(st.session_state.max_tokens), 100)
+        
+        if st.button("Probar conexión"):
+            ok, msg = self.ia_client.probar_conexion(st.session_state.api_key, st.session_state.model_id)
+            st.success(msg) if ok else st.error(msg)
+            
+        st.subheader("Base de datos")
+        c1, c2 = st.columns(2)
+        if c1.button("Crear respaldo", use_container_width=True):
+            path = self.db.backup(); st.success(f"Respaldo: {path.name}")
+        data = self.db.export_all_json()
+        c2.download_button("Exportar BD JSON", json.dumps(data, ensure_ascii=False, indent=2), "retro_export.json", "application/json", use_container_width=True)
