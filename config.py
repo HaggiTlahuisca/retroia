@@ -56,7 +56,7 @@ MODELOS_PAGO = {
 # Combinación global para mantener compatibilidad con el resto del sistema
 MODELOS_OPENROUTER = {**MODELOS_GRATIS, **MODELOS_PAGO}
 
-DEFAULT_MODEL_NAME = "GPT 5.6 Luna Pro"
+DEFAULT_MODEL_NAME = "GPT 5.6 Luna"
 DEFAULT_MODEL_ID = MODELOS_OPENROUTER[DEFAULT_MODEL_NAME]
 
 TIPOS_RECURSO = [
