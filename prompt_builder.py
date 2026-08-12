@@ -11,7 +11,7 @@ class PromptBuilder:
         self.dirs = directrices
         self.actividad = actividad
         self.estudiante = estudiante.strip()
-        self.calificacion = calificacion
+        self.calificacion = calificacion # Se guarda para la base de datos, pero ya no se envía a la IA
         self.criterios_evaluados = criterios_evaluados
         self.observaciones = observaciones.strip()
 
@@ -53,7 +53,6 @@ Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO r
 - Estudiante: {self.estudiante}
 - Actividad: {n_act}
 - Propósito de la actividad: {prop_act}
-- Calificación: {self.calificacion:.1f}/100
 - Evaluaciones:
 {crit_str}
 - Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles. Redacta justificando por qué alcanzó esos niveles en el contexto de la actividad."}
@@ -81,20 +80,20 @@ ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "#
 4. **RECURSOS (PÁRRAFOS SEPARADOS, SIN VIÑETAS, SIN TÍTULOS):**
    RECUERDA: NO uses la palabra "Recursos" como título. NO uses viñetas (- o *).
    Redacta cada recurso en un PÁRRAFO INDEPENDIENTE usando prosa natural.
-   Ejemplo del estilo que debes usar:
+   Ejemplo del estilo que puedes utilizar:
    "Te comparto este recurso, que es un [tipo], en el que se explica [descripción]: [URL]."
    "También te comparto este otro recurso... [URL]."
    "Por último, te comparto este... [URL]."
-   Pero puedes variar la redacción sin variar los recursos.
+   Puedes variar la redacción sin variar los recursos. Debes ser creativo para que cada retroalimentación sea única. 
    Recursos a incluir:
 {rec_str if rec_str else "No hay recursos registrados."}
 
 5. **CIERRE EXACTO Y DESPEDIDA:**
    Usa EXACTAMENTE esta redacción final. Solo asegúrate de copiarla tal cual:
 
-Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu actividad denominada "{n_act}". Como siempre me gustaría dejarte una frase, en este caso es de {autor_frase}: **"{texto_frase}"**, una frase que aplica muy bien para nuestro módulo, al principio parece que se nos habla en otro idioma, pero una vez que iniciamos vemos que no es tan difícil como se veía.
+Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu actividad "{n_act}". Me despido con esta frase de {autor_frase}: **"{texto_frase}"**. 
 
-Recuerda que siempre estoy para ti al otro lado de la pantalla, me puedes contactar por medio de los canales institucionales.
+Recuerda que siempre estoy para ti al otro lado de la pantalla. Me puedes contactar por medio de los canales institucionales.
 
 Cordialmente.
 
