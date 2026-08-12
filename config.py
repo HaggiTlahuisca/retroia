@@ -45,6 +45,7 @@ MODELOS_GRATIS = {
 
 # Modelos separados por categoría (De pago)
 MODELOS_PAGO = {
+				"GPT 5.6 Luna Pro": "openai/gpt-5.6-luna-pro", 
     "Mistral Nemo": "mistralai/mistral-nemo",
     "Claude 3 Haiku": "anthropic/claude-3-haiku",
     "GPT 4o Mini": "openai/gpt-4o-mini",
@@ -55,7 +56,7 @@ MODELOS_PAGO = {
 # Combinación global para mantener compatibilidad con el resto del sistema
 MODELOS_OPENROUTER = {**MODELOS_GRATIS, **MODELOS_PAGO}
 
-DEFAULT_MODEL_NAME = "Nvidia Nemotron 3 Ultra 550B (Gratis)"
+DEFAULT_MODEL_NAME = "GPT 5.6 Luna Pro"
 DEFAULT_MODEL_ID = MODELOS_OPENROUTER[DEFAULT_MODEL_NAME]
 
 TIPOS_RECURSO = [
