@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
-from docx.enum.text import WD_LINE_SPACING
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.opc.constants import RELATIONSHIP_TYPE
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -74,10 +74,11 @@ def add_hyperlink(paragraph: Any, text: str, url: str) -> None:
 
 def agregar_parrafo_firma(doc: Document, texto: str) -> Any:
     p = doc.add_paragraph()
-    p.paragraph_format.line_spacing = 1.0
-    p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    p.paragraph_format.line_spacing = 1.5
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
+    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    
     run = p.add_run(texto)
     set_run_font(run, nombre="Arial", tamano=12, bold=True)
     return p
@@ -88,7 +89,10 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
 
     if not stripped:
         p = doc.add_paragraph()
-        p.paragraph_format.space_after = Pt(4)
+        p.paragraph_format.line_spacing = 1.5
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(0)
+        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         return p
 
     # Detección de firma (soporta despedidas y la variable de tu número fijo)
@@ -110,8 +114,10 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
         return agregar_parrafo_firma(doc, stripped)
 
     p = doc.add_paragraph()
-    p.paragraph_format.line_spacing = 1.15
-    p.paragraph_format.space_after = Pt(6)
+    p.paragraph_format.line_spacing = 1.5
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
     # Detección automática de encabezados de criterios para forzar negrita
     known_headings = [
@@ -205,8 +211,8 @@ def pdf_bytes(title: str, text: str) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54)
     styles = getSampleStyleSheet()
-    normal_style = ParagraphStyle("CustomNormal", parent=styles["Normal"], fontName="Helvetica", fontSize=11, leading=15, spaceAfter=8)
-    title_style = ParagraphStyle("CustomTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=14, leading=18, spaceAfter=12)
+    normal_style = ParagraphStyle("CustomNormal", parent=styles["Normal"], fontName="Helvetica", fontSize=11, leading=16.5, spaceBefore=0, spaceAfter=0, alignment=4) # alignment=4 is Justify
+    title_style = ParagraphStyle("CustomTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=14, leading=18, spaceAfter=12, alignment=4)
 
     story = []
     if title:
