@@ -6,7 +6,7 @@ import io
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +28,34 @@ def sanitize_filename(name: str) -> str:
     cleaned = cleaned.replace(" ", "_").strip()
     return cleaned or "documento"
 
+def get_time_utc_minus_6():
+    """
+    Retorna la fecha y hora actual en UTC-6
+    con formato YYYYMMDD_HHMMSS.
+    """
+    # Crear zona horaria UTC-6
+    tz_utc_minus_6 = timezone(timedelta(hours=-6))
+    
+    # Obtener hora actual en UTC-6
+    now_tz = datetime.now(tz_utc_minus_6)
+    
+    # Formatear la fecha y hora
+    return now_tz.strftime("%Y%m%d_%H%M%S")
 
-def now_slug() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+if __name__ == "__main__":
+    try:
+        timestamp = get_time_utc_minus_6()
+        
+        # Validar que el formato sea correcto (14 dígitos + guion bajo)
+        if len(timestamp) == 15 and timestamp[8] == "_":
+            print(timestamp)
+        else:
+            raise ValueError("Formato de fecha/hora inválido.")
+    except Exception as e:
+        print(f"Error al generar la fecha/hora: {e}")
+    
+#def now_slug() -> str:
+#    return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 def set_run_font(run: Any, nombre: str = "Arial", tamano: int = 12, bold: bool = False, italic: bool = False, underline: bool = False) -> None:
@@ -74,7 +99,7 @@ def add_hyperlink(paragraph: Any, text: str, url: str) -> None:
 
 def agregar_parrafo_firma(doc: Document, texto: str) -> Any:
     p = doc.add_paragraph()
-    p.paragraph_format.line_spacing = 1.5
+    p.paragraph_format.line_spacing = 1.0
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -89,7 +114,7 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
 
     if not stripped:
         p = doc.add_paragraph()
-        p.paragraph_format.line_spacing = 1.5
+        p.paragraph_format.line_spacing = 1.0
         p.paragraph_format.space_before = Pt(0)
         p.paragraph_format.space_after = Pt(0)
         p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
@@ -114,7 +139,7 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
         return agregar_parrafo_firma(doc, stripped)
 
     p = doc.add_paragraph()
-    p.paragraph_format.line_spacing = 1.5
+    p.paragraph_format.line_spacing = 1.0
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
