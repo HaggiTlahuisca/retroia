@@ -127,8 +127,10 @@ def download_buttons(filename_prefix: str, text: str, html_text: str, docx_data:
 
 
 def history_card(row: Any) -> None:
+    # Extraemos los valores de forma segura y compatible con sqlite3.Row
+    fecha_str = row["fecha"] if "fecha" in row.keys() else "Sin fecha"
+    
     # Conversión de UTC a UTC-6 para mostrar la hora de Jalisco
-    fecha_str = row.get("fecha", "Sin fecha")
     if fecha_str != "Sin fecha":
         try:
             dt_utc = datetime.strptime(fecha_str, "%Y-%m-%d %H:%M:%S")
@@ -139,9 +141,9 @@ def history_card(row: Any) -> None:
     else:
         fecha = fecha_str
 
-    estudiante = row.get("estudiante", "Estudiante")
-    actividad = row.get("actividad", "General")
-    calificacion = row.get("calificacion", 0.0)
+    estudiante = row["estudiante"] if "estudiante" in row.keys() else "Estudiante"
+    actividad = row["actividad"] if "actividad" in row.keys() and row["actividad"] else "General"
+    calificacion = row["calificacion"] if "calificacion" in row.keys() else 0.0
     row_id = row["id"]
 
     with st.expander(f"👤 {estudiante} — {actividad} ({calificacion:.1f} pts) — 📅 {fecha}"):
@@ -160,3 +162,4 @@ def history_card(row: Any) -> None:
         c1.download_button("📄 Word (.docx)", docx_data, f"retro_{act_code}_{clean_name}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{row_id}", use_container_width=True)
         c2.download_button("📕 PDF (.pdf)", pdf_data, f"retro_{act_code}_{clean_name}.pdf", "application/pdf", key=f"dl_pdf_{row_id}", use_container_width=True)
         c3.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"retro_{act_code}_{clean_name}.html", "text/html", key=f"dl_html_{row_id}", use_container_width=True)
+        
