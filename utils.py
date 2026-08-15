@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+from html import escape
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -28,33 +29,56 @@ def sanitize_filename(name: str) -> str:
     cleaned = cleaned.replace(" ", "_").strip()
     return cleaned or "documento"
 
-def get_time_utc_minus_6():
-    """
-    Retorna la fecha y hora actual en UTC-6
-    con formato YYYYMMDD_HHMMSS.
-    """
-    # Crear zona horaria UTC-6
-    tz_utc_minus_6 = timezone(timedelta(hours=-6))
-    
-    # Obtener hora actual en UTC-6
-    now_tz = datetime.now(tz_utc_minus_6)
-    
-    # Formatear la fecha y hora
-    return now_tz.strftime("%Y%m%d_%H%M%S")
 
-if __name__ == "__main__":
-    try:
-        timestamp = get_time_utc_minus_6()
-        
-        # Validar que el formato sea correcto (14 dígitos + guion bajo)
-        if len(timestamp) == 15 and timestamp[8] == "_":
-            print(timestamp)
+def get_activity_code(activity_name: str) -> str:
+    """Extrae el código de la actividad basado en el nombre."""
+    name_lower = activity_name.lower()
+    if "proyecto integrador" in name_lower: return "PI"
+    if "actividad integradora 1" in name_lower: return "AI1"
+    if "actividad integradora 2" in name_lower: return "AI2"
+    if "actividad integradora 3" in name_lower: return "AI3"
+    if "actividad integradora 4" in name_lower: return "AI4"
+    if "actividad integradora 5" in name_lower: return "AI5"
+    if "actividad integradora 6" in name_lower: return "AI6"
+    return "Gen"
+
+
+def markdown_line_to_html(text: str) -> str:
+    """Convierte negritas Markdown de una línea a HTML escapado con estilo."""
+    text = text.strip()
+    if not text:
+        return ""
+
+    html_parts: list[str] = []
+    last_end = 0
+
+    for match in re.finditer(r"\*\*(.+?)\*\*", text):
+        html_parts.append(escape(text[last_end:match.start()]))
+        html_parts.append(f'<strong style="font-size: 1rem;">{escape(match.group(1).strip())}</strong>')
+        last_end = match.end()
+
+    html_parts.append(escape(text[last_end:]))
+    return "".join(html_parts)
+
+
+def feedback_to_moodle_html(text: str) -> str:
+    """Genera HTML compacto en párrafos para pegar en Moodle."""
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    html_lines: list[str] = []
+
+    for line in lines:
+        clean_line = re.sub(r"^\*\*|\*\*$", "", line).strip().rstrip(":")
+        if clean_line.lower().startswith("criterio "):
+            html_lines.append(f"<p><strong>{escape(clean_line)}</strong></p>")
         else:
-            raise ValueError("Formato de fecha/hora inválido.")
-    except Exception as e:
-        print(f"Error al generar la fecha/hora: {e}")
-    
+            formatted_text = markdown_line_to_html(line)
+            html_lines.append(f'<p><span style="font-size: 1rem;">{formatted_text}</span></p>')
+
+    return "\n".join(html_lines)
+
+
 def now_slug() -> str:
+    """Genera una marca de tiempo estandarizada en UTC-6."""
     tz_utc_minus_6 = timezone(timedelta(hours=-6))
     return datetime.now(tz_utc_minus_6).strftime("%Y%m%d_%H%M%S")
 
@@ -121,7 +145,6 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
         p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         return p
 
-    # Detección de firma (soporta despedidas y la variable de tu número fijo)
     signature_lines = [
         "haggi de jesús tlahuisca hernández",
         "asesor virtual",
@@ -132,8 +155,6 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
     ]
     
     lower_stripped = stripped.lower()
-
-    # Identificación inteligente del grupo mediante Regex (ej. m11c1g77-050)
     es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", lower_stripped)
 
     if lower_stripped in signature_lines or es_grupo:
@@ -145,7 +166,6 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
     p.paragraph_format.space_after = Pt(0)
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-    # Detección automática de encabezados de criterios para forzar negrita
     known_headings = [
         "criterio cognitivo",
         "criterio actitudinal",
@@ -165,7 +185,6 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
         set_run_font(run, nombre="Arial", tamano=12, bold=True)
         return p
 
-    # Normalización de negritas Markdown (**...**) e hipervínculos
     normalized = stripped.replace("***", "**").replace("##", "").strip()
     tokens = re.split(r"(\*\*.*?\*\*|https?://[^\s]+)", normalized)
 
@@ -206,10 +225,7 @@ def docx_bytes(title: str, text: str, signature_details: list[str] | None = None
     for line in lines:
         stripped = line.strip()
 
-        # Filtro: Desglosa automáticamente la firma si la IA la agrupa en una sola línea
         if "Haggi de Jesús Tlahuisca Hernández" in stripped and "Asesor virtual" in stripped:
-            
-            # Buscar el grupo dinámicamente con Regex dentro de la línea
             match_grupo = re.search(r"(M\d{1,2}C\d{1,2}G\d{1,3}-\d{3})", stripped, re.IGNORECASE)
             cohort = match_grupo.group(1).upper() if match_grupo else "M11C1G77-050"
             
@@ -237,7 +253,7 @@ def pdf_bytes(title: str, text: str) -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54)
     styles = getSampleStyleSheet()
-    normal_style = ParagraphStyle("CustomNormal", parent=styles["Normal"], fontName="Helvetica", fontSize=11, leading=16.5, spaceBefore=0, spaceAfter=0, alignment=4) # alignment=4 is Justify
+    normal_style = ParagraphStyle("CustomNormal", parent=styles["Normal"], fontName="Helvetica", fontSize=11, leading=16.5, spaceBefore=0, spaceAfter=0, alignment=4)
     title_style = ParagraphStyle("CustomTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=14, leading=18, spaceAfter=12, alignment=4)
 
     story = []
