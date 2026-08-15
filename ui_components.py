@@ -6,7 +6,7 @@ from typing import Any
 import streamlit as st
 
 from models import Actividad, Criterio, Nivel, Recurso, Rubrica, Frase
-from utils import docx_bytes, pdf_bytes, sanitize_filename
+from utils import docx_bytes, pdf_bytes, sanitize_filename, get_activity_code
 
 
 def header() -> None:
@@ -114,14 +114,15 @@ def evaluation_inputs() -> tuple[dict[str, dict[str, Any]], float]:
     return criterios, total
 
 
-def download_buttons(filename_prefix: str, text: str, docx_data: bytes, pdf_data: bytes, json_data: str) -> None:
+def download_buttons(filename_prefix: str, text: str, html_text: str, docx_data: bytes, pdf_data: bytes, json_data: str) -> None:
     st.markdown("---")
     st.markdown("### 📥 Descargar Retroalimentación")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.download_button("📄 Word (.docx)", docx_data, f"{filename_prefix}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
     c2.download_button("📕 PDF (.pdf)", pdf_data, f"{filename_prefix}.pdf", "application/pdf", use_container_width=True)
     c3.download_button("📝 Texto (.txt)", text.encode("utf-8"), f"{filename_prefix}.txt", "text/plain", use_container_width=True)
     c4.download_button("💾 Datos (.json)", json_data.encode("utf-8"), f"{filename_prefix}.json", "application/json", use_container_width=True)
+    c5.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"{filename_prefix}.html", "text/html", use_container_width=True)
 
 
 def history_card(row: Any) -> None:
@@ -137,9 +138,10 @@ def history_card(row: Any) -> None:
         st.markdown("---")
         c1, c2 = st.columns(2)
         
+        act_code = get_activity_code(actividad)
         clean_name = sanitize_filename(estudiante)
         docx_data = docx_bytes("Retro", row["retroalimentacion"])
         pdf_data = pdf_bytes("Retro", row["retroalimentacion"])
         
-        c1.download_button("📄 Descargar Word (.docx)", docx_data, f"retro_{clean_name}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{row_id}", use_container_width=True)
-        c2.download_button("📕 Descargar PDF (.pdf)", pdf_data, f"retro_{clean_name}.pdf", "application/pdf", key=f"dl_pdf_{row_id}", use_container_width=True)
+        c1.download_button("📄 Descargar Word (.docx)", docx_data, f"retro_{act_code}_{clean_name}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{row_id}", use_container_width=True)
+        c2.download_button("📕 Descargar PDF (.pdf)", pdf_data, f"retro_{act_code}_{clean_name}.pdf", "application/pdf", key=f"dl_pdf_{row_id}", use_container_width=True)
