@@ -54,8 +54,9 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error al generar la fecha/hora: {e}")
     
-#def now_slug() -> str:
-#    return datetime.now().strftime("%Y%m%d_%H%M%S")
+def now_slug() -> str:
+    tz_utc_minus_6 = timezone(timedelta(hours=-6))
+    return datetime.now(tz_utc_minus_6).strftime("%Y%m%d_%H%M%S")
 
 
 def set_run_font(run: Any, nombre: str = "Arial", tamano: int = 12, bold: bool = False, italic: bool = False, underline: bool = False) -> None:
