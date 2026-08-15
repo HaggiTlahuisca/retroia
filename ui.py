@@ -15,14 +15,14 @@ from config import (
 )
 from database import DatabaseManager
 from ia_client import IAClient
-from models import Actividad, Recurso, Retroalimentacion
+from models import Actividad, Recurso, Retroalimentacion, Rubrica
 from prompt_builder import PromptBuilder
 from styles import app_css
 from ui_components import (
     activity_form, download_buttons, evaluation_inputs, frase_global_form,
     header, history_card, recurso_global_form, rubric_import_form, rubric_manual_form
 )
-from utils import docx_bytes, export_json, pdf_bytes, sanitize_filename
+from utils import docx_bytes, export_json, feedback_to_moodle_html, pdf_bytes, sanitize_filename, get_activity_code
 
 
 class RetroalimentacionApp:
@@ -114,11 +114,15 @@ class RetroalimentacionApp:
             self._generate_feedback(builder, activity.id)
 
         if st.session_state.last_feedback:
-            title = f"retroalimentacion_{sanitize_filename(estudiante)}"
+            act_code = get_activity_code(activity.nombre)
+            title = f"retro_{act_code}_{sanitize_filename(estudiante)}"
+            html_feedback = feedback_to_moodle_html(st.session_state.last_feedback)
             st.subheader("Resultado")
             st.markdown(st.session_state.last_feedback)
+            with st.expander("📋 HTML compacto para Moodle"):
+                st.text_area("Código HTML", value=html_feedback, height=220, key="html_feedback_moodle")
             payload = json.dumps({"retroalimentacion": st.session_state.last_feedback, "prompt": st.session_state.last_prompt}, ensure_ascii=False, indent=2)
-            download_buttons(title, st.session_state.last_feedback, docx_bytes("Retro", st.session_state.last_feedback), pdf_bytes("Retro", st.session_state.last_feedback), payload)
+            download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("Retro", st.session_state.last_feedback), pdf_bytes("Retro", st.session_state.last_feedback), payload)
 
     def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None) -> None:
         validation = builder.validate()
@@ -201,9 +205,23 @@ class RetroalimentacionApp:
             if sub_rub and rubrica.nombre:
                 try: self.db.create_rubric(rubrica); st.success("Rúbrica guardada."); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
+            
+            st.markdown("---")
+            st.markdown("#### Rúbricas Guardadas (Editar o Eliminar)")
             for r in self.db.list_rubrics():
                 with st.expander(r["nombre"]):
-                    if st.button("Eliminar", key=f"del_rub_{r['id']}"): self.db.delete_rubric(r["id"]); st.rerun()
+                    rub_obj = self.db.get_rubric(r["id"])
+                    if not rub_obj: continue
+                    with st.form(f"form_edit_rub_{r['id']}"):
+                        e_nom = st.text_input("Nombre de la rúbrica", rub_obj.nombre)
+                        e_cont = st.text_area("Contenido base", rub_obj.contenido, height=150)
+                        c1, c2 = st.columns(2)
+                        if c1.form_submit_button("Actualizar Rúbrica"):
+                            updated_rub = Rubrica(nombre=e_nom, contenido=e_cont, criterios=rub_obj.criterios)
+                            self.db.update_rubric(r["id"], updated_rub)
+                            st.success("Rúbrica actualizada."); st.rerun()
+                        if c2.form_submit_button("Eliminar Rúbrica"):
+                            self.db.delete_rubric(r["id"]); st.rerun()
 
         with t4:
             st.subheader("Configurar Nueva Actividad")
