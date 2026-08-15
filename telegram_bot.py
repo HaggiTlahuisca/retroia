@@ -11,7 +11,7 @@ from database import DatabaseManager
 from prompt_builder import PromptBuilder
 from ia_client import IAClient
 from models import Retroalimentacion
-from utils import docx_bytes, pdf_bytes, sanitize_filename
+from utils import docx_bytes, pdf_bytes, sanitize_filename, get_activity_code
 
 # 1. CARGA DE CREDENCIALES
 load_dotenv()
@@ -204,7 +204,7 @@ def generar_documento(message):
         )
         prompt = builder.build()
         
-        modelo_id = "openai/gpt-5.6-luna"
+        modelo_id = "openai/gpt-5.6-luna-pro" 
         api_key = os.getenv("OPENROUTER_API_KEY")
         
         texto_generado = ia_client.generar(prompt, api_key, modelo_id, 0.5, 4000)
@@ -215,20 +215,18 @@ def generar_documento(message):
         )
         db.create_history(item, datos["actividad"].id)
         
-        # Generación de ambos archivos
         word_bytes = docx_bytes("Retro", texto_generado)
         pdf_data = pdf_bytes("Retro", texto_generado)
         
-        nombre_base = f"retro_{sanitize_filename(datos['estudiante'])}"
+        act_code = get_activity_code(datos["actividad"].nombre)
+        nombre_base = f"retro_{act_code}_{sanitize_filename(datos['estudiante'])}"
         
         bot.delete_message(chat_id, msg_espera.message_id)
         
-        # Enviando Word
         bot.send_document(
             chat_id, document=(f"{nombre_base}.docx", word_bytes),
             caption=f"📄 Word: Retroalimentación de {datos['estudiante']}."
         )
-        # Enviando PDF
         bot.send_document(
             chat_id, document=(f"{nombre_base}.pdf", pdf_data),
             caption=f"📕 PDF: Retroalimentación de {datos['estudiante']}."
@@ -242,18 +240,15 @@ def generar_documento(message):
 
 
 if __name__ == '__main__':
-    # 4. ARRANQUE DEL SISTEMA CON WEBHOOKS
     bot.remove_webhook()
     time.sleep(1)
     
     webhook_url = os.getenv("WEBHOOK_URL")
     if webhook_url:
-        # Le decimos a Telegram que nos envíe los datos a nuestra URL de Render
         bot.set_webhook(url=f"{webhook_url.rstrip('/')}/{TOKEN}")
         print(f"✅ Webhook configurado en: {webhook_url}")
     else:
         print("⚠️ ADVERTENCIA: No hay WEBHOOK_URL. El bot no recibirá mensajes.")
 
     port = int(os.environ.get("PORT", 10000))
-    # Arrancamos Flask como proceso principal (Reemplaza al polling)
     app.run(host='0.0.0.0', port=port)
