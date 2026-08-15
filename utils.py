@@ -43,42 +43,56 @@ def get_activity_code(activity_name: str) -> str:
     return "Gen"
 
 
-def markdown_line_to_html(text: str) -> str:
-    """Convierte negritas Markdown de una línea a HTML escapado con estilo."""
-    text = text.strip()
-    if not text:
-        return ""
-
-    html_parts: list[str] = []
-    last_end = 0
-
-    for match in re.finditer(r"\*\*(.+?)\*\*", text):
-        html_parts.append(escape(text[last_end:match.start()]))
-        html_parts.append(f'<strong style="font-size: 1rem;">{escape(match.group(1).strip())}</strong>')
-        last_end = match.end()
-
-    html_parts.append(escape(text[last_end:]))
-    return "".join(html_parts)
-
-
 def feedback_to_moodle_html(text: str) -> str:
-    """Genera HTML compacto en párrafos para pegar en Moodle."""
+    """Genera HTML con formato estricto y exacto para Moodle."""
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     html_lines: list[str] = []
+    
+    signature_lines = [
+        "haggi de jesús tlahuisca hernández",
+        "asesor virtual",
+        "21d28277",
+        "con afecto.",
+        "cordialmente.",
+        "atentamente."
+    ]
 
-    for line in lines:
-        clean_line = re.sub(r"^\*\*|\*\*$", "", line).strip().rstrip(":")
-        if clean_line.lower().startswith("criterio "):
+    for i, line in enumerate(lines):
+        clean_line = line.replace("**", "").replace("##", "").strip()
+        lower_line = clean_line.lower()
+        es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", lower_line)
+        
+        # 1. Detectar si es un encabezado o firma (Van en negritas puras)
+        if lower_line.startswith("apreciable") or lower_line.startswith("criterio ") or lower_line in signature_lines or es_grupo:
             html_lines.append(f"<p><strong>{escape(clean_line)}</strong></p>")
+            
+            # Espacio debajo del saludo o la palabra "Cordialmente."
+            if lower_line.startswith("apreciable") or lower_line in ["cordialmente.", "atentamente.", "con afecto."]:
+                html_lines.append("<p> </p>")
+                
+        # 2. Párrafo normal (Lleva span 1rem)
         else:
-            formatted_text = markdown_line_to_html(line)
-            html_lines.append(f'<p><span style="font-size: 1rem;">{formatted_text}</span></p>')
+            safe_line = escape(line)
+            # Reconstruir negritas **texto** a <strong>
+            safe_line = re.sub(r"\*\*(.+?)\*\*", r'<strong style="font-size: 1rem;">\1</strong>', safe_line)
+            # Hacer enlaces de YouTube/Web clickeables
+            safe_line = re.sub(r"(https?://[^\s]+)", r'<a href="\1">\1</a>', safe_line)
+            
+            html_lines.append(f'<p><span style="font-size: 1rem;">{safe_line}</span></p>')
+            
+            # Agregar espacio vacío <p> </p> debajo del párrafo a menos que lo que siga sea la firma
+            if i < len(lines) - 1:
+                next_clean = lines[i+1].replace("**", "").replace("##", "").strip().lower()
+                next_es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", next_clean)
+                
+                # No ponemos espacios entre las líneas de la firma final
+                if not (lower_line in signature_lines and (next_clean in signature_lines or next_es_grupo)):
+                    html_lines.append("<p> </p>")
 
     return "\n".join(html_lines)
 
 
 def now_slug() -> str:
-    """Genera una marca de tiempo estandarizada en UTC-6."""
     tz_utc_minus_6 = timezone(timedelta(hours=-6))
     return datetime.now(tz_utc_minus_6).strftime("%Y%m%d_%H%M%S")
 
