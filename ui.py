@@ -22,7 +22,7 @@ from ui_components import (
     activity_form, download_buttons, evaluation_inputs, frase_global_form,
     header, history_card, recurso_global_form, rubric_import_form, rubric_manual_form
 )
-from utils import docx_bytes, export_json, pdf_bytes, sanitize_filename
+from utils import docx_bytes, export_json, feedback_to_moodle_html, pdf_bytes, sanitize_filename
 
 
 class RetroalimentacionApp:
@@ -115,10 +115,13 @@ class RetroalimentacionApp:
 
         if st.session_state.last_feedback:
             title = f"retroalimentacion_{sanitize_filename(estudiante)}"
+            html_feedback = feedback_to_moodle_html(st.session_state.last_feedback)
             st.subheader("Resultado")
             st.markdown(st.session_state.last_feedback)
+            with st.expander("📋 HTML compacto para Moodle"):
+                st.text_area("Código HTML", value=html_feedback, height=220, key="html_feedback_moodle")
             payload = json.dumps({"retroalimentacion": st.session_state.last_feedback, "prompt": st.session_state.last_prompt}, ensure_ascii=False, indent=2)
-            download_buttons(title, st.session_state.last_feedback, docx_bytes("Retro", st.session_state.last_feedback), pdf_bytes("Retro", st.session_state.last_feedback), payload)
+            download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("Retro", st.session_state.last_feedback), pdf_bytes("Retro", st.session_state.last_feedback), payload)
 
     def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None) -> None:
         validation = builder.validate()

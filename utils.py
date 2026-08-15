@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+from html import escape
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,39 @@ def sanitize_filename(name: str) -> str:
     cleaned = re.sub(r'[\\/*?:"<>|]', "", name)
     cleaned = cleaned.replace(" ", "_").strip()
     return cleaned or "documento"
+
+
+def markdown_line_to_html(text: str) -> str:
+    """Convierte negritas Markdown de una línea a HTML escapado."""
+    text = text.strip()
+    if not text:
+        return ""
+
+    html_parts: list[str] = []
+    last_end = 0
+
+    for match in re.finditer(r"\*\*(.+?)\*\*", text):
+        html_parts.append(escape(text[last_end:match.start()]))
+        html_parts.append(f"<strong>{escape(match.group(1).strip())}</strong>")
+        last_end = match.end()
+
+    html_parts.append(escape(text[last_end:]))
+    return "".join(html_parts)
+
+
+def feedback_to_moodle_html(text: str) -> str:
+    """Genera HTML compacto en párrafos para pegar en Moodle."""
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    html_lines: list[str] = []
+
+    for line in lines:
+        clean_line = re.sub(r"^\*\*|\*\*$", "", line).strip().rstrip(":")
+        if clean_line.lower().startswith("criterio "):
+            html_lines.append(f"<p><strong>{escape(clean_line)}</strong></p>")
+        else:
+            html_lines.append(f"<p>{markdown_line_to_html(line)}</p>")
+
+    return "\n".join(html_lines)
 
 def get_time_utc_minus_6():
     """

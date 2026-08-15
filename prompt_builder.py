@@ -69,6 +69,7 @@ ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "#
    - Escribe el nombre de cada criterio en negritas EN SU PROPIO RENGLÓN AISLADO (Ejemplo:
      **Criterio cognitivo**
      [Texto del párrafo aquí abajo...]). NO uses dos puntos (:) después del título del criterio.
+   - Mantén separación compacta: no dejes más de una línea en blanco entre el título del criterio y su párrafo (compatible con salida HTML tipo <p><strong>Criterio...</strong></p><p>...</p>).
    - VARIEDAD OBLIGATORIA: Queda ESTRICTAMENTE PROHIBIDO iniciar todos los párrafos con "Alcanzaste el nivel..." u "Obtuviste el nivel...". ¡Tienes que ser creativo! 
    - Cambia el orden en el que mencionas el nivel: A veces descríbelo hasta el final del párrafo ("...mostrando un procedimiento claro. Por todo lo anterior se obtiene el nivel **experto**."), a veces inicia describiendo las acciones del alumno ("Has resuelto correctamente..."), a veces inicia con un panorama general ("De manera general, la información...").
    - Escribe el nombre del nivel alcanzado en minúsculas y entre asteriscos dobles (ej. **experto**, **capacitado**).
