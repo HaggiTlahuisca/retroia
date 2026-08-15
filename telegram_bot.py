@@ -11,7 +11,7 @@ from database import DatabaseManager
 from prompt_builder import PromptBuilder
 from ia_client import IAClient
 from models import Retroalimentacion
-from utils import docx_bytes, pdf_bytes, sanitize_filename, get_activity_code
+from utils import docx_bytes, pdf_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html
 
 # 1. CARGA DE CREDENCIALES
 load_dotenv()
@@ -217,20 +217,16 @@ def generar_documento(message):
         
         word_bytes = docx_bytes("Retro", texto_generado)
         pdf_data = pdf_bytes("Retro", texto_generado)
+        html_text = feedback_to_moodle_html(texto_generado)
         
         act_code = get_activity_code(datos["actividad"].nombre)
         nombre_base = f"retro_{act_code}_{sanitize_filename(datos['estudiante'])}"
         
         bot.delete_message(chat_id, msg_espera.message_id)
         
-        bot.send_document(
-            chat_id, document=(f"{nombre_base}.docx", word_bytes),
-            caption=f"📄 Word: Retroalimentación de {datos['estudiante']}."
-        )
-        bot.send_document(
-            chat_id, document=(f"{nombre_base}.pdf", pdf_data),
-            caption=f"📕 PDF: Retroalimentación de {datos['estudiante']}."
-        )
+        bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word")
+        bot.send_document(chat_id, document=(f"{nombre_base}.pdf", pdf_data), caption=f"📕 PDF")
+        bot.send_document(chat_id, document=(f"{nombre_base}.html", html_text.encode('utf-8')), caption=f"🌐 HTML (Código Moodle)")
         
         del sesiones[chat_id]
         bot.send_message(chat_id, "✨ ¡Listo! Escribe /evaluar para generar otra.")
