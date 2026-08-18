@@ -22,9 +22,17 @@ def info_card(title: str, text: str) -> None:
 
 def rubric_manual_form() -> tuple[Rubrica, bool]:
     st.markdown("#### 📐 Matriz de Desempeño de la Rúbrica")
+    
+    # Interruptor dinámico para mostrar u ocultar la pestaña Colaborativo
+    es_foro = st.checkbox("Habilitar 5to criterio (Colaborativo) para Foro de Integración")
+    
     with st.form("form_rubrica_manual_matriz"):
         nombre = st.text_input("Nombre de la rúbrica", placeholder="Ej. Rúbrica Actividad 4")
-        criterios_nombres = ["Cognitivo", "Actitudinal", "Comunicativo", "Colaborativo", "Pensamiento crítico"]
+        
+        criterios_nombres = ["Cognitivo", "Actitudinal", "Comunicativo", "Pensamiento crítico"]
+        if es_foro:
+            criterios_nombres.insert(3, "Colaborativo")
+            
         niveles_nombres = ["Experto", "Capacitado", "Aceptable", "Aprendiz", "Requiere apoyo", "No evaluable"]
 
         criterios_objetos: list[Criterio] = []
