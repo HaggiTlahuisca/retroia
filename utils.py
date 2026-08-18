@@ -33,6 +33,7 @@ def sanitize_filename(name: str) -> str:
 def get_activity_code(activity_name: str) -> str:
     """Extrae el código de la actividad basado en el nombre."""
     name_lower = activity_name.lower()
+    if "foro de integración" in name_lower: return "FI"
     if "proyecto integrador" in name_lower: return "PI"
     if "actividad integradora 1" in name_lower: return "AI1"
     if "actividad integradora 2" in name_lower: return "AI2"
@@ -62,30 +63,21 @@ def feedback_to_moodle_html(text: str) -> str:
         lower_line = clean_line.lower()
         es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", lower_line)
         
-        # 1. Detectar si es un encabezado o firma (Van en negritas puras)
         if lower_line.startswith("apreciable") or lower_line.startswith("criterio ") or lower_line in signature_lines or es_grupo:
             html_lines.append(f"<p><strong>{escape(clean_line)}</strong></p>")
-            
-            # Espacio debajo del saludo o la palabra "Cordialmente."
             if lower_line.startswith("apreciable") or lower_line in ["cordialmente.", "atentamente.", "con afecto."]:
                 html_lines.append("<p> </p>")
-                
-        # 2. Párrafo normal (Lleva span 1rem)
         else:
             safe_line = escape(line)
-            # Reconstruir negritas **texto** a <strong>
             safe_line = re.sub(r"\*\*(.+?)\*\*", r'<strong style="font-size: 1rem;">\1</strong>', safe_line)
-            # Hacer enlaces de YouTube/Web clickeables
             safe_line = re.sub(r"(https?://[^\s]+)", r'<a href="\1">\1</a>', safe_line)
             
             html_lines.append(f'<p><span style="font-size: 1rem;">{safe_line}</span></p>')
             
-            # Agregar espacio vacío <p> </p> debajo del párrafo a menos que lo que siga sea la firma
             if i < len(lines) - 1:
                 next_clean = lines[i+1].replace("**", "").replace("##", "").strip().lower()
                 next_es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", next_clean)
                 
-                # No ponemos espacios entre las líneas de la firma final
                 if not (lower_line in signature_lines and (next_clean in signature_lines or next_es_grupo)):
                     html_lines.append("<p> </p>")
 
@@ -184,6 +176,7 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
         "criterio cognitivo",
         "criterio actitudinal",
         "criterio comunicativo",
+        "criterio colaborativo",
         "criterio pensamiento crítico",
         "retroalimentación formativa"
     ]
@@ -278,6 +271,8 @@ def pdf_bytes(title: str, text: str) -> bytes:
     for paragraph in text.split("\n"):
         p_text = paragraph.strip().replace("##", "")
         if p_text:
+            # Reemplazar negritas de markdown por HTML para el PDF
+            p_text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', p_text)
             p_formatted = p_text.replace("\n", "<br/>")
             story.append(Paragraph(p_formatted, normal_style))
 
