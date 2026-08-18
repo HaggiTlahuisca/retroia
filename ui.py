@@ -90,7 +90,7 @@ class RetroalimentacionApp:
         st.markdown("### 📝 Datos de la Evaluación")
         estudiante = st.text_input("Nombre del Estudiante", placeholder="Ej. Argelia")
 
-        criterios_evaluados, calificacion_total = evaluation_inputs()
+        criterios_evaluados, calificacion_total = evaluation_inputs(activity.nombre)
         observaciones = st.text_area("Observaciones y notas del Asesor Virtual:", height=100)
 
         builder = PromptBuilder(
@@ -122,7 +122,7 @@ class RetroalimentacionApp:
             with st.expander("📋 HTML compacto para Moodle"):
                 st.text_area("Código HTML", value=html_feedback, height=220, key="html_feedback_moodle")
             payload = json.dumps({"retroalimentacion": st.session_state.last_feedback, "prompt": st.session_state.last_prompt}, ensure_ascii=False, indent=2)
-            download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("Retro", st.session_state.last_feedback), pdf_bytes("Retro", st.session_state.last_feedback), payload)
+            download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback), pdf_bytes("", st.session_state.last_feedback), payload)
 
     def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None) -> None:
         validation = builder.validate()
