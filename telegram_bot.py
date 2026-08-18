@@ -11,7 +11,7 @@ from database import DatabaseManager
 from prompt_builder import PromptBuilder
 from ia_client import IAClient
 from models import Retroalimentacion
-from utils import docx_bytes, pdf_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html
+from utils import docx_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html
 
 # 1. CARGA DE CREDENCIALES
 load_dotenv()
@@ -29,7 +29,6 @@ app = Flask(__name__)
 
 @app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
-    """Ruta secreta que Telegram usará para enviarnos las respuestas."""
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
@@ -45,23 +44,26 @@ def home():
 # 3. LÓGICA DE LA EVALUACIÓN
 sesiones = {}
 
-NIVELES = {
-    "experto": ("Experto", 40.0),
-    "capacitado": ("Capacitado", 36.0),
-    "aceptable": ("Aceptable", 32.0),
-    "aprendiz": ("Aprendiz", 28.0),
-    "requiere_apoyo": ("Requiere apoyo", 24.0),
-    "no_evaluable": ("No evaluable", 0.0)
-}
+NIVELES_NOMBRES = ["Experto", "Capacitado", "Aceptable", "Aprendiz", "Requiere apoyo", "No evaluable"]
+NIVELES_CLAVES = ["experto", "capacitado", "aceptable", "aprendiz", "requiere_apoyo", "no_evaluable"]
 
 def obtener_teclado_niveles(prefijo: str) -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=2)
     botones = [
         InlineKeyboardButton(nombre, callback_data=f"{prefijo}_{clave}") 
-        for clave, (nombre, _) in NIVELES.items()
+        for nombre, clave in zip(NIVELES_NOMBRES, NIVELES_CLAVES)
     ]
     markup.add(*botones)
     return markup
+
+def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> float:
+    is_foro = "foro de integración" in actividad_nombre.lower()
+    if is_foro:
+        if criterio == "cog": return [40.0, 34.0, 32.0, 28.0, 24.0, 0.0][nivel_idx]
+        else: return [15.0, 14.0, 12.0, 11.0, 9.0, 0.0][nivel_idx]
+    else:
+        if criterio == "cog": return [40.0, 36.0, 32.0, 28.0, 24.0, 0.0][nivel_idx]
+        else: return [20.0, 18.0, 16.0, 14.0, 12.0, 0.0][nivel_idx]
 
 
 @bot.message_handler(commands=['start', 'evaluar'])
@@ -119,7 +121,10 @@ def recibir_nombre(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('cog_'))
 def recibir_cognitivo(call):
     chat_id = call.message.chat.id
-    nivel_nombre, puntos = NIVELES[call.data.split('_', 1)[1]]
+    nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
+    nivel_nombre = NIVELES_NOMBRES[nivel_idx]
+    
+    puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "cog", nivel_idx)
     
     sesiones[chat_id]["criterios"]["Cognitivo"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
@@ -135,8 +140,10 @@ def recibir_cognitivo(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('actitud_'))
 def recibir_actitudinal(call):
     chat_id = call.message.chat.id
-    nivel_nombre, puntos = NIVELES[call.data.split('_', 1)[1]]
-    puntos = puntos / 2 
+    nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
+    nivel_nombre = NIVELES_NOMBRES[nivel_idx]
+    
+    puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "act", nivel_idx)
     
     sesiones[chat_id]["criterios"]["Actitudinal"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
@@ -152,10 +159,41 @@ def recibir_actitudinal(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('com_'))
 def recibir_comunicativo(call):
     chat_id = call.message.chat.id
-    nivel_nombre, puntos = NIVELES[call.data.split('_', 1)[1]]
-    puntos = puntos / 2
+    nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
+    nivel_nombre = NIVELES_NOMBRES[nivel_idx]
+    
+    puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "com", nivel_idx)
     
     sesiones[chat_id]["criterios"]["Comunicativo"] = {"nivel": nivel_nombre, "puntos": puntos}
+    sesiones[chat_id]["total_puntos"] += puntos
+    
+    is_foro = "foro de integración" in sesiones[chat_id]["actividad"].nombre.lower()
+    
+    if is_foro:
+        sesiones[chat_id]["paso"] = "colaborativo"
+        bot.edit_message_text(
+            "👥 *Criterio Colaborativo*\nSelecciona el nivel alcanzado:",
+            chat_id=chat_id, message_id=call.message.message_id,
+            reply_markup=obtener_teclado_niveles("col"), parse_mode="Markdown"
+        )
+    else:
+        sesiones[chat_id]["paso"] = "pensamiento"
+        bot.edit_message_text(
+            "💡 *Pensamiento Crítico*\nSelecciona el nivel alcanzado:",
+            chat_id=chat_id, message_id=call.message.message_id,
+            reply_markup=obtener_teclado_niveles("pen"), parse_mode="Markdown"
+        )
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('col_'))
+def recibir_colaborativo(call):
+    chat_id = call.message.chat.id
+    nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
+    nivel_nombre = NIVELES_NOMBRES[nivel_idx]
+    
+    puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "col", nivel_idx)
+    
+    sesiones[chat_id]["criterios"]["Colaborativo"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
     sesiones[chat_id]["paso"] = "pensamiento"
     
@@ -169,8 +207,10 @@ def recibir_comunicativo(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('pen_'))
 def recibir_pensamiento(call):
     chat_id = call.message.chat.id
-    nivel_nombre, puntos = NIVELES[call.data.split('_', 1)[1]]
-    puntos = puntos / 2
+    nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
+    nivel_nombre = NIVELES_NOMBRES[nivel_idx]
+    
+    puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "pen", nivel_idx)
     
     sesiones[chat_id]["criterios"]["Pensamiento crítico"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
@@ -215,8 +255,7 @@ def generar_documento(message):
         )
         db.create_history(item, datos["actividad"].id)
         
-        word_bytes = docx_bytes("Retro", texto_generado)
-        pdf_data = pdf_bytes("Retro", texto_generado)
+        word_bytes = docx_bytes("", texto_generado)
         html_text = feedback_to_moodle_html(texto_generado)
         
         act_code = get_activity_code(datos["actividad"].nombre)
@@ -225,7 +264,6 @@ def generar_documento(message):
         bot.delete_message(chat_id, msg_espera.message_id)
         
         bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word")
-        bot.send_document(chat_id, document=(f"{nombre_base}.pdf", pdf_data), caption=f"📕 PDF")
         bot.send_document(chat_id, document=(f"{nombre_base}.html", html_text.encode('utf-8')), caption=f"🌐 HTML (Código Moodle)")
         
         del sesiones[chat_id]
