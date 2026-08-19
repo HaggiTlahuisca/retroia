@@ -267,7 +267,14 @@ def generar_documento(message):
         bot.send_document(chat_id, document=(f"{nombre_base}.html", html_text.encode('utf-8')), caption=f"🌐 HTML (Código Moodle)")
         
         del sesiones[chat_id]
-        bot.send_message(chat_id, "✨ ¡Listo! Escribe /evaluar para generar otra.")
+        
+        # Alerta visual con la calificación solo visible para Haggi vía Telegram
+        if "foro de integración" in datos["actividad"].nombre.lower():
+            mensaje_final = f"🔢 *Calificación para Moodle:* `{datos['total_puntos']:.1f} / 100`\n\n✨ ¡Listo! Escribe /evaluar para generar otra."
+        else:
+            mensaje_final = "✨ ¡Listo! Escribe /evaluar para generar otra."
+            
+        bot.send_message(chat_id, mensaje_final, parse_mode="Markdown")
         
     except Exception as e:
         bot.edit_message_text(f"❌ Ocurrió un error: {e}", chat_id, msg_espera.message_id)
