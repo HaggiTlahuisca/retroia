@@ -4,7 +4,7 @@ import os
 import time
 from flask import Flask, request, abort
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from dotenv import load_dotenv
 
 from database import DatabaseManager
@@ -74,14 +74,27 @@ def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> floa
         else: return [20.0, 18.0, 16.0, 14.0, 12.0, 0.0][nivel_idx]
 
 
-@bot.message_handler(commands=['start', 'evaluar', 'batch'])
+@bot.message_handler(commands=['ayuda'])
+def comando_ayuda(message):
+    texto_ayuda = (
+        "🤖 *Bienvenido al Asistente de Retroalimentación IA*\n\n"
+        "Soy tu asistente virtual diseñado para generar retroalimentaciones pedagógicas en segundos. Aquí tienes lo que puedo hacer:\n\n"
+        "🔹 /evaluar - Inicia una evaluación normal. Te pediré el nombre del alumno, sus niveles de rúbrica y generaré sus documentos al instante.\n"
+        "🔹 /lote - Inicia el modo de captura masiva. Primero seleccionarás la actividad, y luego podrás calificar alumno tras alumno sin detenerte. Al final, presionas un botón para que genere todas las retroalimentaciones juntas.\n"
+        "🔹 /cancelar - Si te equivocas a mitad de una evaluación, usa este comando para borrar todo y empezar de cero.\n\n"
+        "💡 *Tip:* Recuerda que puedes usar el menú desplegable junto a tu teclado para acceder rápido a estos comandos."
+    )
+    bot.send_message(message.chat.id, texto_ayuda, parse_mode="Markdown")
+
+
+@bot.message_handler(commands=['start', 'evaluar', 'lote'])
 def iniciar_evaluacion(message):
     actividades = db.list_activities()
     if not actividades:
         bot.send_message(message.chat.id, "⚠️ No hay actividades configuradas.")
         return
 
-    modo = "batch" if message.text.startswith('/batch') else "individual"
+    modo = "batch" if message.text.startswith('/lote') else "individual"
     sesiones[message.chat.id] = {"modo": modo, "paso": "actividad", "criterios": {}, "total_puntos": 0.0, "cola": []}
     
     markup = InlineKeyboardMarkup(row_width=1)
@@ -97,7 +110,7 @@ def cancelar_evaluacion(message):
     chat_id = message.chat.id
     if chat_id in sesiones:
         del sesiones[chat_id]
-        bot.send_message(chat_id, "🚫 Evaluación cancelada. Puedes empezar de nuevo enviando /evaluar o /batch.")
+        bot.send_message(chat_id, "🚫 Evaluación cancelada. Puedes empezar de nuevo enviando /evaluar o /lote.")
     else:
         bot.send_message(chat_id, "No hay ninguna evaluación en curso para cancelar.")
 
@@ -304,7 +317,7 @@ def batch_run(call):
         procesar_generacion_individual(chat_id, None, item["estudiante"], item["criterios"], item["total_puntos"], item["observaciones"])
         
     del sesiones[chat_id]
-    bot.send_message(chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /batch para iniciar de nuevo.")
+    bot.send_message(chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /lote para iniciar de nuevo.")
 
 
 def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs):
@@ -352,7 +365,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             bot.send_message(chat_id, f"🔢 *Calificación de {estudiante}:* `{total_puntos:.1f} / 100`", parse_mode="Markdown")
             
         if datos.get("modo") == "individual":
-            bot.send_message(chat_id, "✨ ¡Listo! Escribe /evaluar o /batch para generar otra.")
+            bot.send_message(chat_id, "✨ ¡Listo! Escribe /evaluar o /lote para generar otra.")
             del sesiones[chat_id]
             
     except Exception as e:
@@ -366,6 +379,15 @@ if __name__ == '__main__':
     bot.remove_webhook()
     time.sleep(1)
     
+    # 4. CONFIGURACIÓN DEL MENÚ NATIVO DE TELEGRAM
+    comandos = [
+        BotCommand("evaluar", "👤 Iniciar evaluación individual"),
+        BotCommand("lote", "📦 Iniciar evaluación masiva en lote"),
+        BotCommand("cancelar", "🚫 Cancelar la sesión actual"),
+        BotCommand("ayuda", "❓ Ver instrucciones del bot")
+    ]
+    bot.set_my_commands(comandos)
+    
     webhook_url = os.getenv("WEBHOOK_URL")
     if webhook_url:
         bot.set_webhook(url=f"{webhook_url.rstrip('/')}/{TOKEN}")
@@ -375,3 +397,4 @@ if __name__ == '__main__':
 
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
+
