@@ -59,22 +59,22 @@ Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO r
 {crit_str}
 - Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles."}
 
-### REGLA DE ORO DE FORMATO:
-ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "## Áreas de Oportunidad"). Todo debe fluir natural.
+### REGLAS DE ORO DE FORMATO PARA EL FORO (¡MUY IMPORTANTE!):
+- ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos, negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.). Todo debe fluir como párrafos naturales.
+- ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo.
 
-### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES (PARA FORO):
+### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
-1. **SALUDO Y FORTALEZAS:**
-   Inicia con: **Apreciable, {self.estudiante}.**
-   Luego, en el siguiente párrafo, escribe: "Agradezco tu participación en este foro de integración."
-   Posteriormente, destaca sus aportaciones. Utiliza tus directrices: {self.dirs.get('fortalezas', '')}
+1. **SALUDO Y ENTRADA:**
+   Inicia exactamente con: **Apreciable, {self.estudiante}.**
+   En el siguiente párrafo, escribe exactamente: "Agradezco tu participación en este foro de integración."
 
-2. **EVALUACIÓN POR CRITERIOS:**
-   - Escribe el nombre de cada criterio en negritas EN SU PROPIO RENGLÓN AISLADO (Ejemplo: **Criterio cognitivo**).
-   - Escribe el nombre del nivel en minúsculas y entre asteriscos dobles (ej. **experto**).
+2. **DESARROLLO CONDENSADO (FORTALEZAS Y DESEMPEÑO):**
+   Redacta uno o dos párrafos fluidos y conversacionales integrando el desempeño del estudiante en los aspectos cognitivo, actitudinal, comunicativo, colaborativo y de pensamiento crítico. Convierte los resultados numéricos de las evaluaciones en un texto cualitativo destacando sus aportaciones al foro.
+   Utiliza tus directrices: {self.dirs.get('fortalezas', '')}
 
 3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS:**
-   Redacta en prosa fluida sin títulos. 
+   En un nuevo párrafo, menciona las áreas de mejora de forma constructiva de acuerdo con las fallas indicadas en la evaluación (si las tuvo).
    {self.dirs.get('areas_oportunidad', '')} {self.dirs.get('sugerencias', '')}
 
 4. **CIERRE EXACTO Y DESPEDIDA:**
