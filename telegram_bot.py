@@ -56,6 +56,14 @@ def obtener_teclado_niveles(prefijo: str) -> InlineKeyboardMarkup:
     markup.add(*botones)
     return markup
 
+def obtener_teclado_obs() -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("❌ Ninguna", callback_data="obs_ninguna"),
+        InlineKeyboardButton("📝 Escribir nota", callback_data="obs_escribir")
+    )
+    return markup
+
 def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> float:
     is_foro = "foro de integración" in actividad_nombre.lower()
     if is_foro:
@@ -214,24 +222,46 @@ def recibir_pensamiento(call):
     
     sesiones[chat_id]["criterios"]["Pensamiento crítico"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
-    sesiones[chat_id]["paso"] = "observaciones"
     
+    # En lugar de pedir texto, enviamos los botones de opciones
     bot.edit_message_text(
-        "✅ Rúbrica completa.\n\nEscribe tus *observaciones* para el estudiante (o escribe 'ninguna'):",
-        chat_id=chat_id, message_id=call.message.message_id, parse_mode="Markdown"
+        "✅ Rúbrica completa.\n\n¿Deseas agregar observaciones adicionales para el estudiante?",
+        chat_id=chat_id, message_id=call.message.message_id,
+        reply_markup=obtener_teclado_obs()
     )
 
 
-@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "observaciones")
-def generar_documento(message):
-    chat_id = message.chat.id
+@bot.callback_query_handler(func=lambda call: call.data.startswith('obs_'))
+def recibir_opcion_observaciones(call):
+    chat_id = call.message.chat.id
+    opcion = call.data.split('_')[1]
     
-    if message.text.startswith('/'):
-        return
-        
+    if opcion == "ninguna":
+        sesiones[chat_id]["observaciones"] = ""
+        procesar_generacion(chat_id, call.message.message_id)
+    else:
+        sesiones[chat_id]["paso"] = "escribir_obs"
+        bot.edit_message_text(
+            "📝 Escribe tus observaciones para el estudiante:",
+            chat_id=chat_id, message_id=call.message.message_id
+        )
+
+
+@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "escribir_obs")
+def recibir_texto_observaciones(message):
+    chat_id = message.chat.id
+    if message.text.startswith('/'): return
+    
+    sesiones[chat_id]["observaciones"] = message.text
+    msg_espera = bot.send_message(chat_id, "⏳ Procesando...")
+    procesar_generacion(chat_id, msg_espera.message_id)
+
+
+def procesar_generacion(chat_id: int, message_id_to_edit: int):
     datos = sesiones[chat_id]
-    obs = "" if message.text.lower().strip() == "ninguna" else message.text
-    msg_espera = bot.send_message(chat_id, "⏳ Redactando retroalimentación...")
+    obs = datos.get("observaciones", "")
+    
+    bot.edit_message_text("⏳ Redactando retroalimentación...", chat_id=chat_id, message_id=message_id_to_edit)
     
     try:
         builder = PromptBuilder(
@@ -261,14 +291,13 @@ def generar_documento(message):
         act_code = get_activity_code(datos["actividad"].nombre)
         nombre_base = f"retro_{act_code}_{sanitize_filename(datos['estudiante'])}"
         
-        bot.delete_message(chat_id, msg_espera.message_id)
+        bot.delete_message(chat_id, message_id_to_edit)
         
         bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word")
         bot.send_document(chat_id, document=(f"{nombre_base}.html", html_text.encode('utf-8')), caption=f"🌐 HTML (Código Moodle)")
         
         del sesiones[chat_id]
         
-        # Alerta visual con la calificación solo visible para Haggi vía Telegram
         if "foro de integración" in datos["actividad"].nombre.lower():
             mensaje_final = f"🔢 *Calificación para Moodle:* `{datos['total_puntos']:.1f} / 100`\n\n✨ ¡Listo! Escribe /evaluar para generar otra."
         else:
@@ -277,7 +306,7 @@ def generar_documento(message):
         bot.send_message(chat_id, mensaje_final, parse_mode="Markdown")
         
     except Exception as e:
-        bot.edit_message_text(f"❌ Ocurrió un error: {e}", chat_id, msg_espera.message_id)
+        bot.edit_message_text(f"❌ Ocurrió un error: {e}", chat_id, message_id_to_edit)
 
 
 if __name__ == '__main__':
