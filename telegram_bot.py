@@ -74,19 +74,22 @@ def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> floa
         else: return [20.0, 18.0, 16.0, 14.0, 12.0, 0.0][nivel_idx]
 
 
-@bot.message_handler(commands=['start', 'evaluar'])
+@bot.message_handler(commands=['start', 'evaluar', 'batch'])
 def iniciar_evaluacion(message):
     actividades = db.list_activities()
     if not actividades:
         bot.send_message(message.chat.id, "⚠️ No hay actividades configuradas.")
         return
 
-    sesiones[message.chat.id] = {"paso": "actividad", "criterios": {}, "total_puntos": 0.0}
+    modo = "batch" if message.text.startswith('/batch') else "individual"
+    sesiones[message.chat.id] = {"modo": modo, "paso": "actividad", "criterios": {}, "total_puntos": 0.0, "cola": []}
+    
     markup = InlineKeyboardMarkup(row_width=1)
     for act in actividades:
         markup.add(InlineKeyboardButton(act["nombre"], callback_data=f"act_{act['id']}"))
         
-    bot.send_message(message.chat.id, "👋 ¡Hola, Haggi! Selecciona la actividad a evaluar:", reply_markup=markup)
+    encabezado = "📦 *Modo Lote activado*\n" if modo == "batch" else "👋 ¡Hola, Haggi!\n"
+    bot.send_message(message.chat.id, f"{encabezado}Selecciona la actividad a evaluar:", reply_markup=markup, parse_mode="Markdown")
 
 
 @bot.message_handler(commands=['cancelar'])
@@ -94,7 +97,7 @@ def cancelar_evaluacion(message):
     chat_id = message.chat.id
     if chat_id in sesiones:
         del sesiones[chat_id]
-        bot.send_message(chat_id, "🚫 Evaluación cancelada. Puedes empezar de nuevo enviando /evaluar.")
+        bot.send_message(chat_id, "🚫 Evaluación cancelada. Puedes empezar de nuevo enviando /evaluar o /batch.")
     else:
         bot.send_message(chat_id, "No hay ninguna evaluación en curso para cancelar.")
 
@@ -223,7 +226,6 @@ def recibir_pensamiento(call):
     sesiones[chat_id]["criterios"]["Pensamiento crítico"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
     
-    # En lugar de pedir texto, enviamos los botones de opciones
     bot.edit_message_text(
         "✅ Rúbrica completa.\n\n¿Deseas agregar observaciones adicionales para el estudiante?",
         chat_id=chat_id, message_id=call.message.message_id,
@@ -238,7 +240,7 @@ def recibir_opcion_observaciones(call):
     
     if opcion == "ninguna":
         sesiones[chat_id]["observaciones"] = ""
-        procesar_generacion(chat_id, call.message.message_id)
+        evaluar_o_encolar(chat_id, call.message.message_id)
     else:
         sesiones[chat_id]["paso"] = "escribir_obs"
         bot.edit_message_text(
@@ -254,22 +256,71 @@ def recibir_texto_observaciones(message):
     
     sesiones[chat_id]["observaciones"] = message.text
     msg_espera = bot.send_message(chat_id, "⏳ Procesando...")
-    procesar_generacion(chat_id, msg_espera.message_id)
+    evaluar_o_encolar(chat_id, msg_espera.message_id)
 
 
-def procesar_generacion(chat_id: int, message_id_to_edit: int):
+def evaluar_o_encolar(chat_id, message_id_to_edit):
     datos = sesiones[chat_id]
-    obs = datos.get("observaciones", "")
+    if datos.get("modo") == "batch":
+        datos["cola"].append({
+            "estudiante": datos["estudiante"],
+            "criterios": datos["criterios"].copy(),
+            "total_puntos": datos["total_puntos"],
+            "observaciones": datos.get("observaciones", "")
+        })
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("➕ Evaluar a otro", callback_data="batch_add"),
+            InlineKeyboardButton("🚀 Generar lote", callback_data="batch_run")
+        )
+        
+        bot.edit_message_text(
+            f"✅ *{datos['estudiante']}* guardado en la cola.\n"
+            f"Estudiantes en espera: {len(datos['cola'])}\n\n"
+            f"¿Qué deseas hacer?",
+            chat_id=chat_id, message_id=message_id_to_edit, reply_markup=markup, parse_mode="Markdown"
+        )
+    else:
+        procesar_generacion_individual(chat_id, message_id_to_edit, datos["estudiante"], datos["criterios"], datos["total_puntos"], datos.get("observaciones", ""))
+
+
+@bot.callback_query_handler(func=lambda call: call.data == 'batch_add')
+def batch_add(call):
+    chat_id = call.message.chat.id
+    sesiones[chat_id]["criterios"] = {}
+    sesiones[chat_id]["total_puntos"] = 0.0
+    sesiones[chat_id]["paso"] = "nombre"
+    bot.edit_message_text("✍️ Escribe el nombre del siguiente estudiante:", chat_id=chat_id, message_id=call.message.message_id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data == 'batch_run')
+def batch_run(call):
+    chat_id = call.message.chat.id
+    cola = sesiones[chat_id].get("cola", [])
+    bot.edit_message_text(f"🚀 Generando lote de {len(cola)} retroalimentaciones. Esto tomará un momento...", chat_id=chat_id, message_id=call.message.message_id)
     
-    bot.edit_message_text("⏳ Redactando retroalimentación...", chat_id=chat_id, message_id=message_id_to_edit)
+    for idx, item in enumerate(cola):
+        bot.send_message(chat_id, f"⏳ Evaluando a {item['estudiante']} ({idx+1}/{len(cola)})...")
+        procesar_generacion_individual(chat_id, None, item["estudiante"], item["criterios"], item["total_puntos"], item["observaciones"])
+        
+    del sesiones[chat_id]
+    bot.send_message(chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /batch para iniciar de nuevo.")
+
+
+def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs):
+    datos = sesiones[chat_id]
+    actividad = datos["actividad"]
+    
+    if message_id_to_edit:
+        bot.edit_message_text("⏳ Redactando retroalimentación...", chat_id=chat_id, message_id=message_id_to_edit)
     
     try:
         builder = PromptBuilder(
             directrices=db.get_all_directrices(),
-            actividad=datos["actividad"],
-            estudiante=datos["estudiante"],
-            calificacion=datos["total_puntos"],
-            criterios_evaluados=datos["criterios"],
+            actividad=actividad,
+            estudiante=estudiante,
+            calificacion=total_puntos,
+            criterios_evaluados=criterios,
             observaciones=obs,
         )
         prompt = builder.build()
@@ -280,33 +331,35 @@ def procesar_generacion(chat_id: int, message_id_to_edit: int):
         texto_generado = ia_client.generar(prompt, api_key, modelo_id, 0.5, 4000)
         
         item = Retroalimentacion(
-            datos["estudiante"], datos["actividad"].nombre, texto_generado, 
-            modelo_id, datos["total_puntos"], datos["criterios"], obs, prompt, 0.5
+            estudiante, actividad.nombre, texto_generado, 
+            modelo_id, total_puntos, criterios, obs, prompt, 0.5
         )
-        db.create_history(item, datos["actividad"].id)
+        db.create_history(item, actividad.id)
         
         word_bytes = docx_bytes("", texto_generado)
         html_text = feedback_to_moodle_html(texto_generado)
         
-        act_code = get_activity_code(datos["actividad"].nombre)
-        nombre_base = f"retro_{act_code}_{sanitize_filename(datos['estudiante'])}"
+        act_code = get_activity_code(actividad.nombre)
+        nombre_base = f"retro_{act_code}_{sanitize_filename(estudiante)}"
         
-        bot.delete_message(chat_id, message_id_to_edit)
+        if message_id_to_edit:
+            bot.delete_message(chat_id, message_id_to_edit)
         
-        bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word")
-        bot.send_document(chat_id, document=(f"{nombre_base}.html", html_text.encode('utf-8')), caption=f"🌐 HTML (Código Moodle)")
+        bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word: {estudiante}")
+        bot.send_document(chat_id, document=(f"{nombre_base}.html", html_text.encode('utf-8')), caption=f"🌐 HTML: {estudiante}")
         
-        del sesiones[chat_id]
-        
-        if "foro de integración" in datos["actividad"].nombre.lower():
-            mensaje_final = f"🔢 *Calificación para Moodle:* `{datos['total_puntos']:.1f} / 100`\n\n✨ ¡Listo! Escribe /evaluar para generar otra."
-        else:
-            mensaje_final = "✨ ¡Listo! Escribe /evaluar para generar otra."
+        if "foro de integración" in actividad.nombre.lower():
+            bot.send_message(chat_id, f"🔢 *Calificación de {estudiante}:* `{total_puntos:.1f} / 100`", parse_mode="Markdown")
             
-        bot.send_message(chat_id, mensaje_final, parse_mode="Markdown")
-        
+        if datos.get("modo") == "individual":
+            bot.send_message(chat_id, "✨ ¡Listo! Escribe /evaluar o /batch para generar otra.")
+            del sesiones[chat_id]
+            
     except Exception as e:
-        bot.edit_message_text(f"❌ Ocurrió un error: {e}", chat_id, message_id_to_edit)
+        if message_id_to_edit:
+            bot.edit_message_text(f"❌ Ocurrió un error con {estudiante}: {e}", chat_id, message_id_to_edit)
+        else:
+            bot.send_message(chat_id, f"❌ Ocurrió un error con {estudiante}: {e}")
 
 
 if __name__ == '__main__':
