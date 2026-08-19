@@ -209,11 +209,15 @@ class RetroalimentacionApp:
             
             df_data = []
             for r in rows:
+                fecha_val = r["fecha"] if "fecha" in r.keys() else ""
+                estudiante_val = r["estudiante"] if "estudiante" in r.keys() else ""
+                calificacion_val = r["calificacion"] if "calificacion" in r.keys() else 0.0
+                
                 df_data.append({
                     "Seleccionar": True,
-                    "Fecha": r.get("fecha", ""),
-                    "Estudiante": r.get("estudiante", ""),
-                    "Calificación": r.get("calificacion", 0.0),
+                    "Fecha": fecha_val,
+                    "Estudiante": estudiante_val,
+                    "Calificación": calificacion_val,
                     "ID": r["id"]
                 })
             df = pd.DataFrame(df_data)
@@ -228,8 +232,11 @@ class RetroalimentacionApp:
             if st.button(f"📥 Descargar {len(selected_rows)} archivos en ZIP", type="primary", disabled=len(selected_rows)==0):
                 archivos = []
                 for r in selected_rows:
-                    act_code = get_activity_code(r.get("actividad", ""))
-                    clean_name = sanitize_filename(r.get("estudiante", ""))
+                    act_val = r["actividad"] if "actividad" in r.keys() and r["actividad"] else ""
+                    est_val = r["estudiante"] if "estudiante" in r.keys() else ""
+                    
+                    act_code = get_activity_code(act_val)
+                    clean_name = sanitize_filename(est_val)
                     docx_data = docx_bytes("", r["retroalimentacion"])
                     html_text = feedback_to_moodle_html(r["retroalimentacion"])
                     archivos.append((f"retro_{act_code}_{clean_name}.docx", docx_data))
