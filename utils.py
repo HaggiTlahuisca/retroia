@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import zipfile
 from html import escape
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -271,7 +272,6 @@ def pdf_bytes(title: str, text: str) -> bytes:
     for paragraph in text.split("\n"):
         p_text = paragraph.strip().replace("##", "")
         if p_text:
-            # Reemplazar negritas de markdown por HTML para el PDF
             p_text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', p_text)
             p_formatted = p_text.replace("\n", "<br/>")
             story.append(Paragraph(p_formatted, normal_style))
@@ -279,6 +279,16 @@ def pdf_bytes(title: str, text: str) -> bytes:
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
+
+
+def create_zip(archivos: list[tuple[str, bytes]]) -> bytes:
+    """Empaqueta una lista de archivos (nombre, contenido_en_bytes) en un archivo ZIP."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for nombre_archivo, data in archivos:
+            zf.writestr(nombre_archivo, data)
+    buf.seek(0)
+    return buf.getvalue()
 
 
 def export_json(data: dict[str, Any], filename_prefix: str = "export") -> Path:
