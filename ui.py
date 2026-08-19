@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import pandas as pd
 from typing import Any
 
 import streamlit as st
@@ -22,7 +23,7 @@ from ui_components import (
     activity_form, download_buttons, evaluation_inputs, frase_global_form,
     header, history_card, recurso_global_form, rubric_import_form, rubric_manual_form
 )
-from utils import docx_bytes, export_json, feedback_to_moodle_html, pdf_bytes, sanitize_filename, get_activity_code
+from utils import docx_bytes, export_json, feedback_to_moodle_html, pdf_bytes, sanitize_filename, get_activity_code, create_zip
 
 
 class RetroalimentacionApp:
@@ -71,6 +72,7 @@ class RetroalimentacionApp:
             "max_tokens": DEFAULT_MAX_TOKENS,
             "last_feedback": "",
             "last_prompt": "",
+            "batch_queue": []
         }
         for key, value in defaults.items():
             st.session_state.setdefault(key, value)
@@ -82,17 +84,19 @@ class RetroalimentacionApp:
             return
             
         labels = {f"{r['nombre']}": r["id"] for r in activities}
+        
+        modo = st.radio("Modo de Evaluación", ["👤 Individual", "📦 Lote (Batch)"], horizontal=True)
+        st.markdown("---")
+        
         selected = st.selectbox("Selecciona la Actividad a evaluar", list(labels.keys()))
         activity = self.db.get_activity(labels[selected])
         if not activity: return
 
-        st.markdown("---")
         st.markdown("### 📝 Datos de la Evaluación")
         estudiante = st.text_input("Nombre del Estudiante", placeholder="Ej. Argelia")
 
         criterios_evaluados, calificacion_total = evaluation_inputs(activity.nombre)
         
-        # Nuevo selector de observaciones (Evita teclear "ninguna")
         tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir nota al estudiante"], horizontal=True)
         if tipo_obs == "📝 Sí, escribir nota al estudiante":
             observaciones = st.text_area("Escribe tus observaciones:", height=100)
@@ -113,26 +117,64 @@ class RetroalimentacionApp:
         with st.expander("🔍 Vista previa del prompt interno"):
             st.text(prompt)
 
-        col_a, col_b = st.columns(2)
-        if col_a.button("✨ Generar Retroalimentación", type="primary", use_container_width=True):
-            self._generate_feedback(builder, activity.id)
-        if col_b.button("🔄 Regenerar", use_container_width=True):
-            self._generate_feedback(builder, activity.id)
+        if modo == "👤 Individual":
+            col_a, col_b = st.columns(2)
+            if col_a.button("✨ Generar Retroalimentación", type="primary", use_container_width=True):
+                self._generate_feedback(builder, activity.id)
+            if col_b.button("🔄 Regenerar", use_container_width=True):
+                self._generate_feedback(builder, activity.id)
 
-        if st.session_state.last_feedback:
-            act_code = get_activity_code(activity.nombre)
-            title = f"retro_{act_code}_{sanitize_filename(estudiante)}"
-            html_feedback = feedback_to_moodle_html(st.session_state.last_feedback)
-            st.subheader("Resultado")
-            
-            if "foro de integración" in activity.nombre.lower():
-                st.info(f"🔢 **Calificación para Moodle:** `{calificacion_total:.1f} / 100`")
+            if st.session_state.last_feedback:
+                act_code = get_activity_code(activity.nombre)
+                title = f"retro_{act_code}_{sanitize_filename(estudiante)}"
+                html_feedback = feedback_to_moodle_html(st.session_state.last_feedback)
+                st.subheader("Resultado")
                 
-            st.markdown(st.session_state.last_feedback)
-            with st.expander("📋 HTML compacto para Moodle"):
-                st.text_area("Código HTML", value=html_feedback, height=220, key="html_feedback_moodle")
-            payload = json.dumps({"retroalimentacion": st.session_state.last_feedback, "prompt": st.session_state.last_prompt}, ensure_ascii=False, indent=2)
-            download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback), pdf_bytes("", st.session_state.last_feedback), payload)
+                if "foro de integración" in activity.nombre.lower():
+                    st.info(f"🔢 **Calificación para Moodle:** `{calificacion_total:.1f} / 100`")
+                    
+                st.markdown(st.session_state.last_feedback)
+                with st.expander("📋 HTML compacto para Moodle"):
+                    st.text_area("Código HTML", value=html_feedback, height=220, key="html_feedback_moodle")
+                payload = json.dumps({"retroalimentacion": st.session_state.last_feedback, "prompt": st.session_state.last_prompt}, ensure_ascii=False, indent=2)
+                download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback), pdf_bytes("", st.session_state.last_feedback), payload)
+        
+        else:
+            if st.button("➕ Agregar a la cola de procesamiento", type="primary", use_container_width=True):
+                validation = builder.validate()
+                if validation.ok:
+                    st.session_state.batch_queue.append({
+                        "estudiante": estudiante,
+                        "calificacion_total": calificacion_total,
+                        "criterios_evaluados": criterios_evaluados,
+                        "observaciones": observaciones
+                    })
+                    st.success(f"✅ {estudiante} agregado. (Total en cola: {len(st.session_state.batch_queue)})")
+                else:
+                    for error in validation.errors: st.error(error)
+            
+            if st.session_state.batch_queue:
+                st.markdown("### 📋 Cola de Procesamiento")
+                for i, item in enumerate(st.session_state.batch_queue):
+                    st.write(f"{i+1}. **{item['estudiante']}** ({item['calificacion_total']} pts)")
+                
+                if st.button("🚀 Procesar todo el lote ahora", type="primary"):
+                    progress_bar = st.progress(0)
+                    total_q = len(st.session_state.batch_queue)
+                    
+                    for idx, item in enumerate(st.session_state.batch_queue):
+                        b = PromptBuilder(self.db.get_all_directrices(), activity, item["estudiante"], item["calificacion_total"], item["criterios_evaluados"], item["observaciones"])
+                        prompt = b.build()
+                        try:
+                            text = self.ia_client.generar(prompt, st.session_state.api_key, st.session_state.model_id, st.session_state.temperature, st.session_state.max_tokens)
+                            retro = Retroalimentacion(b.estudiante, activity.nombre, text, st.session_state.model_name, b.calificacion, b.criterios_evaluados, b.observaciones, prompt, st.session_state.temperature)
+                            self.db.create_history(retro, activity.id)
+                        except Exception as e:
+                            st.error(f"Error con {item['estudiante']}: {e}")
+                        progress_bar.progress((idx + 1) / total_q)
+                    
+                    st.session_state.batch_queue.clear()
+                    st.success("✨ ¡Lote generado exitosamente! Ve a la pestaña 'Historial' para descargar todos en un archivo ZIP.")
 
     def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None) -> None:
         validation = builder.validate()
@@ -156,11 +198,48 @@ class RetroalimentacionApp:
         col1, col2 = st.columns(2)
         query = col1.text_input("Buscar en historial")
         activities = {"Todas": None} | {r["nombre"]: r["id"] for r in self.db.list_activities()}
-        selected = col2.selectbox("Filtrar por actividad", list(activities.keys()))
+        selected_act_name = col2.selectbox("Filtrar por actividad", list(activities.keys()))
         
-        rows = self.db.list_history(query, activities[selected])
+        rows = self.db.list_history(query, activities[selected_act_name])
         if not rows: st.info("No hay registros."); return
         st.caption(f"Registros: {len(rows)}")
+        
+        with st.expander("📦 Herramienta de Descarga en Lote (ZIP)", expanded=False):
+            st.markdown("Selecciona las retroalimentaciones que deseas incluir en el archivo ZIP.")
+            
+            df_data = []
+            for r in rows:
+                df_data.append({
+                    "Seleccionar": True,
+                    "Fecha": r.get("fecha", ""),
+                    "Estudiante": r.get("estudiante", ""),
+                    "Calificación": r.get("calificacion", 0.0),
+                    "ID": r["id"]
+                })
+            df = pd.DataFrame(df_data)
+            edited_df = st.data_editor(df, hide_index=True, disabled=["Fecha", "Estudiante", "Calificación", "ID"], use_container_width=True)
+            
+            grupo_actual = self.db.get_all_directrices().get("grupo", "M11C1G77-050")
+            grupo_zip = st.text_input("Grupo (para nombrar el archivo ZIP)", value=grupo_actual)
+            
+            selected_ids = edited_df[edited_df["Seleccionar"]]["ID"].tolist()
+            selected_rows = [r for r in rows if r["id"] in selected_ids]
+            
+            if st.button(f"📥 Descargar {len(selected_rows)} archivos en ZIP", type="primary", disabled=len(selected_rows)==0):
+                archivos = []
+                for r in selected_rows:
+                    act_code = get_activity_code(r.get("actividad", ""))
+                    clean_name = sanitize_filename(r.get("estudiante", ""))
+                    docx_data = docx_bytes("", r["retroalimentacion"])
+                    html_text = feedback_to_moodle_html(r["retroalimentacion"])
+                    archivos.append((f"retro_{act_code}_{clean_name}.docx", docx_data))
+                    archivos.append((f"retro_{act_code}_{clean_name}.html", html_text.encode('utf-8')))
+                
+                zip_bytes = create_zip(archivos)
+                act_str = get_activity_code(selected_act_name) if selected_act_name != "Todas" else "Varias"
+                st.download_button("💾 Haz clic aquí para guardar tu archivo ZIP", data=zip_bytes, file_name=f"Retros_{grupo_zip}_{act_str}.zip", mime="application/zip")
+
+        st.markdown("---")
         for row in rows: history_card(row)
 
     def tab_activities(self) -> None:
