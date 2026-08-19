@@ -91,7 +91,13 @@ class RetroalimentacionApp:
         estudiante = st.text_input("Nombre del Estudiante", placeholder="Ej. Argelia")
 
         criterios_evaluados, calificacion_total = evaluation_inputs(activity.nombre)
-        observaciones = st.text_area("Observaciones y notas del Asesor Virtual:", height=100)
+        
+        # Nuevo selector de observaciones (Evita teclear "ninguna")
+        tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir nota al estudiante"], horizontal=True)
+        if tipo_obs == "📝 Sí, escribir nota al estudiante":
+            observaciones = st.text_area("Escribe tus observaciones:", height=100)
+        else:
+            observaciones = ""
 
         builder = PromptBuilder(
             directrices=self.db.get_all_directrices(),
@@ -119,7 +125,6 @@ class RetroalimentacionApp:
             html_feedback = feedback_to_moodle_html(st.session_state.last_feedback)
             st.subheader("Resultado")
             
-            # Alerta visual con la calificación solo visible para Haggi
             if "foro de integración" in activity.nombre.lower():
                 st.info(f"🔢 **Calificación para Moodle:** `{calificacion_total:.1f} / 100`")
                 
