@@ -118,6 +118,11 @@ class RetroalimentacionApp:
             title = f"retro_{act_code}_{sanitize_filename(estudiante)}"
             html_feedback = feedback_to_moodle_html(st.session_state.last_feedback)
             st.subheader("Resultado")
+            
+            # Alerta visual con la calificación solo visible para Haggi
+            if "foro de integración" in activity.nombre.lower():
+                st.info(f"🔢 **Calificación para Moodle:** `{calificacion_total:.1f} / 100`")
+                
             st.markdown(st.session_state.last_feedback)
             with st.expander("📋 HTML compacto para Moodle"):
                 st.text_area("Código HTML", value=html_feedback, height=220, key="html_feedback_moodle")
