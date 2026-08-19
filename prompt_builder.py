@@ -11,7 +11,7 @@ class PromptBuilder:
         self.dirs = directrices
         self.actividad = actividad
         self.estudiante = estudiante.strip()
-        self.calificacion = calificacion # Se guarda para la base de datos, pero ya no se envía a la IA
+        self.calificacion = calificacion
         self.criterios_evaluados = criterios_evaluados
         self.observaciones = observaciones.strip()
 
@@ -42,7 +42,8 @@ class PromptBuilder:
             texto_frase = "Siempre parece imposible hasta que se hace"
             autor_frase = "Nelson Mandela"
         
-        crit_str = "".join([f"- Criterio {k}: Nivel **{v['nivel']}**.\n" for k, v in self.criterios_evaluados.items()])
+        # Agregamos numeración estricta para obligar a la IA a respetar el orden
+        crit_str = "".join([f"{i+1}. Criterio {k}: Nivel **{v['nivel']}**.\n" for i, (k, v) in enumerate(self.criterios_evaluados.items())])
         
         rec_str = ""
         if act and act.recursos:
@@ -55,13 +56,13 @@ Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO r
 ### DATOS DEL ALUMNO Y ACTIVIDAD:
 - Estudiante: {self.estudiante}
 - Actividad: {n_act}
-- Evaluaciones:
+- Evaluaciones (EN ORDEN ESTRICTO):
 {crit_str}
 - Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles."}
 
 ### REGLAS DE ORO DE FORMATO PARA EL FORO (¡MUY IMPORTANTE!):
 - ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos, negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.). Todo debe fluir como párrafos naturales.
-- ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo.
+- ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo cualitativamente.
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
@@ -69,9 +70,9 @@ Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO r
    Inicia exactamente con: **Apreciable, {self.estudiante}.**
    En el siguiente párrafo, escribe exactamente: "Agradezco tu participación en este foro de integración."
 
-2. **DESARROLLO CONDENSADO (FORTALEZAS Y DESEMPEÑO):**
-   Redacta uno o dos párrafos fluidos y conversacionales integrando el desempeño del estudiante en los aspectos cognitivo, actitudinal, comunicativo, colaborativo y de pensamiento crítico. Convierte los resultados numéricos de las evaluaciones en un texto cualitativo destacando sus aportaciones al foro.
-   Utiliza tus directrices: {self.dirs.get('fortalezas', '')}
+2. **DESARROLLO CONDENSADO (ORDEN ESTRICTO):**
+   Redacta uno o dos párrafos fluidos y conversacionales integrando el desempeño del estudiante en los aspectos evaluados EXACTAMENTE EN EL MISMO ORDEN en el que se listaron arriba (Cognitivo, Actitudinal, Comunicativo, Colaborativo, Pensamiento). ¡No los revuelvas!
+   Convierte los resultados de las evaluaciones en un texto cualitativo destacando sus aportaciones al foro. Utiliza tus directrices: {self.dirs.get('fortalezas', '')}
 
 3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS:**
    En un nuevo párrafo, menciona las áreas de mejora de forma constructiva de acuerdo con las fallas indicadas en la evaluación (si las tuvo).
@@ -97,7 +98,7 @@ Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO r
 - Estudiante: {self.estudiante}
 - Actividad: "{n_act}"
 - Propósito de la actividad: {prop_act}
-- Evaluaciones:
+- Evaluaciones (EN ORDEN ESTRICTO):
 {crit_str}
 - Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles. Redacta justificando por qué alcanzó esos niveles en el contexto de la actividad."}
 
@@ -106,15 +107,17 @@ ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "#
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
-1. **SALUDO Y FORTALEZAS:**
+1. **SALUDO Y FORTALEZAS (VARIEDAD OBLIGATORIA):**
    Inicia con **Apreciable, {self.estudiante}.** Sigue esta directriz: {self.dirs.get('saludo', '')} {self.dirs.get('fortalezas', '')}
-   IMPORTANTE: Al referirte al trabajo del estudiante, usa siempre el nombre de la actividad entre comillas, sin la palabra extra "actividad" si es redundante. (Ejemplo: Tu "{n_act}" destaca por...)
+   IMPORTANTE: Al referirte al trabajo del estudiante, usa siempre el nombre de la actividad entre comillas ("{n_act}").
+   ¡PROHIBIDO REPETIR LA MISMA ENTRADA! Está estrictamente prohibido iniciar siempre el párrafo diciendo "Tu actividad destaca por...". Debes ser creativo. Usa verbos y estructuras diferentes (Ejemplo: "He revisado detalladamente tu entrega y noto que...", "Es un gusto observar en tu trabajo...", "El desarrollo de tu documento refleja un esfuerzo destacable en...", etc.).
 
-2. **EVALUACIÓN POR CRITERIOS:**
+2. **EVALUACIÓN POR CRITERIOS (ORDEN OBLIGATORIO):**
+   - ORDEN ESTRICTO: Debes redactar los párrafos EXACTAMENTE en el orden en que se listaron los criterios arriba (1, 2, 3, 4). ¡Bajo ninguna circunstancia alteres la secuencia de los criterios!
    - Escribe el nombre de cada criterio en negritas EN SU PROPIO RENGLÓN AISLADO (Ejemplo:
      **Criterio cognitivo**
      [Texto del párrafo aquí abajo...]). NO uses dos puntos (:) después del título del criterio.
-   - Cambia el orden en el que mencionas el nivel en los párrafos.
+   - Cambia el orden en el que mencionas el nivel en los párrafos (al inicio, en medio o al final).
    - Escribe el nombre del nivel alcanzado en minúsculas y entre asteriscos dobles (ej. **experto**, **capacitado**).
 
 3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS:**
