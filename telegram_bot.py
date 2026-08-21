@@ -1,5 +1,7 @@
 """Bot de Telegram para generación de retroalimentaciones alojado en Render con Webhooks."""
 
+from __future__ import annotations
+
 import os
 import time
 from flask import Flask, request, abort
@@ -41,20 +43,39 @@ def webhook():
 def home():
     return "🤖 El bot de Telegram está activo en modo Webhook."
 
-# 3. LÓGICA DE LA EVALUACIÓN
-sesiones = {}
+# 3. LÓGICA DE LA EVALUACIÓN Y CATÁLOGO DE MODELOS
+sesiones: dict[int, dict] = {}
+
+MODELOS_DISPONIBLES = {
+    "haiku": {"nombre": "⚡ Claude Haiku 4.5", "id": "anthropic/claude-haiku-4.5"},
+    "kimi": {"nombre": "🌙 Kimi K3", "id": "moonshotai/kimi-k3"},
+    "luna": {"nombre": "🟢 GPT Luna", "id": "openai/gpt-5.6-luna"},
+    "lunapro": {"nombre": "🟣 GPT Luna Pro", "id": "openai/gpt-5.6-luna-pro"},
+}
 
 NIVELES_NOMBRES = ["Experto", "Capacitado", "Aceptable", "Aprendiz", "Requiere apoyo", "No evaluable"]
 NIVELES_CLAVES = ["experto", "capacitado", "aceptable", "aprendiz", "requiere_apoyo", "no_evaluable"]
 
+
+def obtener_teclado_modelos() -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup(row_width=2)
+    botones = [
+        InlineKeyboardButton(info["nombre"], callback_data=f"mod_{clave}")
+        for clave, info in MODELOS_DISPONIBLES.items()
+    ]
+    markup.add(*botones)
+    return markup
+
+
 def obtener_teclado_niveles(prefijo: str) -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=2)
     botones = [
-        InlineKeyboardButton(nombre, callback_data=f"{prefijo}_{clave}") 
+        InlineKeyboardButton(nombre, callback_data=f"{prefijo}_{clave}")
         for nombre, clave in zip(NIVELES_NOMBRES, NIVELES_CLAVES)
     ]
     markup.add(*botones)
     return markup
+
 
 def obtener_teclado_obs() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=2)
@@ -63,6 +84,7 @@ def obtener_teclado_obs() -> InlineKeyboardMarkup:
         InlineKeyboardButton("📝 Escribir nota", callback_data="obs_escribir")
     )
     return markup
+
 
 def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> float:
     is_foro = "foro de integración" in actividad_nombre.lower()
@@ -78,11 +100,11 @@ def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> floa
 def comando_ayuda(message):
     texto_ayuda = (
         "🤖 *Bienvenido al Asistente de Retroalimentación IA*\n\n"
-        "Soy tu asistente virtual diseñado para generar retroalimentaciones pedagógicas en segundos. Aquí tienes lo que puedo hacer:\n\n"
-        "🔹 /evaluar - Inicia una evaluación normal. Te pediré el nombre del alumno, sus niveles de rúbrica y generaré sus documentos al instante.\n"
-        "🔹 /lote - Inicia el modo de captura masiva. Primero seleccionarás la actividad, y luego podrás calificar alumno tras alumno sin detenerte. Al final, presionas un botón para que genere todas las retroalimentaciones juntas.\n"
-        "🔹 /cancelar - Si te equivocas a mitad de una evaluación, usa este comando para borrar todo y empezar de cero.\n\n"
-        "💡 *Tip:* Recuerda que puedes usar el menú desplegable junto a tu teclado para acceder rápido a estos comandos."
+        "Comandos disponibles:\n\n"
+        "🔹 /evaluar - Inicia una evaluación individual eligiendo el modelo de IA.\n"
+        "🔹 /lote - Inicia el modo de captura masiva en lote.\n"
+        "🔹 /cancelar - Cancela la sesión activa y reinicia el bot.\n"
+        "🔹 /ayuda - Muestra estas instrucciones."
     )
     bot.send_message(message.chat.id, texto_ayuda, parse_mode="Markdown")
 
@@ -95,14 +117,23 @@ def iniciar_evaluacion(message):
         return
 
     modo = "batch" if message.text.startswith('/lote') else "individual"
-    sesiones[message.chat.id] = {"modo": modo, "paso": "actividad", "criterios": {}, "total_puntos": 0.0, "cola": []}
-    
-    markup = InlineKeyboardMarkup(row_width=1)
-    for act in actividades:
-        markup.add(InlineKeyboardButton(act["nombre"], callback_data=f"act_{act['id']}"))
-        
+    sesiones[message.chat.id] = {
+        "modo": modo,
+        "paso": "modelo",
+        "criterios": {},
+        "total_puntos": 0.0,
+        "cola": [],
+        "modelo_id": "anthropic/claude-haiku-4.5",
+        "modelo_nombre": "Claude Haiku 4.5"
+    }
+
     encabezado = "📦 *Modo Lote activado*\n" if modo == "batch" else "👋 ¡Hola, Haggi!\n"
-    bot.send_message(message.chat.id, f"{encabezado}Selecciona la actividad a evaluar:", reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(
+        message.chat.id,
+        f"{encabezado}Selecciona el **modelo de IA** para evaluar:",
+        reply_markup=obtener_teclado_modelos(),
+        parse_mode="Markdown"
+    )
 
 
 @bot.message_handler(commands=['cancelar'])
@@ -110,9 +141,30 @@ def cancelar_evaluacion(message):
     chat_id = message.chat.id
     if chat_id in sesiones:
         del sesiones[chat_id]
-        bot.send_message(chat_id, "🚫 Evaluación cancelada. Puedes empezar de nuevo enviando /evaluar o /lote.")
+        bot.send_message(chat_id, "🚫 Evaluación cancelada. Escribe /evaluar o /lote para iniciar.")
     else:
         bot.send_message(chat_id, "No hay ninguna evaluación en curso para cancelar.")
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('mod_'))
+def seleccionar_modelo(call):
+    chat_id = call.message.chat.id
+    clave_modelo = call.data.split('_', 1)[1]
+    info = MODELOS_DISPONIBLES.get(clave_modelo, MODELOS_DISPONIBLES["haiku"])
+
+    sesiones[chat_id]["modelo_id"] = info["id"]
+    sesiones[chat_id]["modelo_nombre"] = info["nombre"]
+    sesiones[chat_id]["paso"] = "actividad"
+
+    actividades = db.list_activities()
+    markup = InlineKeyboardMarkup(row_width=1)
+    for act in actividades:
+        markup.add(InlineKeyboardButton(act["nombre"], callback_data=f"act_{act['id']}"))
+
+    bot.edit_message_text(
+        f"🤖 Modelo: *{info['nombre']}*\n\nSelecciona la actividad a evaluar:",
+        chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown"
+    )
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('act_'))
@@ -120,7 +172,7 @@ def seleccionar_actividad(call):
     chat_id = call.message.chat.id
     actividad_id = int(call.data.split('_')[1])
     act_obj = db.get_activity(actividad_id)
-    
+
     if act_obj:
         sesiones[chat_id]["actividad"] = act_obj
         sesiones[chat_id]["paso"] = "nombre"
@@ -135,7 +187,7 @@ def recibir_nombre(message):
     chat_id = message.chat.id
     sesiones[chat_id]["estudiante"] = message.text
     sesiones[chat_id]["paso"] = "cognitivo"
-    
+
     bot.send_message(
         chat_id, "🧠 *Criterio Cognitivo*\nSelecciona el nivel alcanzado:",
         reply_markup=obtener_teclado_niveles("cog"), parse_mode="Markdown"
@@ -147,13 +199,13 @@ def recibir_cognitivo(call):
     chat_id = call.message.chat.id
     nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
     nivel_nombre = NIVELES_NOMBRES[nivel_idx]
-    
+
     puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "cog", nivel_idx)
-    
+
     sesiones[chat_id]["criterios"]["Cognitivo"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
     sesiones[chat_id]["paso"] = "actitudinal"
-    
+
     bot.edit_message_text(
         "🤝 *Criterio Actitudinal*\nSelecciona el nivel alcanzado:",
         chat_id=chat_id, message_id=call.message.message_id,
@@ -166,13 +218,13 @@ def recibir_actitudinal(call):
     chat_id = call.message.chat.id
     nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
     nivel_nombre = NIVELES_NOMBRES[nivel_idx]
-    
+
     puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "act", nivel_idx)
-    
+
     sesiones[chat_id]["criterios"]["Actitudinal"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
     sesiones[chat_id]["paso"] = "comunicativo"
-    
+
     bot.edit_message_text(
         "🗣️ *Criterio Comunicativo*\nSelecciona el nivel alcanzado:",
         chat_id=chat_id, message_id=call.message.message_id,
@@ -185,14 +237,14 @@ def recibir_comunicativo(call):
     chat_id = call.message.chat.id
     nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
     nivel_nombre = NIVELES_NOMBRES[nivel_idx]
-    
+
     puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "com", nivel_idx)
-    
+
     sesiones[chat_id]["criterios"]["Comunicativo"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
-    
+
     is_foro = "foro de integración" in sesiones[chat_id]["actividad"].nombre.lower()
-    
+
     if is_foro:
         sesiones[chat_id]["paso"] = "colaborativo"
         bot.edit_message_text(
@@ -214,13 +266,13 @@ def recibir_colaborativo(call):
     chat_id = call.message.chat.id
     nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
     nivel_nombre = NIVELES_NOMBRES[nivel_idx]
-    
+
     puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "col", nivel_idx)
-    
+
     sesiones[chat_id]["criterios"]["Colaborativo"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
     sesiones[chat_id]["paso"] = "pensamiento"
-    
+
     bot.edit_message_text(
         "💡 *Pensamiento Crítico*\nSelecciona el nivel alcanzado:",
         chat_id=chat_id, message_id=call.message.message_id,
@@ -233,12 +285,12 @@ def recibir_pensamiento(call):
     chat_id = call.message.chat.id
     nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
     nivel_nombre = NIVELES_NOMBRES[nivel_idx]
-    
+
     puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "pen", nivel_idx)
-    
+
     sesiones[chat_id]["criterios"]["Pensamiento crítico"] = {"nivel": nivel_nombre, "puntos": puntos}
     sesiones[chat_id]["total_puntos"] += puntos
-    
+
     bot.edit_message_text(
         "✅ Rúbrica completa.\n\n¿Deseas agregar observaciones adicionales para el estudiante?",
         chat_id=chat_id, message_id=call.message.message_id,
@@ -250,7 +302,7 @@ def recibir_pensamiento(call):
 def recibir_opcion_observaciones(call):
     chat_id = call.message.chat.id
     opcion = call.data.split('_')[1]
-    
+
     if opcion == "ninguna":
         sesiones[chat_id]["observaciones"] = ""
         evaluar_o_encolar(chat_id, call.message.message_id)
@@ -266,7 +318,7 @@ def recibir_opcion_observaciones(call):
 def recibir_texto_observaciones(message):
     chat_id = message.chat.id
     if message.text.startswith('/'): return
-    
+
     sesiones[chat_id]["observaciones"] = message.text
     msg_espera = bot.send_message(chat_id, "⏳ Procesando...")
     evaluar_o_encolar(chat_id, msg_espera.message_id)
@@ -286,7 +338,7 @@ def evaluar_o_encolar(chat_id, message_id_to_edit):
             InlineKeyboardButton("➕ Evaluar a otro", callback_data="batch_add"),
             InlineKeyboardButton("🚀 Generar lote", callback_data="batch_run")
         )
-        
+
         bot.edit_message_text(
             f"✅ *{datos['estudiante']}* guardado en la cola.\n"
             f"Estudiantes en espera: {len(datos['cola'])}\n\n"
@@ -294,7 +346,10 @@ def evaluar_o_encolar(chat_id, message_id_to_edit):
             chat_id=chat_id, message_id=message_id_to_edit, reply_markup=markup, parse_mode="Markdown"
         )
     else:
-        procesar_generacion_individual(chat_id, message_id_to_edit, datos["estudiante"], datos["criterios"], datos["total_puntos"], datos.get("observaciones", ""))
+        procesar_generacion_individual(
+            chat_id, message_id_to_edit,
+            datos["estudiante"], datos["criterios"], datos["total_puntos"], datos.get("observaciones", "")
+        )
 
 
 @bot.callback_query_handler(func=lambda call: call.data == 'batch_add')
@@ -311,11 +366,11 @@ def batch_run(call):
     chat_id = call.message.chat.id
     cola = sesiones[chat_id].get("cola", [])
     bot.edit_message_text(f"🚀 Generando lote de {len(cola)} retroalimentaciones. Esto tomará un momento...", chat_id=chat_id, message_id=call.message.message_id)
-    
+
     for idx, item in enumerate(cola):
         bot.send_message(chat_id, f"⏳ Evaluando a {item['estudiante']} ({idx+1}/{len(cola)})...")
         procesar_generacion_individual(chat_id, None, item["estudiante"], item["criterios"], item["total_puntos"], item["observaciones"])
-        
+
     del sesiones[chat_id]
     bot.send_message(chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /lote para iniciar de nuevo.")
 
@@ -323,10 +378,11 @@ def batch_run(call):
 def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs):
     datos = sesiones[chat_id]
     actividad = datos["actividad"]
-    
+    modelo_id = datos.get("modelo_id", "anthropic/claude-haiku-4.5")
+
     if message_id_to_edit:
         bot.edit_message_text("⏳ Redactando retroalimentación...", chat_id=chat_id, message_id=message_id_to_edit)
-    
+
     try:
         builder = PromptBuilder(
             directrices=db.get_all_directrices(),
@@ -337,37 +393,35 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             observaciones=obs,
         )
         prompt = builder.build()
-        
-        modelo_id = "openai/gpt-5.6-luna-pro" 
         api_key = os.getenv("OPENROUTER_API_KEY")
-        
-        texto_generado = ia_client.generar(prompt, api_key, modelo_id, 0.5, 4000)
-        
+
+        texto_generado = ia_client.generar(prompt, api_key, modelo_id, 0.3, 4000)
+
         item = Retroalimentacion(
-            estudiante, actividad.nombre, texto_generado, 
-            modelo_id, total_puntos, criterios, obs, prompt, 0.5
+            estudiante, actividad.nombre, texto_generado,
+            modelo_id, total_puntos, criterios, obs, prompt, 0.3
         )
         db.create_history(item, actividad.id)
-        
+
         word_bytes = docx_bytes("", texto_generado)
         html_text = feedback_to_moodle_html(texto_generado)
-        
+
         act_code = get_activity_code(actividad.nombre)
         nombre_base = f"retro_{act_code}_{sanitize_filename(estudiante)}"
-        
+
         if message_id_to_edit:
             bot.delete_message(chat_id, message_id_to_edit)
-        
+
         bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word: {estudiante}")
         bot.send_document(chat_id, document=(f"{nombre_base}.html", html_text.encode('utf-8')), caption=f"🌐 HTML: {estudiante}")
-        
+
         if "foro de integración" in actividad.nombre.lower():
             bot.send_message(chat_id, f"🔢 *Calificación de {estudiante}:* `{total_puntos:.1f} / 100`", parse_mode="Markdown")
-            
+
         if datos.get("modo") == "individual":
             bot.send_message(chat_id, "✨ ¡Listo! Escribe /evaluar o /lote para generar otra.")
             del sesiones[chat_id]
-            
+
     except Exception as e:
         if message_id_to_edit:
             bot.edit_message_text(f"❌ Ocurrió un error con {estudiante}: {e}", chat_id, message_id_to_edit)
@@ -378,8 +432,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
 if __name__ == '__main__':
     bot.remove_webhook()
     time.sleep(1)
-    
-    # 4. CONFIGURACIÓN DEL MENÚ NATIVO DE TELEGRAM
+
     comandos = [
         BotCommand("evaluar", "👤 Iniciar evaluación individual"),
         BotCommand("lote", "📦 Iniciar evaluación masiva en lote"),
@@ -387,7 +440,7 @@ if __name__ == '__main__':
         BotCommand("ayuda", "❓ Ver instrucciones del bot")
     ]
     bot.set_my_commands(comandos)
-    
+
     webhook_url = os.getenv("WEBHOOK_URL")
     if webhook_url:
         bot.set_webhook(url=f"{webhook_url.rstrip('/')}/{TOKEN}")
@@ -397,4 +450,3 @@ if __name__ == '__main__':
 
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
-
