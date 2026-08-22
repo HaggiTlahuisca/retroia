@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import osz
 import time
 import random
 from flask import Flask, request, abort
@@ -386,10 +386,18 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
     actividad = datos["actividad"]
     modelo_id_base = datos.get("modelo_id", "auto")
 
-    # Si se seleccionó rotación aleatoria, elegimos uno al azar para este estudiante específico
+    # --- NUEVA LÓGICA: Rotación secuencial (Round-Robin) estricta ---
     if modelo_id_base == "auto":
         modelos_reales = [m for k, m in MODELOS_DISPONIBLES.items() if k != "auto"]
-        modelo_seleccionado = random.choice(modelos_reales)
+        
+        # Buscamos qué índice se usó la última vez, si no existe empezamos en -1
+        ultimo_idx = datos.get("ultimo_indice_modelo", -1)
+        # Calculamos el siguiente índice, regresando a 0 si llegamos al final de la lista
+        siguiente_idx = (ultimo_idx + 1) % len(modelos_reales)
+        # Guardamos el nuevo índice para el siguiente estudiante en la cola
+        datos["ultimo_indice_modelo"] = siguiente_idx
+        
+        modelo_seleccionado = modelos_reales[siguiente_idx]
         modelo_id_usar = modelo_seleccionado["id"]
         nombre_modelo_real = modelo_seleccionado["nombre"]
     else:
