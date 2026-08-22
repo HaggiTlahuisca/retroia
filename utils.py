@@ -2,9 +2,14 @@
 
 import io
 import re
+from datetime import datetime
 from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+def now_slug() -> str:
+    """Devuelve la fecha y hora actual en formato compacto (ej. 20260821_153022)."""
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 def sanitize_filename(name: str) -> str:
     """Elimina caracteres no válidos para nombres de archivo."""
