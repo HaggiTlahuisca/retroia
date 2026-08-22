@@ -31,19 +31,31 @@ def sanitize_filename(name: str) -> str:
     return cleaned or "documento"
 
 
-def get_activity_code(activity_name: str) -> str:
-    """Extrae el código de la actividad basado en el nombre."""
-    name_lower = activity_name.lower()
-    if "foro de integración" in name_lower: return "FI"
-    if "proyecto integrador" in name_lower: return "PI"
-    if "actividad integradora 1" in name_lower: return "AI1"
-    if "actividad integradora 2" in name_lower: return "AI2"
-    if "actividad integradora 3" in name_lower: return "AI3"
-    if "actividad integradora 4" in name_lower: return "AI4"
-    if "actividad integradora 5" in name_lower: return "AI5"
-    if "actividad integradora 6" in name_lower: return "AI6"
+def get_activity_code(name: str) -> str:
+    """Genera un código corto para el nombre del archivo (ej. AI1, PI, FI)."""
+    lower_name = name.lower()
+    
+    if "proyecto integrador" in lower_name:
+        return "PI"
+    if "foro de integración" in lower_name:
+        return "FI"
+    if "actividad integradora" in lower_name:
+        # Diccionario para traducir letras a números
+        numeros = {"uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6}
+        
+        # 1. Buscar si hay un dígito numérico explícito (ej. "Actividad integradora 1")
+        match = re.search(r'\d+', lower_name)
+        if match:
+            return f"AI{match.group()}"
+            
+        # 2. Buscar si el número está escrito con letras (ej. "Actividad integradora uno")
+        for palabra, num in numeros.items():
+            if palabra in lower_name:
+                return f"AI{num}"
+                
+        return "AI"
+        
     return "Gen"
-
 
 def feedback_to_moodle_html(text: str) -> str:
     """Genera HTML con formato estricto y exacto para Moodle."""
