@@ -1,299 +1,35 @@
-"""Utilidades para generación de documentos (Word, PDF) y manejo de archivos."""
 
-from __future__ import annotations
-
-import io
-import json
-import os
-import re
-import zipfile
-from html import escape
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from typing import Any
-
-from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.opc.constants import RELATIONSHIP_TYPE
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
-from docx.shared import Pt
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
-
-from config import EXPORTS_DIR
-
-
-def sanitize_filename(name: str) -> str:
-    cleaned = re.sub(r'[\\/*?:"<>|]', "", name)
-    cleaned = cleaned.replace(" ", "_").strip()
-    return cleaned or "documento"
-
-
-def get_activity_code(activity_name: str) -> str:
-    """Extrae el código de la actividad basado en el nombre."""
-    name_lower = activity_name.lower()
-    if "foro de integración" in name_lower: return "FI"
-    if "proyecto integrador" in name_lower: return "PI"
-    if "actividad integradora 1" in name_lower: return "AI1"
-    if "actividad integradora 2" in name_lower: return "AI2"
-    if "actividad integradora 3" in name_lower: return "AI3"
-    if "actividad integradora 4" in name_lower: return "AI4"
-    if "actividad integradora 5" in name_lower: return "AI5"
-    if "actividad integradora 6" in name_lower: return "AI6"
-    return "Gen"
-
-
-def feedback_to_moodle_html(text: str) -> str:
-    """Genera HTML con formato estricto y exacto para Moodle."""
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-    html_lines: list[str] = []
-    
-    signature_lines = [
-        "haggi de jesús tlahuisca hernández",
-        "asesor virtual",
-        "21d28277",
-        "con afecto.",
-        "cordialmente.",
-        "atentamente."
-    ]
-
-    for i, line in enumerate(lines):
-        clean_line = line.replace("**", "").replace("##", "").strip()
-        lower_line = clean_line.lower()
-        es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", lower_line)
-        
-        if lower_line.startswith("apreciable") or lower_line.startswith("criterio ") or lower_line in signature_lines or es_grupo:
-            html_lines.append(f"<p><strong>{escape(clean_line)}</strong></p>")
-            if lower_line.startswith("apreciable") or lower_line in ["cordialmente.", "atentamente.", "con afecto."]:
-                html_lines.append("<p> </p>")
-        else:
-            safe_line = escape(line)
-            safe_line = re.sub(r"\*\*(.+?)\*\*", r'<strong style="font-size: 1rem;">\1</strong>', safe_line)
-            safe_line = re.sub(r"(https?://[^\s]+)", r'<a href="\1">\1</a>', safe_line)
-            
-            html_lines.append(f'<p><span style="font-size: 1rem;">{safe_line}</span></p>')
-            
-            if i < len(lines) - 1:
-                next_clean = lines[i+1].replace("**", "").replace("##", "").strip().lower()
-                next_es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", next_clean)
-                
-                if not (lower_line in signature_lines and (next_clean in signature_lines or next_es_grupo)):
-                    html_lines.append("<p> </p>")
-
-    return "\n".join(html_lines)
-
-
-def now_slug() -> str:
-    tz_utc_minus_6 = timezone(timedelta(hours=-6))
-    return datetime.now(tz_utc_minus_6).strftime("%Y%m%d_%H%M%S")
-
-
-def set_run_font(run: Any, nombre: str = "Arial", tamano: int = 12, bold: bool = False, italic: bool = False, underline: bool = False) -> None:
-    run.font.name = nombre
-    run.font.size = Pt(tamano)
-    run.font.bold = bold
-    run.font.italic = italic
-    run.font.underline = underline
-
-
-def add_hyperlink(paragraph: Any, text: str, url: str) -> None:
-    hyperlink = OxmlElement("w:hyperlink")
-    r_id = paragraph.part.relate_to(url, RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
-    hyperlink.set(qn("r:id"), r_id)
-
-    run = OxmlElement("w:r")
-    rPr = OxmlElement("w:rPr")
-    rFonts = OxmlElement("w:rFonts")
-    rFonts.set(qn("w:ascii"), "Arial")
-    rFonts.set(qn("w:hAnsi"), "Arial")
-    rPr.append(rFonts)
-    sz = OxmlElement("w:sz")
-    sz.set(qn("w:val"), "24")
-    rPr.append(sz)
-    szCs = OxmlElement("w:szCs")
-    szCs.set(qn("w:val"), "24")
-    rPr.append(szCs)
-    color = OxmlElement("w:color")
-    color.set(qn("w:val"), "0000FF")
-    rPr.append(color)
-    u = OxmlElement("w:u")
-    u.set(qn("w:val"), "single")
-    rPr.append(u)
-    run.append(rPr)
-    t = OxmlElement("w:t")
-    t.text = text
-    run.append(t)
-    hyperlink.append(run)
-    paragraph._p.append(hyperlink)
-
-
-def agregar_parrafo_firma(doc: Document, texto: str) -> Any:
-    p = doc.add_paragraph()
-    p.paragraph_format.line_spacing = 1.0
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(0)
-    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    
-    run = p.add_run(texto)
-    set_run_font(run, nombre="Arial", tamano=12, bold=True)
-    return p
-
-
-def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
-    stripped = line.strip()
-
-    if not stripped:
-        p = doc.add_paragraph()
-        p.paragraph_format.line_spacing = 1.0
-        p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after = Pt(0)
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        return p
-
-    signature_lines = [
-        "haggi de jesús tlahuisca hernández",
-        "asesor virtual",
-        "21d28277",
-        "con afecto.",
-        "cordialmente.",
-        "atentamente."
-    ]
-    
-    lower_stripped = stripped.lower()
-    es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", lower_stripped)
-
-    if lower_stripped in signature_lines or es_grupo:
-        return agregar_parrafo_firma(doc, stripped)
-
-    p = doc.add_paragraph()
-    p.paragraph_format.line_spacing = 1.0
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(0)
-    p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
-    known_headings = [
-        "criterio cognitivo",
-        "criterio actitudinal",
-        "criterio comunicativo",
-        "criterio colaborativo",
-        "criterio pensamiento crítico",
-        "retroalimentación formativa"
-    ]
-
-    if lower_stripped in known_headings or lower_stripped.startswith("criterio "):
-        if "**" not in stripped:
-            run = p.add_run(stripped)
-            set_run_font(run, nombre="Arial", tamano=12, bold=True)
-            return p
-
-    if lower_stripped.startswith("apreciable") and "**" not in stripped:
-        run = p.add_run(stripped)
-        set_run_font(run, nombre="Arial", tamano=12, bold=True)
-        return p
-
-    normalized = stripped.replace("***", "**").replace("##", "").strip()
-    tokens = re.split(r"(\*\*.*?\*\*|https?://[^\s]+)", normalized)
-
-    for token in tokens:
-        if not token:
-            continue
-
-        if token.startswith("**") and token.endswith("**") and len(token) >= 4:
-            bold_text = token[2:-2]
-            run = p.add_run(bold_text)
-            set_run_font(run, nombre="Arial", tamano=12, bold=True)
-        elif token.startswith("http://") or token.startswith("https://"):
-            clean_url = token.rstrip(".,;)")
-            suffix = token[len(clean_url):]
-            add_hyperlink(p, clean_url, clean_url)
-            if suffix:
-                run = p.add_run(suffix)
-                set_run_font(run, nombre="Arial", tamano=12, bold=False)
-        else:
-            clean_token = token.replace("**", "")
-            run = p.add_run(clean_token)
-            set_run_font(run, nombre="Arial", tamano=12, bold=False)
-
-    return p
-
-
-def docx_bytes(title: str, text: str, signature_details: list[str] | None = None) -> bytes:
-    doc = Document()
-
-    for section in doc.sections:
-        section.top_margin = Pt(72)
-        section.bottom_margin = Pt(72)
-        section.left_margin = Pt(72)
-        section.right_margin = Pt(72)
-
-    lines = text.split("\n")
-
-    for line in lines:
-        stripped = line.strip()
-
-        if "Haggi de Jesús Tlahuisca Hernández" in stripped and "Asesor virtual" in stripped:
-            match_grupo = re.search(r"(M\d{1,2}C\d{1,2}G\d{1,3}-\d{3})", stripped, re.IGNORECASE)
-            cohort = match_grupo.group(1).upper() if match_grupo else "M11C1G77-050"
-            
-            greeting = "Cordialmente." if "Cordialmente" in stripped else "Con afecto."
-            partes_firma = [
-                greeting,
-                "Haggi de Jesús Tlahuisca Hernández",
-                "Asesor virtual",
-                "21D28277",
-                cohort
-            ]
-            for parte in partes_firma:
-                agregar_parrafo_firma(doc, parte)
-            continue
-
-        add_formatted_line_to_doc(doc, line)
-
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer.getvalue()
-
-
-def pdf_bytes(title: str, text: str) -> bytes:
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54)
-    styles = getSampleStyleSheet()
-    normal_style = ParagraphStyle("CustomNormal", parent=styles["Normal"], fontName="Helvetica", fontSize=11, leading=16.5, spaceBefore=0, spaceAfter=0, alignment=4)
-    title_style = ParagraphStyle("CustomTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=14, leading=18, spaceAfter=12, alignment=4)
-
-    story = []
-    if title:
-        story.append(Paragraph(title, title_style))
-        story.append(Spacer(1, 10))
-
-    for paragraph in text.split("\n"):
-        p_text = paragraph.strip().replace("##", "")
-        if p_text:
-            p_text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', p_text)
-            p_formatted = p_text.replace("\n", "<br/>")
-            story.append(Paragraph(p_formatted, normal_style))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer.getvalue()
-
-
-def create_zip(archivos: list[tuple[str, bytes]]) -> bytes:
-    """Empaqueta una lista de archivos (nombre, contenido_en_bytes) en un archivo ZIP."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for nombre_archivo, data in archivos:
-            zf.writestr(nombre_archivo, data)
-    buf.seek(0)
-    return buf.getvalue()
-
-
-def export_json(data: dict[str, Any], filename_prefix: str = "export") -> Path:
-    EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    filepath = EXPORTS_DIR / f"{filename_prefix}_{now_slug()}.json"
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    return filepath
+<p><strong>Apreciable, Angélica.</strong></p>
+<p> </p>
+<p><span style="font-size: 1rem;">He revisado con atención tu entrega de &quot;Actividad integradora uno. Tiempo de ahorrar&quot; y es muy grato reconocer la claridad con la que resolviste la situación planteada. Aplicaste correctamente las operaciones básicas y el porcentaje para organizar la información, calcular las cantidades necesarias y llegar a resultados congruentes con el propósito de la actividad. También se aprecia dedicación, orden y responsabilidad en la presentación de tu trabajo.</span></p>
+<p> </p>
+<p><strong>Criterio cognitivo</strong></p>
+<p><span style="font-size: 1rem;">La selección y aplicación de sumas, restas, multiplicaciones, divisiones y porcentajes fue adecuada para resolver cada parte del problema de ahorro. Tus procedimientos muestran que comprendiste la relación entre los datos y las operaciones requeridas, además de que obtuviste resultados correctos. Por ello, alcanzaste el nivel <strong style="font-size: 1rem;">experto</strong>.</span></p>
+<p> </p>
+<p><strong>Criterio actitudinal</strong></p>
+<p><span style="font-size: 1rem;"><strong style="font-size: 1rem;">Experto</strong> es el nivel que corresponde a tu desempeño, ya que entregaste &quot;Actividad integradora uno. Tiempo de ahorrar&quot; con responsabilidad y atención a las indicaciones. Tu trabajo refleja disposición para poner en práctica lo aprendido, compromiso con la actividad y una actitud favorable hacia la resolución de problemas matemáticos.</span></p>
+<p> </p>
+<p><strong>Criterio comunicativo</strong></p>
+<p><span style="font-size: 1rem;">La forma en que presentaste tus operaciones y resultados permite seguir el desarrollo de la solución sin perder de vista el propósito del ejercicio. Expresaste tus ideas de manera comprensible y empleaste los datos de forma pertinente; así, el nivel obtenido es <strong style="font-size: 1rem;">experto</strong>.</span></p>
+<p> </p>
+<p><strong>Criterio pensamiento crítico</strong></p>
+<p><span style="font-size: 1rem;">Al analizar la situación de ahorro, identificaste qué información era necesaria, elegiste procedimientos apropiados y comprobaste la coherencia de tus resultados con el contexto. Esa capacidad para tomar decisiones matemáticas fundamentadas y llegar a una solución válida justifica el nivel <strong style="font-size: 1rem;">experto</strong>.</span></p>
+<p> </p>
+<p><span style="font-size: 1rem;">Aunque tu desempeño fue completamente satisfactorio, en actividades posteriores puedes fortalecer aún más tu trabajo explicando con mayor detalle por qué eliges una operación determinada antes de efectuarla. También sería conveniente incorporar una comprobación final de cada resultado, revisar que las cantidades mantengan las mismas unidades y, cuando sea posible, comparar tu procedimiento con una estrategia alternativa. Estas acciones no representan una corrección a tu entrega, sino oportunidades para hacer más sólido y transferible tu razonamiento matemático.</span></p>
+<p> </p>
+<p><span style="font-size: 1rem;">Para reforzar el dominio de las operaciones básicas, puedes consultar el video del profe Jozh, quien explica de manera sencilla y animada cuáles son las cuatro operaciones fundamentales: <a href="https://www.youtube.com/watch?v=AI55fhyxt4E">https://www.youtube.com/watch?v=AI55fhyxt4E</a></span></p>
+<p> </p>
+<p><span style="font-size: 1rem;">Si deseas profundizar en el uso de razones y proporciones, el video de Daniel Carreón presenta ejercicios y explica estos conceptos de forma clara: <a href="https://www.youtube.com/watch?v=3eYwW4sDlxM">https://www.youtube.com/watch?v=3eYwW4sDlxM</a></span></p>
+<p> </p>
+<p><span style="font-size: 1rem;">Para mejorar la presentación de procedimientos matemáticos en tus documentos, este artículo muestra cómo insertar fórmulas en Microsoft Word mediante las herramientas de la suite ofimática: <a href="https://www.bloglenovo.es/tips-lenovo/consejos/crear-formula-word/">https://www.bloglenovo.es/tips-lenovo/consejos/crear-formula-word/</a></span></p>
+<p> </p>
+<p><span style="font-size: 1rem;">Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu &quot;Actividad integradora uno. Tiempo de ahorrar&quot;. Me despido con esta frase de Aristóteles: <strong style="font-size: 1rem;">&quot;Las raíces de la educación son amargas, pero el fruto es dulce&quot;</strong>.</span></p>
+<p> </p>
+<p><span style="font-size: 1rem;">Recuerda que siempre estoy para ti al otro lado de la pantalla. Me puedes contactar por medio de los canales institucionales.</span></p>
+<p> </p>
+<p><strong>Cordialmente.</strong></p>
+<p> </p>
+<p><strong>Haggi de Jesús Tlahuisca Hernández</strong></p>
+<p><strong>Asesor virtual</strong></p>
+<p><strong>21D28277</strong></p>
+<p><strong>M11C1G78-050</strong></p>
