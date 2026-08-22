@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import osz
+import os
 import time
 import random
 from flask import Flask, request, abort
