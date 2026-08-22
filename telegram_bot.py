@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import time
+import random
 from flask import Flask, request, abort
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
@@ -47,6 +48,7 @@ def home():
 sesiones: dict[int, dict] = {}
 
 MODELOS_DISPONIBLES = {
+    "auto": {"nombre": "🎲 Rotación Aleatoria", "id": "auto"},
     "haiku": {"nombre": "⚡ Claude Haiku 4.5", "id": "anthropic/claude-haiku-4.5"},
     "kimi": {"nombre": "🌙 Kimi K3", "id": "moonshotai/kimi-k3"},
     "luna": {"nombre": "🟢 GPT Luna", "id": "openai/gpt-5.6-luna"},
@@ -58,12 +60,16 @@ NIVELES_CLAVES = ["experto", "capacitado", "aceptable", "aprendiz", "requiere_ap
 
 
 def obtener_teclado_modelos() -> InlineKeyboardMarkup:
-    markup = InlineKeyboardMarkup(row_width=2)
-    botones = [
+    markup = InlineKeyboardMarkup(row_width=1)
+    # El botón de rotación aleatoria lo ponemos primero y más grande
+    markup.add(InlineKeyboardButton(MODELOS_DISPONIBLES["auto"]["nombre"], callback_data="mod_auto"))
+    
+    # Los demás botones en pares
+    botones_reales = [
         InlineKeyboardButton(info["nombre"], callback_data=f"mod_{clave}")
-        for clave, info in MODELOS_DISPONIBLES.items()
+        for clave, info in MODELOS_DISPONIBLES.items() if clave != "auto"
     ]
-    markup.add(*botones)
+    markup.add(*botones_reales)
     return markup
 
 
@@ -123,8 +129,8 @@ def iniciar_evaluacion(message):
         "criterios": {},
         "total_puntos": 0.0,
         "cola": [],
-        "modelo_id": "anthropic/claude-haiku-4.5",
-        "modelo_nombre": "Claude Haiku 4.5"
+        "modelo_id": "auto",
+        "modelo_nombre": "🎲 Rotación Aleatoria"
     }
 
     encabezado = "📦 *Modo Lote activado*\n" if modo == "batch" else "👋 ¡Hola, Haggi!\n"
@@ -150,7 +156,7 @@ def cancelar_evaluacion(message):
 def seleccionar_modelo(call):
     chat_id = call.message.chat.id
     clave_modelo = call.data.split('_', 1)[1]
-    info = MODELOS_DISPONIBLES.get(clave_modelo, MODELOS_DISPONIBLES["haiku"])
+    info = MODELOS_DISPONIBLES.get(clave_modelo, MODELOS_DISPONIBLES["auto"])
 
     sesiones[chat_id]["modelo_id"] = info["id"]
     sesiones[chat_id]["modelo_nombre"] = info["nombre"]
@@ -162,7 +168,7 @@ def seleccionar_modelo(call):
         markup.add(InlineKeyboardButton(act["nombre"], callback_data=f"act_{act['id']}"))
 
     bot.edit_message_text(
-        f"🤖 Modelo: *{info['nombre']}*\n\nSelecciona la actividad a evaluar:",
+        f"🤖 Modelo seleccionado: *{info['nombre']}*\n\nSelecciona la actividad a evaluar:",
         chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown"
     )
 
@@ -378,10 +384,20 @@ def batch_run(call):
 def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs):
     datos = sesiones[chat_id]
     actividad = datos["actividad"]
-    modelo_id = datos.get("modelo_id", "anthropic/claude-haiku-4.5")
+    modelo_id_base = datos.get("modelo_id", "auto")
+
+    # Si se seleccionó rotación aleatoria, elegimos uno al azar para este estudiante específico
+    if modelo_id_base == "auto":
+        modelos_reales = [m for k, m in MODELOS_DISPONIBLES.items() if k != "auto"]
+        modelo_seleccionado = random.choice(modelos_reales)
+        modelo_id_usar = modelo_seleccionado["id"]
+        nombre_modelo_real = modelo_seleccionado["nombre"]
+    else:
+        modelo_id_usar = modelo_id_base
+        nombre_modelo_real = datos.get("modelo_nombre", "IA")
 
     if message_id_to_edit:
-        bot.edit_message_text("⏳ Redactando retroalimentación...", chat_id=chat_id, message_id=message_id_to_edit)
+        bot.edit_message_text(f"⏳ Redactando con {nombre_modelo_real}...", chat_id=chat_id, message_id=message_id_to_edit)
 
     try:
         builder = PromptBuilder(
@@ -395,11 +411,11 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         prompt = builder.build()
         api_key = os.getenv("OPENROUTER_API_KEY")
 
-        texto_generado = ia_client.generar(prompt, api_key, modelo_id, 0.3, 4000)
+        texto_generado = ia_client.generar(prompt, api_key, modelo_id_usar, 0.3, 4000)
 
         item = Retroalimentacion(
             estudiante, actividad.nombre, texto_generado,
-            modelo_id, total_puntos, criterios, obs, prompt, 0.3
+            modelo_id_usar, total_puntos, criterios, obs, prompt, 0.3
         )
         db.create_history(item, actividad.id)
 
@@ -412,7 +428,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         if message_id_to_edit:
             bot.delete_message(chat_id, message_id_to_edit)
 
-        bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word: {estudiante}")
+        bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word: {estudiante} ({nombre_modelo_real})")
         bot.send_document(chat_id, document=(f"{nombre_base}.html", html_text.encode('utf-8')), caption=f"🌐 HTML: {estudiante}")
 
         if "foro de integración" in actividad.nombre.lower():
