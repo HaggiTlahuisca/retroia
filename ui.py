@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import pandas as pd
+from datetime import datetime, date
 from typing import Any
 
 import streamlit as st
@@ -23,7 +24,7 @@ from ui_components import (
     activity_form, download_buttons, evaluation_inputs, frase_global_form,
     header, history_card, recurso_global_form, rubric_import_form, rubric_manual_form
 )
-from utils import docx_bytes, export_json, feedback_to_moodle_html, pdf_bytes, sanitize_filename, get_activity_code, create_zip
+from utils import docx_bytes, export_json, feedback_to_moodle_html, pdf_bytes, sanitize_filename, get_activity_code, create_zip, generar_nombre_archivo
 
 
 class RetroalimentacionApp:
@@ -36,20 +37,36 @@ class RetroalimentacionApp:
         st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON, layout=APP_LAYOUT)
         st.markdown(app_css(), unsafe_allow_html=True)
         self._state()
+
+        # --- MENÚ VERTICAL EN SIDEBAR ---
+        with st.sidebar:
+            st.markdown("### Haggi")
+            if st.button("Cerrar sesión", width="stretch"):
+                st.info("Sesión cerrada (Simulación)")
+            
+            st.markdown("---")
+            st.info("Sin documento activo", icon="📄")
+            st.markdown("---")
+            st.caption("Flujo de trabajo")
+            
+            opciones_navegacion = [
+                "🏠 1. Generar retroalimentación",
+                "📜 2. Historial y Lotes",
+                "📋 3. Configuración de actividades",
+                "🤖 4. Configuración IA",
+                "⚙️ 5. Configuración del Sistema",
+                "💬 6. Generador de Foros"
+            ]
+            
+            pagina_actual = st.radio(
+                label="Navegación",
+                options=opciones_navegacion,
+                label_visibility="collapsed"
+            )
+
+        # --- CONTENIDO PRINCIPAL ---
         header()
-
-        opciones_navegacion = [
-            "✨ 1. Generar retroalimentación",
-            "📜 2. Historial",
-            "📋 3. Configuración de actividades",
-            "🤖 4. Configuración IA",
-            "⚙️ 5. Configuración del Sistema"
-        ]
         
-        st.markdown("### 🧭 Panel de Navegación")
-        pagina_actual = st.selectbox("Selecciona la sección:", opciones_navegacion, label_visibility="collapsed")
-        st.markdown("---")
-
         if pagina_actual == opciones_navegacion[0]:
             self.tab_generate()
         elif pagina_actual == opciones_navegacion[1]:
@@ -60,6 +77,8 @@ class RetroalimentacionApp:
             self.tab_ai_config()
         elif pagina_actual == opciones_navegacion[4]:
             self.tab_settings()
+        elif pagina_actual == opciones_navegacion[5]:
+            self.tab_forums()
 
         st.markdown("<br><hr><center><small class='small-muted'>Retroalimentaciones Formativas IA</small></center>", unsafe_allow_html=True)
 
@@ -119,14 +138,13 @@ class RetroalimentacionApp:
 
         if modo == "👤 Individual":
             col_a, col_b = st.columns(2)
-            if col_a.button("✨ Generar Retroalimentación", type="primary", use_container_width=True):
+            if col_a.button("✨ Generar Retroalimentación", type="primary", width="stretch"):
                 self._generate_feedback(builder, activity.id)
-            if col_b.button("🔄 Regenerar", use_container_width=True):
+            if col_b.button("🔄 Regenerar", width="stretch"):
                 self._generate_feedback(builder, activity.id)
 
             if st.session_state.last_feedback:
-                act_code = get_activity_code(activity.nombre)
-                title = f"retro_{act_code}_{sanitize_filename(estudiante)}"
+                title = generar_nombre_archivo(estudiante, activity.nombre)
                 html_feedback = feedback_to_moodle_html(st.session_state.last_feedback)
                 st.subheader("Resultado")
                 
@@ -140,7 +158,7 @@ class RetroalimentacionApp:
                 download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback), pdf_bytes("", st.session_state.last_feedback), payload)
         
         else:
-            if st.button("➕ Agregar a la cola de procesamiento", type="primary", use_container_width=True):
+            if st.button("➕ Agregar a la cola de procesamiento", type="primary", width="stretch"):
                 validation = builder.validate()
                 if validation.ok:
                     st.session_state.batch_queue.append({
@@ -195,17 +213,41 @@ class RetroalimentacionApp:
             st.error(f"Error: {exc}")
 
     def tab_history(self) -> None:
+        st.subheader("📦 Descarga y Gestión de Evaluaciones por Lote")
+
         col1, col2 = st.columns(2)
-        query = col1.text_input("Buscar en historial")
+        query = col1.text_input("🔍 Buscar en historial (Estudiante):")
         activities = {"Todas": None} | {r["nombre"]: r["id"] for r in self.db.list_activities()}
         selected_act_name = col2.selectbox("Filtrar por actividad", list(activities.keys()))
         
-        rows = self.db.list_history(query, activities[selected_act_name])
-        if not rows: st.info("No hay registros."); return
-        st.caption(f"Registros: {len(rows)}")
+        col3, col4 = st.columns(2)
+        fecha_desde = col3.date_input("Fecha desde:", value=date(2026, 8, 1))
+        fecha_hasta = col4.date_input("Fecha hasta:", value=date.today())
+        
+        rows = self.db.list_history(
+            estudiante=query,
+            actividad_id=activities[selected_act_name],
+            limit=500,
+            fecha_inicio=fecha_desde.strftime("%Y-%m-%d"),
+            fecha_fin=fecha_hasta.strftime("%Y-%m-%d")
+        )
+        
+        if not rows: st.info("No hay registros en esas fechas."); return
+        st.caption(f"Registros encontrados: {len(rows)}")
         
         with st.expander("📦 Herramienta de Descarga en Lote (ZIP)", expanded=False):
             st.markdown("Selecciona las retroalimentaciones que deseas incluir en el archivo ZIP.")
+            
+            if "select_all" not in st.session_state:
+                st.session_state.select_all = False
+            
+            col_btn1, col_btn2 = st.columns(2)
+            if col_btn1.button("✅ Seleccionar todos", width="stretch"):
+                st.session_state.select_all = True
+                st.rerun()
+            if col_btn2.button("⬜ Deseleccionar todos", width="stretch"):
+                st.session_state.select_all = False
+                st.rerun()
             
             df_data = []
             for r in rows:
@@ -214,14 +256,14 @@ class RetroalimentacionApp:
                 calificacion_val = r["calificacion"] if "calificacion" in r.keys() else 0.0
                 
                 df_data.append({
-                    "Seleccionar": True,
+                    "Seleccionar": st.session_state.select_all,
                     "Fecha": fecha_val,
                     "Estudiante": estudiante_val,
                     "Calificación": calificacion_val,
                     "ID": r["id"]
                 })
             df = pd.DataFrame(df_data)
-            edited_df = st.data_editor(df, hide_index=True, disabled=["Fecha", "Estudiante", "Calificación", "ID"], use_container_width=True)
+            edited_df = st.data_editor(df, hide_index=True, disabled=["Fecha", "Estudiante", "Calificación", "ID"], width=None)
             
             grupo_actual = self.db.get_all_directrices().get("grupo", "M11C1G77-050")
             grupo_zip = st.text_input("Grupo (para nombrar el archivo ZIP)", value=grupo_actual)
@@ -229,22 +271,23 @@ class RetroalimentacionApp:
             selected_ids = edited_df[edited_df["Seleccionar"]]["ID"].tolist()
             selected_rows = [r for r in rows if r["id"] in selected_ids]
             
-            if st.button(f"📥 Descargar {len(selected_rows)} archivos en ZIP", type="primary", disabled=len(selected_rows)==0):
+            if st.button(f"📥 Descargar {len(selected_rows)} archivos en ZIP", type="primary", disabled=len(selected_rows)==0, width="stretch"):
                 archivos = []
                 for r in selected_rows:
                     act_val = r["actividad"] if "actividad" in r.keys() and r["actividad"] else ""
                     est_val = r["estudiante"] if "estudiante" in r.keys() else ""
                     
-                    act_code = get_activity_code(act_val)
-                    clean_name = sanitize_filename(est_val)
+                    # Nombramiento con la nueva función (Haggi_retro_AI1)
+                    nombre_base = generar_nombre_archivo(est_val, act_val)
                     docx_data = docx_bytes("", r["retroalimentacion"])
                     html_text = feedback_to_moodle_html(r["retroalimentacion"])
-                    archivos.append((f"retro_{act_code}_{clean_name}.docx", docx_data))
-                    archivos.append((f"retro_{act_code}_{clean_name}.html", html_text.encode('utf-8')))
+                    
+                    archivos.append((f"{nombre_base}.docx", docx_data))
+                    archivos.append((f"{nombre_base}.html", html_text.encode('utf-8')))
                 
                 zip_bytes = create_zip(archivos)
                 act_str = get_activity_code(selected_act_name) if selected_act_name != "Todas" else "Varias"
-                st.download_button("💾 Haz clic aquí para guardar tu archivo ZIP", data=zip_bytes, file_name=f"Retros_{grupo_zip}_{act_str}.zip", mime="application/zip")
+                st.download_button("💾 Haz clic aquí para guardar tu archivo ZIP", data=zip_bytes, file_name=f"Retros_{grupo_zip}_{act_str}.zip", mime="application/zip", width="stretch")
 
         st.markdown("---")
         for row in rows: history_card(row)
@@ -382,7 +425,7 @@ class RetroalimentacionApp:
             d_despedida = st.text_area("6. Despedida", dirs.get("despedida", ""), height=70)
             d_firma = st.text_area("7. Firma (Datos opcionales adicionales, el nombre y grupo van fijos)", dirs.get("firma", ""), height=70)
             
-            if st.form_submit_button("Guardar Estructura Global", type="primary"):
+            if st.form_submit_button("Guardar Estructura Global", type="primary", width="stretch"):
                 self.db.update_directriz("grupo", d_grupo)
                 self.db.update_directriz("saludo", d_saludo)
                 self.db.update_directriz("fortalezas", d_fortalezas)
@@ -410,13 +453,80 @@ class RetroalimentacionApp:
         st.session_state.temperature = st.slider("Temperatura", 0.0, 1.5, float(st.session_state.temperature), 0.1)
         st.session_state.max_tokens = st.slider("Máximo de tokens", 200, 8000, int(st.session_state.max_tokens), 100)
         
-        if st.button("Probar conexión"):
+        if st.button("Probar conexión", width="stretch"):
             ok, msg = self.ia_client.probar_conexion(st.session_state.api_key, st.session_state.model_id)
             st.success(msg) if ok else st.error(msg)
             
         st.subheader("Base de datos")
         c1, c2 = st.columns(2)
-        if c1.button("Crear respaldo", use_container_width=True):
+        if c1.button("Crear respaldo", width="stretch"):
             path = self.db.backup(); st.success(f"Respaldo: {path.name}")
         data = self.db.export_all_json()
-        c2.download_button("Exportar BD JSON", json.dumps(data, ensure_ascii=False, indent=2), "retro_export.json", "application/json", use_container_width=True)
+        c2.download_button("Exportar BD JSON", json.dumps(data, ensure_ascii=False, indent=2), "retro_export.json", "application/json", width="stretch")
+
+    def tab_forums(self) -> None:
+        """Pestaña para la generación automatizada de aportaciones a Foros Aprendiendo."""
+        st.header("💬 Generador de Aportaciones: Foro Aprendiendo")
+        st.markdown("Automatiza tus participaciones diarias manteniendo tu estilo y cumpliendo con los lineamientos de Prepa en Línea-SEP.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            semana = st.selectbox("Semana del Módulo:", ["Semana 1", "Semana 2", "Semana 3", "Semana 4"])
+        with col2:
+            dia = st.selectbox("Día de participación:", [
+                "Lunes (Apertura y Planteamiento)", 
+                "Martes (Interacción y Retroalimentación)", 
+                "Miércoles (Ortografía y Redacción)", 
+                "Jueves (Orientación Matemática)", 
+                "Viernes (Cierre de semana)"
+            ])
+            
+        tono = st.selectbox("Variación de estilo (Para no repetir):", [
+            "Estándar (Versión A)", 
+            "Empático y Motivador (Versión B)", 
+            "Directo y Académico (Versión C)"
+        ])
+        
+        if st.button("✨ Generar Aportación Automática", type="primary", width="stretch"):
+            temas = {
+                "Semana 1": "Razones y proporciones. Problema detonador: Luis viajó 600 km y gastó 85 litros. ¿Cuántos litros para 870 km?",
+                "Semana 2": "Lenguaje común y algebraico. Problema detonador: Jardinero, campo de futbol de 14m de largo. Superficie es b. Expresar el ancho.",
+                "Semana 3": "Sistemas de ecuaciones. Problema detonador: Galería de arte contrata pintor. Paquete 1: 2 lienzos, 4 pinceles por $320. Paquete 2: 1 lienzo, 3 pinceles por $180.",
+                "Semana 4": "Ecuaciones cuadráticas. Problema detonador: Empresa de lámparas gana $84. Si ganara $1 menos al día, trabajaría 2 días más."
+            }
+            
+            instrucciones_dia = {
+                "Lunes (Apertura y Planteamiento)": "Explica el propósito de la semana, la dinámica del foro, las reglas de participación e invita a resolver el problema detonador.",
+                "Martes (Interacción y Retroalimentación)": "Fomenta que revisen los comentarios de los demás, promueve el debate, la interacción entre pares y da ánimos.",
+                "Miércoles (Ortografía y Redacción)": "Haz un comentario sutil pero formal fomentando las buenas prácticas de redacción, uso de tildes o evitar pleonasmos como consejo para sus participaciones.",
+                "Jueves (Orientación Matemática)": "Da una pista técnica o matemática sin resolverles el problema completo. Orienta sobre cómo plantear las ecuaciones, fórmulas o el despeje.",
+                "Viernes (Cierre de semana)": "Concluye el foro de esta semana, agradece las participaciones, reflexiona sobre la utilidad del tema en la vida real e invita a aprovechar el fin de semana."
+            }
+            
+            prompt = f"""
+            Eres Haggi de Jesús Tlahuisca Hernández, Asesor virtual de Prepa en Línea-SEP (Grupo M11C1G78-050).
+            Necesito que redactes mi aportación diaria para el "Foro Aprendiendo".
+            
+            Contexto del módulo actual:
+            Tema central: {temas[semana]}
+            Día de la semana: {dia}. Instrucción estricta para el mensaje de hoy: {instrucciones_dia[dia]}
+            Tono solicitado para dar variedad: {tono}
+            
+            Reglas estrictas de redacción (basado en mi banco de datos histórico):
+            1. Saludo inicial: "Apreciables estudiantes." (Debe ir en una línea separada al inicio).
+            2. Despedida obligatoria (Al final del mensaje, tal cual esto):
+            Haggi de Jesús Tlahuisca Hernández
+            Asesor virtual
+            21D28277
+            M11C1G78-050
+            3. Escribe en español de México, formal pero cálido y empático. Sin muletillas, con excelente ortografía.
+            4. No pongas formato Markdown de títulos grandes (##) ni "Asunto:". El texto debe verse natural, listo para copiar y pegar en un foro de Moodle. Usa negritas solo si es estrictamente necesario para resaltar una pista matemática.
+            """
+            
+            with st.spinner("⏳ Redactando tu participación para el foro..."):
+                try:
+                    respuesta = self.ia_client.generar(prompt, st.session_state.api_key, st.session_state.model_id, st.session_state.temperature, 1500)
+                    st.success("¡Aportación generada con éxito!")
+                    st.text_area("Copia y pega este texto directamente en Moodle:", value=respuesta, height=400)
+                except Exception as e:
+                    st.error(f"Error al generar la aportación: {e}")
