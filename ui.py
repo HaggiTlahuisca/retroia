@@ -215,9 +215,14 @@ class RetroalimentacionApp:
     def tab_history(self) -> None:
         st.subheader("📦 Descarga y Gestión de Evaluaciones por Lote")
 
+        lista_actividades = self.db.list_activities()
+        activities = {"Todas": None} | {r["nombre"]: r["id"] for r in lista_actividades}
+        
+        # MAPA INFALIBLE: { id: "Nombre de la Actividad" }
+        act_map = {r["id"]: r["nombre"] for r in lista_actividades}
+
         col1, col2 = st.columns(2)
         query = col1.text_input("🔍 Buscar en historial (Estudiante):")
-        activities = {"Todas": None} | {r["nombre"]: r["id"] for r in self.db.list_activities()}
         selected_act_name = col2.selectbox("Filtrar por actividad", list(activities.keys()))
         
         col3, col4 = st.columns(2)
@@ -251,36 +256,40 @@ class RetroalimentacionApp:
             
             df_data = []
             for r in rows:
-                fecha_val = r["fecha"] if "fecha" in r.keys() else ""
-                estudiante_val = r["estudiante"] if "estudiante" in r.keys() else ""
-                calificacion_val = r["calificacion"] if "calificacion" in r.keys() else 0.0
+                fecha_val = r.get("fecha", "")
+                estudiante_val = r.get("estudiante", "")
+                calificacion_val = r.get("calificacion", 0.0)
                 
                 df_data.append({
                     "Seleccionar": st.session_state.select_all,
                     "Fecha": fecha_val,
                     "Estudiante": estudiante_val,
                     "Calificación": calificacion_val,
-                    "ID": r["id"]
+                    "ID": r.get("id", 0)
                 })
             df = pd.DataFrame(df_data)
             edited_df = st.data_editor(df, hide_index=True, disabled=["Fecha", "Estudiante", "Calificación", "ID"], width="stretch")
             
-            grupo_actual = self.db.get_all_directrices().get("grupo", "M11C1G77-050")
+            grupo_actual = self.db.get_all_directrices().get("grupo", "M11C1G78-050")
             grupo_zip = st.text_input("Grupo (para nombrar el archivo ZIP)", value=grupo_actual)
             
             selected_ids = edited_df[edited_df["Seleccionar"]]["ID"].tolist()
-            selected_rows = [r for r in rows if r["id"] in selected_ids]
+            selected_rows = [r for r in rows if r.get("id", 0) in selected_ids]
             
             if st.button(f"📥 Descargar {len(selected_rows)} archivos en ZIP", type="primary", disabled=len(selected_rows)==0, width="stretch"):
                 archivos = []
                 for r in selected_rows:
-                    act_val = r["actividad_nombre"] if "actividad_nombre" in r.keys() and r["actividad_nombre"] else "General"
-                    est_val = r["estudiante"] if "estudiante" in r.keys() else ""
+                    est_val = r.get("estudiante", "")
                     
-                    # Nombramiento con la nueva función (Haggi_retro_AI1)
+                    # MAGIA INFALIBLE AQUI TAMBIEN
+                    if r.get("actividad_id") in act_map:
+                        act_val = act_map[r["actividad_id"]]
+                    else:
+                        act_val = r.get("actividad_nombre") or r.get("actividad") or "General"
+                    
                     nombre_base = generar_nombre_archivo(est_val, act_val)
-                    docx_data = docx_bytes("", r["retroalimentacion"])
-                    html_text = feedback_to_moodle_html(r["retroalimentacion"])
+                    docx_data = docx_bytes("", r.get("retroalimentacion", ""))
+                    html_text = feedback_to_moodle_html(r.get("retroalimentacion", ""))
                     
                     archivos.append((f"{nombre_base}.docx", docx_data))
                     archivos.append((f"{nombre_base}.html", html_text.encode('utf-8')))
@@ -290,7 +299,7 @@ class RetroalimentacionApp:
                 st.download_button("💾 Haz clic aquí para guardar tu archivo ZIP", data=zip_bytes, file_name=f"Retros_{grupo_zip}_{act_str}.zip", mime="application/zip", width="stretch")
 
         st.markdown("---")
-        for row in rows: history_card(row)
+        for row in rows: history_card(row, act_map)
 
     def tab_activities(self) -> None:
         t1, t2, t3, t4 = st.tabs(["📚 Banco de Recursos", "✍️ Banco de Frases", "📐 Rúbricas", "🔗 Ensamblar Actividad"])
