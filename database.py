@@ -206,6 +206,14 @@ class DatabaseManager:
                 conn.execute("ALTER TABLE actividades ADD COLUMN grupo TEXT DEFAULT 'M11C1G77-050'")
             except Exception:
                 pass
+            try:
+                conn.execute("ALTER TABLE actividades ADD COLUMN orden INTEGER DEFAULT 0")
+            except Exception:
+                pass
+            try:
+                conn.execute("ALTER TABLE criterios ADD COLUMN orden INTEGER DEFAULT 0")
+            except Exception:
+                pass
 
     def _init_default_directrices(self) -> None:
         defaults = {
