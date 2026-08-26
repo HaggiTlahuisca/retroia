@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import io
-import zipfile
 from typing import Any
 import streamlit as st
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 
 from models import Actividad, Criterio, Nivel, Recurso, Rubrica, Frase
 from utils import docx_bytes, pdf_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html
@@ -138,11 +136,11 @@ def download_buttons(filename_prefix: str, text: str, html_text: str, docx_data:
     st.markdown("---")
     st.markdown("### 📥 Descargar Retroalimentación")
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.download_button("📄 Word (.docx)", docx_data, f"{filename_prefix}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", width="stretch")
-    c2.download_button("📕 PDF (.pdf)", pdf_data, f"{filename_prefix}.pdf", "application/pdf", width="stretch")
-    c3.download_button("📝 Texto (.txt)", text.encode("utf-8"), f"{filename_prefix}.txt", "text/plain", width="stretch")
-    c4.download_button("💾 Datos (.json)", json_data.encode("utf-8"), f"{filename_prefix}.json", "application/json", width="stretch")
-    c5.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"{filename_prefix}.html", "text/html", width="stretch")
+    c1.download_button("📄 Word (.docx)", docx_data, f"{filename_prefix}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+    c2.download_button("📕 PDF (.pdf)", pdf_data, f"{filename_prefix}.pdf", "application/pdf", use_container_width=True)
+    c3.download_button("📝 Texto (.txt)", text.encode("utf-8"), f"{filename_prefix}.txt", "text/plain", use_container_width=True)
+    c4.download_button("💾 Datos (.json)", json_data.encode("utf-8"), f"{filename_prefix}.json", "application/json", use_container_width=True)
+    c5.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"{filename_prefix}.html", "text/html", use_container_width=True)
 
 
 def history_card(row: Any) -> None:
@@ -176,6 +174,6 @@ def history_card(row: Any) -> None:
         pdf_data = pdf_bytes("", row["retroalimentacion"])
         html_text = feedback_to_moodle_html(row["retroalimentacion"])
         
-        c1.download_button("📄 Word (.docx)", docx_data, f"retro_{act_code}_{clean_name}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{row_id}", width="stretch")
-        c2.download_button("📕 PDF (.pdf)", pdf_data, f"retro_{act_code}_{clean_name}.pdf", "application/pdf", key=f"dl_pdf_{row_id}", width="stretch")
-        c3.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"retro_{act_code}_{clean_name}.html", "text/html", key=f"dl_html_{row_id}", width="stretch")
+        c1.download_button("📄 Word (.docx)", docx_data, f"retro_{act_code}_{clean_name}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{row_id}", use_container_width=True)
+        c2.download_button("📕 PDF (.pdf)", pdf_data, f"retro_{act_code}_{clean_name}.pdf", "application/pdf", key=f"dl_pdf_{row_id}", use_container_width=True)
+        c3.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"retro_{act_code}_{clean_name}.html", "text/html", key=f"dl_html_{row_id}", use_container_width=True)
