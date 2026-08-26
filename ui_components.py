@@ -7,7 +7,7 @@ import streamlit as st
 from datetime import datetime, timedelta
 
 from models import Actividad, Criterio, Nivel, Recurso, Rubrica, Frase
-from utils import docx_bytes, pdf_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html
+from utils import docx_bytes, pdf_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html, generar_nombre_archivo
 
 
 def header() -> None:
@@ -167,13 +167,13 @@ def history_card(row: Any) -> None:
         st.markdown("---")
         c1, c2, c3 = st.columns(3)
         
-        act_code = get_activity_code(actividad)
-        clean_name = sanitize_filename(estudiante)
+        # Aplicamos la nueva función para el formato Haggi_retro_AI1
+        nombre_base = generar_nombre_archivo(estudiante, actividad)
         
         docx_data = docx_bytes("", row["retroalimentacion"])
         pdf_data = pdf_bytes("", row["retroalimentacion"])
         html_text = feedback_to_moodle_html(row["retroalimentacion"])
         
-        c1.download_button("📄 Word (.docx)", docx_data, f"retro_{act_code}_{clean_name}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{row_id}", width="stretch")
-        c2.download_button("📕 PDF (.pdf)", pdf_data, f"retro_{act_code}_{clean_name}.pdf", "application/pdf", key=f"dl_pdf_{row_id}", width="stretch")
-        c3.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"retro_{act_code}_{clean_name}.html", "text/html", key=f"dl_html_{row_id}", width="stretch")
+        c1.download_button("📄 Word (.docx)", docx_data, f"{nombre_base}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{row_id}", width="stretch")
+        c2.download_button("📕 PDF (.pdf)", pdf_data, f"{nombre_base}.pdf", "application/pdf", key=f"dl_pdf_{row_id}", width="stretch")
+        c3.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"{nombre_base}.html", "text/html", key=f"dl_html_{row_id}", width="stretch")
