@@ -157,7 +157,7 @@ def history_card(row: Any) -> None:
         fecha = fecha_str
 
     estudiante = row["estudiante"] if "estudiante" in row.keys() else "Estudiante"
-    actividad = row["actividad"] if "actividad" in row.keys() and row["actividad"] else "General"
+    actividad = row["actividad_nombre"] if "actividad_nombre" in row.keys() and row["actividad_nombre"] else "General"
     calificacion = row["calificacion"] if "calificacion" in row.keys() else 0.0
     row_id = row["id"]
 
