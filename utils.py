@@ -33,24 +33,7 @@ def sanitize_filename(name: str) -> str:
 
 def generar_nombre_archivo(estudiante: str, actividad_nombre: str) -> str:
     """Genera el nombre del archivo con formato Estudiante_retro_AI#"""
-    lower_name = actividad_nombre.lower()
-    codigo = "Gen"
-    if "proyecto integrador" in lower_name:
-        codigo = "PI"
-    elif "foro de integración" in lower_name:
-        codigo = "FI"
-    else:
-        match = re.search(r'\d+', actividad_nombre)
-        if match:
-            codigo = f"AI{match.group()}"
-        else:
-            numeros = {"uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6}
-            for palabra, num in numeros.items():
-                if palabra in lower_name:
-                    codigo = f"AI{num}"
-                    break
-            if codigo == "Gen" and "actividad integradora" in lower_name:
-                codigo = "AI"
+    codigo = get_activity_code(actividad_nombre)
 
     # Limpiamos el nombre del estudiante
     nombre_limpio = "".join(c for c in estudiante if c.isalnum() or c in " _-").strip().replace(" ", "_")
@@ -58,30 +41,34 @@ def generar_nombre_archivo(estudiante: str, actividad_nombre: str) -> str:
     return f"{nombre_limpio}_retro_{codigo}"
 
 
-def get_activity_code(name: str) -> str:
+def _normalize_activity_name(name: str | None) -> str:
+    normalized = (name or "").strip().lower()
+    return re.sub(r"\s+", " ", normalized)
+
+
+def get_activity_code(name: str | None) -> str:
     """Genera un código corto para el nombre del archivo (ej. AI1, PI, FI)."""
-    lower_name = name.lower()
-    
+    lower_name = _normalize_activity_name(name)
+
+    if not lower_name:
+        return "Gen"
     if "proyecto integrador" in lower_name:
         return "PI"
-    if "foro de integración" in lower_name:
+    if re.search(r"\bforo de integraci[oó]n\b", lower_name):
         return "FI"
     if "actividad integradora" in lower_name:
-        # Diccionario para traducir letras a números
         numeros = {"uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6}
-        
-        # 1. Buscar si hay un dígito numérico explícito (ej. "Actividad integradora 1")
+
         match = re.search(r'\d+', lower_name)
         if match:
             return f"AI{match.group()}"
-            
-        # 2. Buscar si el número está escrito con letras (ej. "Actividad integradora uno")
+
         for palabra, num in numeros.items():
-            if palabra in lower_name:
+            if re.search(rf"\b{palabra}\b", lower_name):
                 return f"AI{num}"
-                
+
         return "AI"
-        
+
     return "Gen"
 
 
