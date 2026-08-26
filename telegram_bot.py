@@ -1,11 +1,9 @@
-"""Bot de Telegram para generación de retroalimentaciones alojado en Render con Webhooks."""
+"""Bot de Telegram para generación de retroalimentaciones alojado en un Worker de Heroku (Modo Polling)."""
 
 from __future__ import annotations
 
 import os
 import time
-import random
-from flask import Flask, request, abort
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from dotenv import load_dotenv
@@ -14,7 +12,7 @@ from database import DatabaseManager
 from prompt_builder import PromptBuilder
 from ia_client import IAClient
 from models import Retroalimentacion
-from utils import docx_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html
+from utils import docx_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html, generar_nombre_archivo
 
 # 1. CARGA DE CREDENCIALES
 load_dotenv()
@@ -27,24 +25,7 @@ bot = telebot.TeleBot(TOKEN)
 db = DatabaseManager()
 ia_client = IAClient("openrouter")
 
-# 2. CONFIGURACIÓN DEL SERVIDOR WEBHOOK (FLASK)
-app = Flask(__name__)
-
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return ''
-    else:
-        abort(403)
-
-@app.route('/')
-def home():
-    return "🤖 El bot de Telegram está activo en modo Webhook."
-
-# 3. LÓGICA DE LA EVALUACIÓN Y CATÁLOGO DE MODELOS
+# 2. LÓGICA DE LA EVALUACIÓN Y CATÁLOGO DE MODELOS
 sesiones: dict[int, dict] = {}
 
 MODELOS_DISPONIBLES = {
@@ -61,10 +42,8 @@ NIVELES_CLAVES = ["experto", "capacitado", "aceptable", "aprendiz", "requiere_ap
 
 def obtener_teclado_modelos() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=1)
-    # El botón de rotación aleatoria lo ponemos primero y más grande
     markup.add(InlineKeyboardButton(MODELOS_DISPONIBLES["auto"]["nombre"], callback_data="mod_auto"))
     
-    # Los demás botones en pares
     botones_reales = [
         InlineKeyboardButton(info["nombre"], callback_data=f"mod_{clave}")
         for clave, info in MODELOS_DISPONIBLES.items() if clave != "auto"
@@ -107,7 +86,7 @@ def comando_ayuda(message):
     texto_ayuda = (
         "🤖 *Bienvenido al Asistente de Retroalimentación IA*\n\n"
         "Comandos disponibles:\n\n"
-        "🔹 /evaluar - Inicia una evaluación individual eligiendo el modelo de IA.\n"
+        "🔹 /evaluar - Inicia una evaluación individual.\n"
         "🔹 /lote - Inicia el modo de captura masiva en lote.\n"
         "🔹 /cancelar - Cancela la sesión activa y reinicia el bot.\n"
         "🔹 /ayuda - Muestra estas instrucciones."
@@ -386,15 +365,10 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
     actividad = datos["actividad"]
     modelo_id_base = datos.get("modelo_id", "auto")
 
-    # --- NUEVA LÓGICA: Rotación secuencial (Round-Robin) estricta ---
     if modelo_id_base == "auto":
         modelos_reales = [m for k, m in MODELOS_DISPONIBLES.items() if k != "auto"]
-        
-        # Buscamos qué índice se usó la última vez, si no existe empezamos en -1
         ultimo_idx = datos.get("ultimo_indice_modelo", -1)
-        # Calculamos el siguiente índice, regresando a 0 si llegamos al final de la lista
         siguiente_idx = (ultimo_idx + 1) % len(modelos_reales)
-        # Guardamos el nuevo índice para el siguiente estudiante en la cola
         datos["ultimo_indice_modelo"] = siguiente_idx
         
         modelo_seleccionado = modelos_reales[siguiente_idx]
@@ -429,9 +403,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
 
         word_bytes = docx_bytes("", texto_generado)
         html_text = feedback_to_moodle_html(texto_generado)
-
-        act_code = get_activity_code(actividad.nombre)
-        nombre_base = f"retro_{act_code}_{sanitize_filename(estudiante)}"
+        nombre_base = generar_nombre_archivo(estudiante, actividad.nombre)
 
         if message_id_to_edit:
             bot.delete_message(chat_id, message_id_to_edit)
@@ -454,6 +426,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
 
 
 if __name__ == '__main__':
+    # 3. MODO POLLING PARA HEROKU WORKER DYNO
     bot.remove_webhook()
     time.sleep(1)
 
@@ -464,13 +437,6 @@ if __name__ == '__main__':
         BotCommand("ayuda", "❓ Ver instrucciones del bot")
     ]
     bot.set_my_commands(comandos)
-
-    webhook_url = os.getenv("WEBHOOK_URL")
-    if webhook_url:
-        bot.set_webhook(url=f"{webhook_url.rstrip('/')}/{TOKEN}")
-        print(f"✅ Webhook configurado en: {webhook_url}")
-    else:
-        print("⚠️ ADVERTENCIA: No hay WEBHOOK_URL. El bot no recibirá mensajes.")
-
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    
+    print("🤖 Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
+    bot.infinity_polling(timeout=10, long_polling_timeout=5)
