@@ -263,7 +263,7 @@ class RetroalimentacionApp:
                     "ID": r["id"]
                 })
             df = pd.DataFrame(df_data)
-            edited_df = st.data_editor(df, hide_index=True, disabled=["Fecha", "Estudiante", "Calificación", "ID"], width=None)
+            edited_df = st.data_editor(df, hide_index=True, disabled=["Fecha", "Estudiante", "Calificación", "ID"], width="stretch")
             
             grupo_actual = self.db.get_all_directrices().get("grupo", "M11C1G77-050")
             grupo_zip = st.text_input("Grupo (para nombrar el archivo ZIP)", value=grupo_actual)
