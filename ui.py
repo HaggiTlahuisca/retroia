@@ -274,7 +274,7 @@ class RetroalimentacionApp:
             if st.button(f"📥 Descargar {len(selected_rows)} archivos en ZIP", type="primary", disabled=len(selected_rows)==0, width="stretch"):
                 archivos = []
                 for r in selected_rows:
-                    act_val = r["actividad"] if "actividad" in r.keys() and r["actividad"] else ""
+                    act_val = r["actividad_nombre"] if "actividad_nombre" in r.keys() and r["actividad_nombre"] else "General"
                     est_val = r["estudiante"] if "estudiante" in r.keys() else ""
                     
                     # Nombramiento con la nueva función (Haggi_retro_AI1)
