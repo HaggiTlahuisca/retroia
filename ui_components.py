@@ -143,10 +143,10 @@ def download_buttons(filename_prefix: str, text: str, html_text: str, docx_data:
     c5.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"{filename_prefix}.html", "text/html", width="stretch")
 
 
-def history_card(row: Any) -> None:
-    fecha_str = row["fecha"] if "fecha" in row.keys() else "Sin fecha"
-    
-    if fecha_str != "Sin fecha":
+def history_card(row: Any, act_map: dict = None) -> None:
+    # 1. Obtener fecha de forma segura
+    fecha_str = row.get("fecha", "Sin fecha")
+    if fecha_str and fecha_str != "Sin fecha":
         try:
             dt_utc = datetime.strptime(fecha_str, "%Y-%m-%d %H:%M:%S")
             dt_utc_minus_6 = dt_utc - timedelta(hours=6)
@@ -154,25 +154,32 @@ def history_card(row: Any) -> None:
         except Exception:
             fecha = fecha_str
     else:
-        fecha = fecha_str
+        fecha = "Sin fecha"
 
-    estudiante = row["estudiante"] if "estudiante" in row.keys() else "Estudiante"
-    actividad = row["actividad_nombre"] if "actividad_nombre" in row.keys() and row["actividad_nombre"] else "General"
-    calificacion = row["calificacion"] if "calificacion" in row.keys() else 0.0
-    row_id = row["id"]
+    estudiante = row.get("estudiante", "Estudiante")
+    
+    # 2. EL TRUCO MAESTRO: Buscar el nombre cruzando el ID numérico
+    if act_map and row.get("actividad_id") in act_map:
+        actividad = act_map[row["actividad_id"]]
+    else:
+        # Respaldo extremo por si el ID no existe
+        actividad = row.get("actividad_nombre") or row.get("actividad") or "General"
+        
+    calificacion = row.get("calificacion", 0.0)
+    row_id = row.get("id", 0)
 
     with st.expander(f"👤 {estudiante} — {actividad} ({calificacion:.1f} pts) — 📅 {fecha}"):
-        st.markdown(row["retroalimentacion"])
+        st.markdown(row.get("retroalimentacion", ""))
         
         st.markdown("---")
         c1, c2, c3 = st.columns(3)
         
-        # Aplicamos la nueva función para el formato Haggi_retro_AI1
+        # 3. Nombramiento infalible
         nombre_base = generar_nombre_archivo(estudiante, actividad)
         
-        docx_data = docx_bytes("", row["retroalimentacion"])
-        pdf_data = pdf_bytes("", row["retroalimentacion"])
-        html_text = feedback_to_moodle_html(row["retroalimentacion"])
+        docx_data = docx_bytes("", row.get("retroalimentacion", ""))
+        pdf_data = pdf_bytes("", row.get("retroalimentacion", ""))
+        html_text = feedback_to_moodle_html(row.get("retroalimentacion", ""))
         
         c1.download_button("📄 Word (.docx)", docx_data, f"{nombre_base}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{row_id}", width="stretch")
         c2.download_button("📕 PDF (.pdf)", pdf_data, f"{nombre_base}.pdf", "application/pdf", key=f"dl_pdf_{row_id}", width="stretch")
