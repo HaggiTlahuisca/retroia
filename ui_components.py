@@ -1,15 +1,13 @@
-"""Componentes modulares de interfaz de usuario en Streamlit."""
+"""Componentes reutilizables de la interfaz de usuario con edición habilitada."""
 
 from __future__ import annotations
 
-import io
-import zipfile
-from datetime import datetime, date
 from typing import Any
 import streamlit as st
+from datetime import datetime, timedelta
 
-from models import Actividad, Criterio, Nivel, Recurso, Frase
-from utils import docx_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html
+from models import Actividad, Criterio, Nivel, Recurso, Rubrica, Frase
+from utils import docx_bytes, pdf_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html
 
 
 def header() -> None:
@@ -18,210 +16,164 @@ def header() -> None:
     st.markdown("---")
 
 
-def activity_form(actividad: Actividad | None = None) -> dict[str, Any]:
-    st.subheader("Configuración de Actividad" if not actividad else f"Editar: {actividad.nombre}")
+def info_card(title: str, text: str) -> None:
+    st.info(f"**{title}**\n\n{text}")
+
+
+def rubric_manual_form() -> tuple[Rubrica, bool]:
+    st.markdown("#### 📐 Matriz de Desempeño de la Rúbrica")
+    
+    # Interruptor dinámico para mostrar u ocultar la pestaña Colaborativo
+    es_foro = st.checkbox("Habilitar 5to criterio (Colaborativo) para Foro de Integración")
+    
+    with st.form("form_rubrica_manual_matriz"):
+        nombre = st.text_input("Nombre de la rúbrica", placeholder="Ej. Rúbrica Actividad 4")
+        
+        criterios_nombres = ["Cognitivo", "Actitudinal", "Comunicativo", "Pensamiento crítico"]
+        if es_foro:
+            criterios_nombres.insert(3, "Colaborativo")
+            
+        niveles_nombres = ["Experto", "Capacitado", "Aceptable", "Aprendiz", "Requiere apoyo", "No evaluable"]
+
+        criterios_objetos: list[Criterio] = []
+        resumen_texto_lineas: list[str] = [f"RÚBRICA: {nombre}\n"]
+        tabs = st.tabs(criterios_nombres)
+
+        for idx, crit_nombre in enumerate(criterios_nombres):
+            with tabs[idx]:
+                niveles_objetos: list[Nivel] = []
+                resumen_texto_lineas.append(f"\n--- CRITERIO: {crit_nombre.upper()} ---")
+                for niv_nombre in niveles_nombres:
+                    desc = st.text_area(f"Nivel: {niv_nombre}", key=f"input_rub_{crit_nombre}_{niv_nombre}", height=70)
+                    niveles_objetos.append(Nivel(nombre=niv_nombre, descripcion=desc))
+                    resumen_texto_lineas.append(f"[{niv_nombre}]: {desc}")
+                criterios_objetos.append(Criterio(nombre=crit_nombre, niveles=niveles_objetos))
+
+        contenido_completo = "\n".join(resumen_texto_lineas)
+        submitted = st.form_submit_button("💾 Guardar Rúbrica", type="primary")
+
+    return Rubrica(nombre=nombre, contenido=contenido_completo, criterios=criterios_objetos), submitted
+
+
+def rubric_import_form() -> tuple[Rubrica, bool]:
+    with st.form("form_rubrica_import"):
+        nombre = st.text_input("Nombre de la rúbrica a importar")
+        contenido = st.text_area("Pega aquí el texto completo", height=220)
+        submitted = st.form_submit_button("Importar y guardar")
+    return Rubrica(nombre=nombre, contenido=contenido), submitted
+
+
+def recurso_global_form() -> tuple[Recurso, bool]:
+    with st.form("form_recurso_global"):
+        titulo = st.text_input("Nombre / Título del recurso")
+        tipo = st.selectbox("Tipo de recurso", ["Video", "Artículo", "Enlace", "PDF", "Otro"])
+        url = st.text_input("URL del recurso")
+        descripcion = st.text_area("Descripción / Propósito", height=60)
+        submitted = st.form_submit_button("Guardar en Catálogo")
+    return Recurso(titulo=titulo, tipo=tipo, url=url, descripcion=descripcion), submitted
+
+
+def frase_global_form() -> tuple[Frase, bool]:
+    with st.form("form_frase_global"):
+        texto = st.text_area("Frase célebre (sin comillas)", height=60)
+        autor = st.text_input("Autor")
+        submitted = st.form_submit_button("Guardar Frase")
+    return Frase(texto=texto, autor=autor), submitted
+
+
+def activity_form(rubricas: list[Any], frases: list[Frase], recursos: list[Recurso]) -> tuple[Actividad, int | None, int | None, list[int], bool]:
+    rubric_opts = {"Sin rúbrica": None} | {r["nombre"]: r["id"] for r in rubricas}
+    frase_opts = {"Sin frase": None} | {f'"{f.texto[:40]}..." - {f.autor}': f.id for f in frases}
+    recurso_opts = {r.titulo: r.id for r in recursos}
+
     with st.form("form_actividad"):
-        nombre = st.text_input("Nombre de la Actividad", value=actividad.nombre if actividad else "")
-        grupo = st.text_input("Grupo por defecto", value=actividad.grupo if actividad else "M11C1G77-050")
-        proposito = st.text_area("Propósito", value=actividad.proposito if actividad else "", height=100)
-        instrucciones = st.text_area("Instrucciones Específicas", value=actividad.instrucciones if actividad else "", height=150)
-        submitted = st.form_submit_button("Guardar Actividad", width="stretch")
-        return {
-            "submitted": submitted,
-            "nombre": nombre,
-            "grupo": grupo,
-            "proposito": proposito,
-            "instrucciones": instrucciones,
-        }
-
-
-def evaluation_inputs(actividad: Actividad) -> dict[str, Any]:
-    st.markdown(f"### Evaluando: **{actividad.nombre}**")
-    estudiante = st.text_input("Nombre del estudiante:", placeholder="Ej. Paola Sánchez")
-    
-    criterios_seleccionados: dict[str, dict[str, Any]] = {}
-    total_puntos = 0.0
-
-    st.markdown("#### Criterios de Evaluación")
-    for crit in actividad.rubrica.criterios:
-        st.markdown(f"**{crit.nombre}**")
-        opciones = [f"{n.nombre.capitalize()} ({n.puntaje} pts)" for n in crit.niveles]
-        if not opciones:
-            continue
-        idx_sel = st.selectbox(
-            f"Selecciona nivel para {crit.nombre}:",
-            range(len(opciones)),
-            format_func=lambda i: opciones[i],
-            key=f"crit_{crit.id}_{crit.nombre}"
-        )
-        nivel_sel = crit.niveles[idx_sel]
-        criterios_seleccionados[crit.nombre] = {
-            "nivel": nivel_sel.nombre.capitalize(),
-            "puntos": nivel_sel.puntaje,
-            "descripcion": nivel_sel.descripcion
-        }
-        total_puntos += nivel_sel.puntaje
-
-    st.markdown("---")
-    observaciones = st.text_area("Observaciones o notas adicionales (opcional):", placeholder="Escribe aquí notas adicionales...")
-    
-    return {
-        "estudiante": estudiante,
-        "criterios": criterios_seleccionados,
-        "total_puntos": total_puntos,
-        "observaciones": observaciones
-    }
-
-
-def history_card(item: dict[str, Any], on_delete: Any = None) -> None:
-    with st.expander(f"📄 {item.get('estudiante', 'Sin nombre')} - {item.get('actividad_nombre', '')} ({item.get('fecha', '')})"):
-        st.markdown(f"**Calificación:** `{item.get('calificacion', 0.0):.1f} / 100` | **Modelo:** `{item.get('modelo_usado', 'N/A')}`")
-        st.text_area("Retroalimentación generada:", value=item.get("retroalimentacion", ""), height=200, disabled=True, key=f"hist_txt_{item['id']}")
+        nombre = st.text_input("Nombre de la actividad")
+        proposito = st.text_area("Propósito de la actividad", height=60)
+        instrucciones = st.text_area("Instrucciones detalladas", height=90)
         
-        act_code = get_activity_code(item.get("actividad_nombre", ""))
-        nombre_base = f"retro_{act_code}_{sanitize_filename(item.get('estudiante', ''))}"
+        col1, col2 = st.columns(2)
+        selected_rubric = col1.selectbox("Rúbrica asociada", list(rubric_opts.keys()))
+        selected_frase = col2.selectbox("Frase de cierre asociada", list(frase_opts.keys()))
         
-        col1, col2, col3 = st.columns([1, 1, 1])
-        with col1:
-            w_bytes = docx_bytes(item.get("estudiante", ""), item.get("retroalimentacion", ""))
-            st.download_button("📥 Descargar Word", data=w_bytes, file_name=f"{nombre_base}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_w_{item['id']}", width="stretch")
-        with col2:
-            html_content = feedback_to_moodle_html(item.get("retroalimentacion", ""))
-            st.download_button("🌐 Descargar HTML", data=html_content.encode("utf-8"), file_name=f"{nombre_base}.html", mime="text/html", key=f"dl_h_{item['id']}", width="stretch")
-        with col3:
-            if on_delete:
-                if st.button("🗑️ Eliminar", key=f"del_h_{item['id']}", width="stretch"):
-                    on_delete(item["id"])
-                    st.rerun()
+        selected_recursos_nombres = st.multiselect("Recursos asociados a esta actividad", list(recurso_opts.keys()))
+        selected_recursos_ids = [recurso_opts[n] for n in selected_recursos_nombres if n in recurso_opts]
+
+        submitted = st.form_submit_button("Guardar Actividad Integrada", type="primary")
+
+    return Actividad(nombre=nombre, proposito=proposito, instrucciones=instrucciones), rubric_opts[selected_rubric], frase_opts[selected_frase], selected_recursos_ids, submitted
 
 
-def batch_history_manager(historial: list[dict[str, Any]], db: Any) -> None:
-    st.subheader("📦 Descarga y Gestión de Evaluaciones por Lote")
-
-    # 1. Filtros de búsqueda y fechas
-    col_f1, col_f2, col_f3 = st.columns([2, 1, 1])
-    with col_f1:
-        busqueda = st.text_input("🔍 Buscar por estudiante:", "")
-    with col_f2:
-        fecha_desde = st.date_input("Fecha desde:", value=date(2026, 1, 1))
-    with col_f3:
-        fecha_hasta = st.date_input("Fecha hasta:", value=date.today())
-
-    hist_filtrado = []
-    for h in historial:
-        # Filtro de texto
-        if busqueda and busqueda.lower() not in h.get("estudiante", "").lower():
-            continue
-        # Filtro de fechas
-        f_str = h.get("fecha", "")[:10]
-        try:
-            f_dt = datetime.strptime(f_str, "%Y-%m-%d").date()
-            if fecha_desde <= f_dt <= fecha_hasta:
-                hist_filtrado.append(h)
-        except Exception:
-            hist_filtrado.append(h)
-
-    st.markdown(f"**Registros encontrados:** {len(hist_filtrado)}")
-
-    if not hist_filtrado:
-        st.info("No hay evaluaciones registradas en el rango de fechas seleccionado.")
-        return
-
-    # 2. Botones para seleccionar / deseleccionar todos
-    col_btn1, col_btn2, _ = st.columns([1, 1, 2])
-    with col_btn1:
-        if st.button("✅ Seleccionar todos", width="stretch"):
-            for h in hist_filtrado:
-                st.session_state[f"sel_item_{h['id']}"] = True
-            st.rerun()
-    with col_btn2:
-        if st.button("⬜ Deseleccionar todos", width="stretch"):
-            for h in hist_filtrado:
-                st.session_state[f"sel_item_{h['id']}"] = False
-            st.rerun()
-
-    # 3. Lista con casillas de selección
-    seleccionados = []
-    for h in hist_filtrado:
-        col_c, col_info = st.columns([0.08, 0.92])
-        key_check = f"sel_item_{h['id']}"
-        if key_check not in st.session_state:
-            st.session_state[key_check] = True
-
-        with col_c:
-            is_selected = st.checkbox("", key=key_check)
-        with col_info:
-            st.markdown(f"**{h.get('estudiante', '')}** — *{h.get('actividad_nombre', '')}* ({h.get('fecha', '')}) | Puntos: `{h.get('calificacion', 0)}`")
-
-        if is_selected:
-            seleccionados.append(h)
-
-    # 4. Descarga del ZIP con los elementos seleccionados
-    if seleccionados:
-        st.markdown("---")
-        buffer_zip = io.BytesIO()
-        with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            for item in seleccionados:
-                act_code = get_activity_code(item.get("actividad_nombre", ""))
-                base_name = f"retro_{act_code}_{sanitize_filename(item.get('estudiante', 'estudiante'))}"
-                w_bytes = docx_bytes(item.get("estudiante", ""), item.get("retroalimentacion", ""))
-                html_bytes = feedback_to_moodle_html(item.get("retroalimentacion", "")).encode("utf-8")
-                
-                zip_file.writestr(f"{base_name}.docx", w_bytes)
-                zip_file.writestr(f"{base_name}.html", html_bytes)
-
-        buffer_zip.seek(0)
-        st.download_button(
-            label=f"📥 Descargar ZIP con {len(seleccionados)} retroalimentaciones",
-            data=buffer_zip.getvalue(),
-            file_name=f"lote_retros_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-            mime="application/zip",
-            width="stretch"
-        )
+def evaluation_inputs(act_nombre: str = "") -> tuple[dict[str, dict[str, Any]], float]:
+    st.markdown("#### 🎯 Evaluador por Criterio de Desempeño")
+    
+    is_foro = "foro de integración" in act_nombre.lower()
+    
+    if is_foro:
+        escala_cog = {"Experto (40 pts)": ("Experto", 40.0), "Capacitado (34 pts)": ("Capacitado", 34.0), "Aceptable (32 pts)": ("Aceptable", 32.0), "Aprendiz (28 pts)": ("Aprendiz", 28.0), "Requiere apoyo (24 pts)": ("Requiere apoyo", 24.0), "No evaluable (0 pts)": ("No evaluable", 0.0)}
+        escala_rest = {"Experto (15 pts)": ("Experto", 15.0), "Capacitado (14 pts)": ("Capacitado", 14.0), "Aceptable (12 pts)": ("Aceptable", 12.0), "Aprendiz (11 pts)": ("Aprendiz", 11.0), "Requiere apoyo (9 pts)": ("Requiere apoyo", 9.0), "No evaluable (0 pts)": ("No evaluable", 0.0)}
     else:
-        st.warning("Selecciona al menos una evaluación para generar el archivo ZIP.")
+        escala_cog = {"Experto (40 pts)": ("Experto", 40.0), "Capacitado (36 pts)": ("Capacitado", 36.0), "Aceptable (32 pts)": ("Aceptable", 32.0), "Aprendiz (28 pts)": ("Aprendiz", 28.0), "Requiere apoyo (24 pts)": ("Requiere apoyo", 24.0), "No evaluable (0 pts)": ("No evaluable", 0.0)}
+        escala_rest = {"Experto (20 pts)": ("Experto", 20.0), "Capacitado (18 pts)": ("Capacitado", 18.0), "Aceptable (16 pts)": ("Aceptable", 16.0), "Aprendiz (14 pts)": ("Aprendiz", 14.0), "Requiere apoyo (12 pts)": ("Requiere apoyo", 12.0), "No evaluable (0 pts)": ("No evaluable", 0.0)}
+
+    criterios = {}
+    total = 0.0
+
+    c1, c2 = st.columns(2)
+    with c1:
+        s_cog = st.selectbox("1. Cognitivo", list(escala_cog.keys()), index=0); n_cog, p_cog = escala_cog[s_cog]; criterios["Cognitivo"] = {"nivel": n_cog, "puntos": p_cog}; total += p_cog
+        s_act = st.selectbox("2. Actitudinal", list(escala_rest.keys()), index=0); n_act, p_act = escala_rest[s_act]; criterios["Actitudinal"] = {"nivel": n_act, "puntos": p_act}; total += p_act
+        if is_foro:
+            s_col = st.selectbox("4. Colaborativo", list(escala_rest.keys()), index=0); n_col, p_col = escala_rest[s_col]; criterios["Colaborativo"] = {"nivel": n_col, "puntos": p_col}; total += p_col
+    with c2:
+        s_com = st.selectbox("3. Comunicativo", list(escala_rest.keys()), index=0); n_com, p_com = escala_rest[s_com]; criterios["Comunicativo"] = {"nivel": n_com, "puntos": p_com}; total += p_com
+        s_pen = st.selectbox("5. Pensamiento crítico" if is_foro else "4. Pensamiento crítico", list(escala_rest.keys()), index=0); n_pen, p_pen = escala_rest[s_pen]; criterios["Pensamiento crítico"] = {"nivel": n_pen, "puntos": p_pen}; total += p_pen
+
+    st.info(f"💡 **Calificación Total:** `{total:.1f} / 100 pts`")
+    return criterios, total
 
 
-def download_buttons(estudiante: str, actividad_nombre: str, texto_retro: str) -> None:
-    act_code = get_activity_code(actividad_nombre)
-    nombre_base = f"retro_{act_code}_{sanitize_filename(estudiante)}"
+def download_buttons(filename_prefix: str, text: str, html_text: str, docx_data: bytes, pdf_data: bytes, json_data: str) -> None:
+    st.markdown("---")
+    st.markdown("### 📥 Descargar Retroalimentación")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.download_button("📄 Word (.docx)", docx_data, f"{filename_prefix}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+    c2.download_button("📕 PDF (.pdf)", pdf_data, f"{filename_prefix}.pdf", "application/pdf", use_container_width=True)
+    c3.download_button("📝 Texto (.txt)", text.encode("utf-8"), f"{filename_prefix}.txt", "text/plain", use_container_width=True)
+    c4.download_button("💾 Datos (.json)", json_data.encode("utf-8"), f"{filename_prefix}.json", "application/json", use_container_width=True)
+    c5.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"{filename_prefix}.html", "text/html", use_container_width=True)
+
+
+def history_card(row: Any) -> None:
+    fecha_str = row["fecha"] if "fecha" in row.keys() else "Sin fecha"
     
-    col1, col2 = st.columns(2)
-    with col1:
-        w_bytes = docx_bytes(estudiante, texto_retro)
-        st.download_button("📥 Descargar Word (.docx)", data=w_bytes, file_name=f"{nombre_base}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", width="stretch")
-    with col2:
-        html_content = feedback_to_moodle_html(texto_retro)
-        st.download_button("🌐 Descargar HTML para Moodle", data=html_content.encode("utf-8"), file_name=f"{nombre_base}.html", mime="text/html", width="stretch")
+    if fecha_str != "Sin fecha":
+        try:
+            dt_utc = datetime.strptime(fecha_str, "%Y-%m-%d %H:%M:%S")
+            dt_utc_minus_6 = dt_utc - timedelta(hours=6)
+            fecha = dt_utc_minus_6.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            fecha = fecha_str
+    else:
+        fecha = fecha_str
 
+    estudiante = row["estudiante"] if "estudiante" in row.keys() else "Estudiante"
+    actividad = row["actividad"] if "actividad" in row.keys() and row["actividad"] else "General"
+    calificacion = row["calificacion"] if "calificacion" in row.keys() else 0.0
+    row_id = row["id"]
 
-def frase_global_form(on_save: Any) -> None:
-    with st.form("form_frase"):
-        texto = st.text_area("Frase motivacional:", placeholder="Escribe la frase...")
-        autor = st.text_input("Autor:", placeholder="Ej. Nelson Mandela")
-        if st.form_submit_button("Agregar Frase", width="stretch"):
-            if texto and autor:
-                on_save(Frase(texto, autor))
-                st.success("Frase agregada.")
-                st.rerun()
-
-
-def recurso_global_form(on_save: Any) -> None:
-    with st.form("form_recurso"):
-        tipo = st.selectbox("Tipo de recurso:", ["Video", "Artículo", "Infografía", "Página Web"])
-        titulo = st.text_input("Título del recurso:")
-        url = st.text_input("URL:")
-        descripcion = st.text_area("Descripción corta:")
-        if st.form_submit_button("Agregar Recurso", width="stretch"):
-            if titulo and url:
-                on_save(Recurso(tipo, titulo, url, descripcion))
-                st.success("Recurso agregado.")
-                st.rerun()
-
-
-def rubric_import_form(on_import: Any) -> None:
-    st.subheader("Importar Rúbrica desde JSON")
-    json_text = st.text_area("Pega el JSON de la rúbrica aquí:", height=150)
-    if st.button("Procesar e Importar", width="stretch"):
-        if json_text:
-            on_import(json_text)
+    with st.expander(f"👤 {estudiante} — {actividad} ({calificacion:.1f} pts) — 📅 {fecha}"):
+        st.markdown(row["retroalimentacion"])
+        
+        st.markdown("---")
+        c1, c2, c3 = st.columns(3)
+        
+        act_code = get_activity_code(actividad)
+        clean_name = sanitize_filename(estudiante)
+        
+        docx_data = docx_bytes("", row["retroalimentacion"])
+        pdf_data = pdf_bytes("", row["retroalimentacion"])
+        html_text = feedback_to_moodle_html(row["retroalimentacion"])
+        
+        c1.download_button("📄 Word (.docx)", docx_data, f"retro_{act_code}_{clean_name}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", key=f"dl_word_{row_id}", use_container_width=True)
+        c2.download_button("📕 PDF (.pdf)", pdf_data, f"retro_{act_code}_{clean_name}.pdf", "application/pdf", key=f"dl_pdf_{row_id}", use_container_width=True)
+        c3.download_button("🌐 HTML (.html)", html_text.encode("utf-8"), f"retro_{act_code}_{clean_name}.html", "text/html", key=f"dl_html_{row_id}", use_container_width=True)
