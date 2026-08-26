@@ -200,7 +200,7 @@ class DatabaseManager:
                 )
             """)
 
-   def _add_missing_columns(self) -> None:
+    def _add_missing_columns(self) -> None:
         with self.connect() as conn:
             # 1. Agregar 'grupo'
             try:
