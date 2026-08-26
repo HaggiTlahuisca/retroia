@@ -200,16 +200,29 @@ class DatabaseManager:
                 )
             """)
 
-    def _add_missing_columns(self) -> None:
+   def _add_missing_columns(self) -> None:
         with self.connect() as conn:
+            # 1. Agregar 'grupo'
             try:
                 conn.execute("ALTER TABLE actividades ADD COLUMN grupo TEXT DEFAULT 'M11C1G77-050'")
             except Exception:
                 pass
+            # 2. Agregar 'orden' en actividades
             try:
                 conn.execute("ALTER TABLE actividades ADD COLUMN orden INTEGER DEFAULT 0")
             except Exception:
                 pass
+            # 3. Agregar 'proposito' en actividades (El causante del error actual)
+            try:
+                conn.execute("ALTER TABLE actividades ADD COLUMN proposito TEXT DEFAULT ''")
+            except Exception:
+                pass
+            # 4. Agregar 'instrucciones' en actividades
+            try:
+                conn.execute("ALTER TABLE actividades ADD COLUMN instrucciones TEXT DEFAULT ''")
+            except Exception:
+                pass
+            # 5. Agregar 'orden' en criterios
             try:
                 conn.execute("ALTER TABLE criterios ADD COLUMN orden INTEGER DEFAULT 0")
             except Exception:
