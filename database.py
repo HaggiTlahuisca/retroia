@@ -417,9 +417,9 @@ class DatabaseManager:
 
     def list_history(
         self,
-        limit: int = 100,
-        actividad_id: Optional[int] = None,
         estudiante: str = "",
+        actividad_id: Optional[int] = None,
+        limit: int = 100,
         fecha_inicio: Optional[str] = None,
         fecha_fin: Optional[str] = None,
     ) -> list[dict[str, Any]]:
@@ -446,6 +446,7 @@ class DatabaseManager:
             cur = conn.execute(sql, tuple(params))
             return [dict(r) for r in cur.fetchall()]
 
+    
     def get_history(self, history_id: int) -> Optional[dict[str, Any]]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM historial WHERE id = ?", (history_id,))
