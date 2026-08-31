@@ -116,11 +116,19 @@ class RetroalimentacionApp:
 
         criterios_evaluados, calificacion_total = evaluation_inputs(activity.nombre)
         
+        # --- NUEVA SECCIÓN DE OBSERVACIONES Y FORMATO INCORRECTO ---
         tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir nota al estudiante"], horizontal=True)
-        if tipo_obs == "📝 Sí, escribir nota al estudiante":
-            observaciones = st.text_area("Escribe tus observaciones:", height=100)
+        formato_incorrecto = st.checkbox("⚠️ Evaluar por formato incorrecto (Genera retroalimentación breve y unificada)", help="Activa esto si entregó en un formato equivocado (ej. DOCX en vez de PPTX). La IA hará un texto corto sin desglosar criterios.")
+        
+        observaciones_usuario = ""
+        if tipo_obs == "📝 Sí, escribir nota al estudiante" or formato_incorrecto:
+            observaciones_usuario = st.text_area("Escribe tus observaciones (O especifica el error de formato, ej: 'Entregó .docx en vez de .pptx'):", height=100)
+
+        if formato_incorrecto:
+            texto_base = observaciones_usuario if observaciones_usuario else "La actividad se entregó en un formato incorrecto (ej. procesador de textos en lugar de presentación con diapositivas)."
+            observaciones_finales = f"¡INSTRUCCIÓN CRÍTICA DE SISTEMA!: Esta actividad se evalúa con la calificación mínima aprobatoria EXCLUSIVAMENTE porque no cumple con el formato de entrega solicitado. IGNORA por completo el desarrollo detallado e individual de cada criterio de la rúbrica (Cognitivo, Actitudinal, etc.). En su lugar, redacta una retroalimentación BREVE y unificada (1 o 2 párrafos a lo mucho). El mensaje central a desarrollar es exactamente este: '{texto_base}'. Usa un tono empático pero firme invitando a leer las instrucciones. NO desgloses los criterios con subtítulos."
         else:
-            observaciones = ""
+            observaciones_finales = observaciones_usuario
 
         builder = PromptBuilder(
             directrices=self.db.get_all_directrices(),
@@ -128,7 +136,7 @@ class RetroalimentacionApp:
             estudiante=estudiante,
             calificacion=calificacion_total,
             criterios_evaluados=criterios_evaluados,
-            observaciones=observaciones,
+            observaciones=observaciones_finales,
         )
 
         prompt = builder.preview()
@@ -165,7 +173,7 @@ class RetroalimentacionApp:
                         "estudiante": estudiante,
                         "calificacion_total": calificacion_total,
                         "criterios_evaluados": criterios_evaluados,
-                        "observaciones": observaciones
+                        "observaciones": observaciones_finales
                     })
                     st.success(f"✅ {estudiante} agregado. (Total en cola: {len(st.session_state.batch_queue)})")
                 else:
@@ -218,7 +226,6 @@ class RetroalimentacionApp:
         lista_actividades = self.db.list_activities()
         activities = {"Todas": None} | {r["nombre"]: r["id"] for r in lista_actividades}
         
-        # MAPA INFALIBLE: { id: "Nombre de la Actividad" }
         act_map = {r["id"]: r["nombre"] for r in lista_actividades}
 
         col1, col2 = st.columns(2)
@@ -281,7 +288,6 @@ class RetroalimentacionApp:
                 for r in selected_rows:
                     est_val = r.get("estudiante", "")
                     
-                    # MAGIA INFALIBLE AQUI TAMBIEN
                     if r.get("actividad_id") in act_map:
                         act_val = act_map[r["actividad_id"]]
                     else:
