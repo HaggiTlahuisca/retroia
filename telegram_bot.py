@@ -68,6 +68,9 @@ def obtener_teclado_obs() -> InlineKeyboardMarkup:
         InlineKeyboardButton("❌ Ninguna", callback_data="obs_ninguna"),
         InlineKeyboardButton("📝 Escribir nota", callback_data="obs_escribir")
     )
+    markup.add(
+        InlineKeyboardButton("⚠️ Error de Formato", callback_data="obs_formato")
+    )
     return markup
 
 
@@ -291,6 +294,12 @@ def recibir_opcion_observaciones(call):
     if opcion == "ninguna":
         sesiones[chat_id]["observaciones"] = ""
         evaluar_o_encolar(chat_id, call.message.message_id)
+    elif opcion == "formato":
+        sesiones[chat_id]["paso"] = "escribir_obs_formato"
+        bot.edit_message_text(
+            "⚠️ *Error de formato*\nEscribe el detalle (Ej: Entregó .docx en vez de .pptx):",
+            chat_id=chat_id, message_id=call.message.message_id, parse_mode="Markdown"
+        )
     else:
         sesiones[chat_id]["paso"] = "escribir_obs"
         bot.edit_message_text(
@@ -299,12 +308,19 @@ def recibir_opcion_observaciones(call):
         )
 
 
-@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "escribir_obs")
+@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") in ["escribir_obs", "escribir_obs_formato"])
 def recibir_texto_observaciones(message):
     chat_id = message.chat.id
     if message.text.startswith('/'): return
 
-    sesiones[chat_id]["observaciones"] = message.text
+    paso_actual = sesiones[chat_id]["paso"]
+    texto = message.text
+
+    if paso_actual == "escribir_obs_formato":
+        sesiones[chat_id]["observaciones"] = f"¡INSTRUCCIÓN CRÍTICA DE SISTEMA!: Esta actividad se evalúa con la calificación mínima aprobatoria EXCLUSIVAMENTE porque no cumple con el formato de entrega solicitado. IGNORA por completo el desarrollo detallado e individual de cada criterio de la rúbrica (Cognitivo, Actitudinal, etc.). En su lugar, redacta una retroalimentación BREVE y unificada (1 o 2 párrafos). El mensaje central a desarrollar es exactamente este: '{texto}'. Usa un tono empático pero firme invitando a leer las instrucciones. NO desgloses los criterios con subtítulos."
+    else:
+        sesiones[chat_id]["observaciones"] = texto
+
     msg_espera = bot.send_message(chat_id, "⏳ Procesando...")
     evaluar_o_encolar(chat_id, msg_espera.message_id)
 
@@ -364,24 +380,34 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
     datos = sesiones[chat_id]
     actividad = datos["actividad"]
     modelo_id_base = datos.get("modelo_id", "auto")
+    modelos_reales = [m for k, m in MODELOS_DISPONIBLES.items() if k != "auto"]
 
+    # 1. Definir el orden de los modelos a intentar (El "Salvavidas")
+    modelos_a_intentar = []
+    
     if modelo_id_base == "auto":
-        modelos_reales = [m for k, m in MODELOS_DISPONIBLES.items() if k != "auto"]
+        # Rotación normal
         ultimo_idx = datos.get("ultimo_indice_modelo", -1)
         siguiente_idx = (ultimo_idx + 1) % len(modelos_reales)
         datos["ultimo_indice_modelo"] = siguiente_idx
         
-        modelo_seleccionado = modelos_reales[siguiente_idx]
-        modelo_id_usar = modelo_seleccionado["id"]
-        nombre_modelo_real = modelo_seleccionado["nombre"]
+        # Agregamos el modelo que toca, y luego los demás como respaldo
+        modelos_a_intentar.append(modelos_reales[siguiente_idx])
+        for i in range(1, len(modelos_reales)):
+            idx = (siguiente_idx + i) % len(modelos_reales)
+            modelos_a_intentar.append(modelos_reales[idx])
     else:
-        modelo_id_usar = modelo_id_base
-        nombre_modelo_real = datos.get("modelo_nombre", "IA")
-
-    if message_id_to_edit:
-        bot.edit_message_text(f"⏳ Redactando con {nombre_modelo_real}...", chat_id=chat_id, message_id=message_id_to_edit)
+        # Si elegiste uno fijo, lo ponemos primero
+        modelo_fijo = next((m for m in modelos_reales if m["id"] == modelo_id_base), None)
+        if modelo_fijo:
+            modelos_a_intentar.append(modelo_fijo)
+        # Y ponemos todos los demás como respaldo en caso de que falle
+        for m in modelos_reales:
+            if m["id"] != modelo_id_base:
+                modelos_a_intentar.append(m)
 
     try:
+        # Configuramos el prompt una sola vez
         builder = PromptBuilder(
             directrices=db.get_all_directrices(),
             actividad=actividad,
@@ -393,11 +419,41 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         prompt = builder.build()
         api_key = os.getenv("OPENROUTER_API_KEY")
 
-        texto_generado = ia_client.generar(prompt, api_key, modelo_id_usar, 0.3, 4000)
+        texto_generado = None
+        modelo_exitoso = None
+        ultimo_error = None
 
+        # 2. Bucle de intentos: Si falla, prueba con el siguiente
+        for intento, modelo_actual in enumerate(modelos_a_intentar):
+            if message_id_to_edit:
+                if intento == 0:
+                    mensaje = f"⏳ Redactando con {modelo_actual['nombre']}..."
+                else:
+                    mensaje = f"🔄 Servidor saturado. Reintentando con {modelo_actual['nombre']}..."
+                
+                bot.edit_message_text(mensaje, chat_id=chat_id, message_id=message_id_to_edit)
+            
+            try:
+                texto_generado = ia_client.generar(prompt, api_key, modelo_actual["id"], 0.3, 4000)
+                modelo_exitoso = modelo_actual
+                break  # ¡Éxito! Rompemos el ciclo
+            except Exception as e:
+                ultimo_error = e
+                time.sleep(2)  # Pausa breve antes de intentar con el siguiente
+                continue
+
+        # 3. Si se agotaron TODOS los modelos y ninguno funcionó
+        if not texto_generado:
+            if message_id_to_edit:
+                bot.edit_message_text(f"❌ Ocurrió un error crítico con {estudiante} y todos los modelos fallaron. Último error: {ultimo_error}", chat_id, message_id_to_edit)
+            else:
+                bot.send_message(chat_id, f"❌ Ocurrió un error con {estudiante}: {ultimo_error}")
+            return
+
+        # 4. Guardar y enviar archivos
         item = Retroalimentacion(
             estudiante, actividad.nombre, texto_generado,
-            modelo_id_usar, total_puntos, criterios, obs, prompt, 0.3
+            modelo_exitoso["id"], total_puntos, criterios, obs, prompt, 0.3
         )
         db.create_history(item, actividad.id)
 
@@ -408,7 +464,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         if message_id_to_edit:
             bot.delete_message(chat_id, message_id_to_edit)
 
-        bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word: {estudiante} ({nombre_modelo_real})")
+        bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word: {estudiante} ({modelo_exitoso['nombre']})")
         bot.send_document(chat_id, document=(f"{nombre_base}.html", html_text.encode('utf-8')), caption=f"🌐 HTML: {estudiante}")
 
         if "foro de integración" in actividad.nombre.lower():
@@ -420,9 +476,9 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
 
     except Exception as e:
         if message_id_to_edit:
-            bot.edit_message_text(f"❌ Ocurrió un error con {estudiante}: {e}", chat_id, message_id_to_edit)
+            bot.edit_message_text(f"❌ Ocurrió un error procesando a {estudiante}: {e}", chat_id, message_id_to_edit)
         else:
-            bot.send_message(chat_id, f"❌ Ocurrió un error con {estudiante}: {e}")
+            bot.send_message(chat_id, f"❌ Ocurrió un error procesando a {estudiante}: {e}")
 
 
 if __name__ == '__main__':
