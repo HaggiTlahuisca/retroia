@@ -438,7 +438,7 @@ class DatabaseManager:
             
             fecha_val = getattr(item, "fecha", None)
             if not fecha_val:
-                tz_utc_minus_6 = timezone(timedelta(hours=-6))
+                tz_utc_minus_6 = timezone(timedelta(hours=+0))
                 fecha_str = datetime.now(tz_utc_minus_6).strftime("%Y-%m-%d %H:%M:%S")
             else:
                 fecha_str = fecha_val if isinstance(fecha_val, str) else fecha_val.strftime("%Y-%m-%d %H:%M:%S")
@@ -506,7 +506,7 @@ class DatabaseManager:
     def add_log(self, nivel: str, mensaje: str) -> None:
         with self.connect() as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS bot_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, nivel TEXT, mensaje TEXT)")
-            tz_utc_minus_6 = timezone(timedelta(hours=-6))
+            tz_utc_minus_6 = timezone(timedelta(hours=+0))
             fecha = datetime.now(tz_utc_minus_6).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("INSERT INTO bot_logs (fecha, nivel, mensaje) VALUES (?, ?, ?)", (fecha, nivel, mensaje))
 
