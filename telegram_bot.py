@@ -41,7 +41,7 @@ sesiones: dict[int, dict] = {}
 MODELOS_DISPONIBLES = {
     "auto": {"nombre": "🎲 Rotación Aleatoria", "id": "auto"},
     "haiku": {"nombre": "⚡ Claude Haiku 4.5", "id": "anthropic/claude-haiku-4.5"},
-    "kimi": {"nombre": "🌙 Kimi K3", "id": "moonshotai/kimi-k3"},
+    #"kimi": {"nombre": "🌙 Kimi K3", "id": "moonshotai/kimi-k3"},
     "luna": {"nombre": "🟢 GPT Luna", "id": "openai/gpt-5.6-luna"},
     "lunapro": {"nombre": "🟣 GPT Luna Pro", "id": "openai/gpt-5.6-luna-pro"},
 }
