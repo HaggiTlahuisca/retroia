@@ -326,7 +326,11 @@ class RetroalimentacionApp:
                         e_des = st.text_area("Descripción", r.descripcion, height=60)
                         c1, c2 = st.columns(2)
                         if c1.form_submit_button("Actualizar Recurso"):
-                            self.db.update_recurso(r.id, Recurso(e_tit, e_tip, e_url, e_des))
+                            try:
+                                n_rec = Recurso(e_tit, e_tip, e_url, e_des)
+                            except Exception:
+                                n_rec = Recurso(titulo=e_tit, tipo=e_tip, url=e_url, descripcion=e_des)
+                            self.db.update_recurso(r.id, n_rec)
                             st.success("Recurso actualizado."); st.rerun()
                         if c2.form_submit_button("Eliminar Recurso"):
                             self.db.delete_recurso(r.id); st.rerun()
@@ -370,7 +374,10 @@ class RetroalimentacionApp:
                         e_cont = st.text_area("Contenido base", rub_obj.contenido, height=150)
                         c1, c2 = st.columns(2)
                         if c1.form_submit_button("Actualizar Rúbrica"):
-                            updated_rub = Rubrica(nombre=e_nom, contenido=e_cont, criterios=rub_obj.criterios)
+                            try:
+                                updated_rub = Rubrica(e_nom, e_cont)
+                            except Exception:
+                                updated_rub = Rubrica(nombre=e_nom, contenido=e_cont)
                             self.db.update_rubric(r["id"], updated_rub)
                             st.success("Rúbrica actualizada."); st.rerun()
                         if c2.form_submit_button("Eliminar Rúbrica"):
@@ -400,13 +407,28 @@ class RetroalimentacionApp:
                         e_pro = st.text_area("Propósito de la actividad", act_obj.proposito, height=60)
                         e_ins = st.text_area("Instrucciones detalladas", act_obj.instrucciones, height=90)
 
+                        rub_val = getattr(act_obj, "rubrica", None)
+                        rub_id = getattr(rub_val, "id", None) if rub_val else None
+                        
+                        fra_val = getattr(act_obj, "frase", None)
+                        fra_id = getattr(fra_val, "id", None) if fra_val else None
+
                         rubric_opts = {"Sin rúbrica": None} | {r["nombre"]: r["id"] for r in all_rubrics}
                         frase_opts = {"Sin frase": None} | {f'"{f.texto[:40]}..." - {f.autor}': f.id for f in all_frases}
                         recurso_opts = {r.titulo: r.id for r in all_recursos}
 
-                        curr_rub_idx = list(rubric_opts.values()).index(act_obj.rubrica.id if act_obj.rubrica else None)
-                        curr_fra_idx = list(frase_opts.values()).index(act_obj.frase.id if act_obj.frase else None)
-                        curr_recs_nombres = [r.titulo for r in act_obj.recursos if r.titulo in recurso_opts]
+                        try:
+                            curr_rub_idx = list(rubric_opts.values()).index(rub_id)
+                        except ValueError:
+                            curr_rub_idx = 0
+
+                        try:
+                            curr_fra_idx = list(frase_opts.values()).index(fra_id)
+                        except ValueError:
+                            curr_fra_idx = 0
+
+                        recs_list = getattr(act_obj, "recursos", [])
+                        curr_recs_nombres = [r.titulo for r in recs_list if getattr(r, "titulo", "") in recurso_opts]
 
                         col1, col2 = st.columns(2)
                         e_rub = col1.selectbox("Rúbrica asociada", list(rubric_opts.keys()), index=curr_rub_idx)
@@ -417,8 +439,10 @@ class RetroalimentacionApp:
 
                         c1, c2 = st.columns(2)
                         if c1.form_submit_button("Actualizar Ensamblado"):
-                            updated_act = Actividad(nombre=e_nom, proposito=e_pro, instrucciones=e_ins)
-                            self.db.update_activity(act_obj.id, updated_act, rubric_opts[e_rub], frase_opts[e_fra], e_recs_ids)
+                            g_val = getattr(act_obj, "grupo", "M11C1G78-050")
+                            o_val = getattr(act_obj, "orden", 0)
+                            # SE ACTUALIZAN SOLO LOS DATOS COMO TEXTO, SIN OBJETOS QUE DEN ERROR
+                            self.db.update_activity(act_obj.id, e_nom, e_pro, e_ins, g_val, o_val, rubric_opts[e_rub], frase_opts[e_fra], e_recs_ids)
                             st.success("Actividad actualizada correctamente."); st.rerun()
                         if c2.form_submit_button("Eliminar Actividad"):
                             self.db.delete_activity(act_obj.id); st.rerun()
