@@ -21,6 +21,64 @@ except ImportError:
     HAS_LIBSQL = False
 
 
+# ==========================================
+# FUNCIONES BLINDADAS PARA CREAR OBJETOS
+# ==========================================
+def safe_actividad(id_val, nombre, proposito, instrucciones, grupo, orden):
+    try:
+        return Actividad(id_val, nombre, proposito, instrucciones, grupo, orden)
+    except Exception:
+        pass
+    # Inyección forzada si falla el orden normal
+    obj = Actividad.__new__(Actividad)
+    obj.id = id_val
+    obj.nombre = nombre
+    obj.proposito = proposito
+    obj.instrucciones = instrucciones
+    obj.grupo = grupo
+    obj.orden = orden
+    obj.recursos = []
+    obj.rubrica = None
+    obj.frase = None
+    return obj
+
+def safe_rubrica(id_val, nombre, contenido):
+    try:
+        return Rubrica(id_val, nombre, contenido, [])
+    except Exception:
+        pass
+    obj = Rubrica.__new__(Rubrica)
+    obj.id = id_val
+    obj.nombre = nombre
+    obj.contenido = contenido
+    obj.criterios = []
+    return obj
+
+def safe_frase(id_val, texto, autor):
+    try:
+        return Frase(id_val, texto, autor)
+    except Exception:
+        pass
+    obj = Frase.__new__(Frase)
+    obj.id = id_val
+    obj.texto = texto
+    obj.autor = autor
+    return obj
+
+def safe_recurso(id_val, tipo, titulo, url, descripcion):
+    try:
+        return Recurso(id_val, tipo, titulo, url, descripcion)
+    except Exception:
+        pass
+    obj = Recurso.__new__(Recurso)
+    obj.id = id_val
+    obj.tipo = tipo
+    obj.titulo = titulo
+    obj.url = url
+    obj.descripcion = descripcion
+    return obj
+
+
 class CustomRow(dict):
     """Fila personalizada que permite acceso por clave o por atributo."""
     def __getattr__(self, name: str) -> Any:
@@ -265,7 +323,9 @@ class DatabaseManager:
     # ==========================================
     def create_rubric(self, rubrica: Any) -> int:
         with self.connect() as conn:
-            cur = conn.execute("INSERT INTO rubricas (nombre, contenido) VALUES (?, ?)", (rubrica.nombre, rubrica.contenido))
+            nombre = getattr(rubrica, "nombre", "Rúbrica")
+            contenido = getattr(rubrica, "contenido", "")
+            cur = conn.execute("INSERT INTO rubricas (nombre, contenido) VALUES (?, ?)", (nombre, contenido))
             return cur.lastrowid or 0
 
     def list_rubrics(self) -> list[dict[str, Any]]:
@@ -278,17 +338,14 @@ class DatabaseManager:
             cur = conn.execute("SELECT * FROM rubricas WHERE id = ?", (rubric_id,))
             row = cur.fetchone()
             if row:
-                try:
-                    r = Rubrica(row["nombre"], row["contenido"], [], row["id"])
-                except Exception:
-                    r = Rubrica(nombre=row["nombre"], contenido=row["contenido"])
-                    r.id = row["id"]
-                return r
+                return safe_rubrica(row["id"], row["nombre"], row["contenido"])
             return None
 
     def update_rubric(self, rubric_id: int, rubrica: Any) -> None:
         with self.connect() as conn:
-            conn.execute("UPDATE rubricas SET nombre = ?, contenido = ? WHERE id = ?", (rubrica.nombre, rubrica.contenido, rubric_id))
+            nombre = getattr(rubrica, "nombre", "Rúbrica")
+            contenido = getattr(rubrica, "contenido", "")
+            conn.execute("UPDATE rubricas SET nombre = ?, contenido = ? WHERE id = ?", (nombre, contenido, rubric_id))
 
     def delete_rubric(self, rubric_id: int) -> None:
         with self.connect() as conn:
@@ -307,21 +364,10 @@ class DatabaseManager:
                 return None
             
             grupo = row.get("grupo") or "M11C1G78-050"
+            orden = row.get("orden") or 0
             
-            try:
-                act = Actividad(row["nombre"], row["proposito"], row["instrucciones"], grupo, row["id"], row["orden"])
-            except Exception:
-                try:
-                    act = Actividad(nombre=row["nombre"], proposito=row["proposito"], instrucciones=row["instrucciones"])
-                except Exception:
-                    act = Actividad(row["nombre"], row["proposito"], row["instrucciones"])
-            
-            # Paracaídas seguros para asignar atributos extra
-            for attr, val in [("grupo", grupo), ("id", row["id"]), ("orden", row["orden"])]:
-                try:
-                    setattr(act, attr, val)
-                except AttributeError:
-                    pass
+            # Usar función blindada
+            act = safe_actividad(row["id"], row["nombre"], row["proposito"], row["instrucciones"], grupo, orden)
             
             if row.get("rubrica_id"):
                 rub = self.get_rubric(row["rubrica_id"])
@@ -331,29 +377,15 @@ class DatabaseManager:
                 cur_f = conn.execute("SELECT * FROM frases WHERE id = ?", (row["frase_id"],))
                 row_f = cur_f.fetchone()
                 if row_f: 
-                    try:
-                        act.frase = Frase(row_f["texto"], row_f["autor"], row_f["id"])
-                    except Exception:
-                        act.frase = Frase(texto=row_f["texto"], autor=row_f["autor"])
-                        act.frase.id = row_f["id"]
-
-            if not hasattr(act, "recursos"):
-                act.recursos = []
+                    act.frase = safe_frase(row_f["id"], row_f["texto"], row_f["autor"])
 
             cur_rec = conn.execute("SELECT * FROM recursos WHERE actividad_id = ?", (actividad_id,))
             for rec_row in cur_rec.fetchall():
-                try:
-                    recurso = Recurso(rec_row["tipo"], rec_row["titulo"], rec_row["url"], rec_row["descripcion"], rec_row["id"])
-                except Exception:
-                    try:
-                        recurso = Recurso(titulo=rec_row["titulo"], tipo=rec_row["tipo"], url=rec_row["url"], descripcion=rec_row["descripcion"])
-                    except Exception:
-                        recurso = Recurso(rec_row["titulo"], rec_row["tipo"], rec_row["url"], rec_row["descripcion"])
-                    recurso.id = rec_row["id"]
+                recurso = safe_recurso(rec_row["id"], rec_row["tipo"], rec_row["titulo"], rec_row["url"], rec_row["descripcion"])
                 
                 if hasattr(act, "add_recurso"):
                     act.add_recurso(recurso)
-                else:
+                elif hasattr(act, "recursos"):
                     act.recursos.append(recurso)
 
             return act
@@ -394,30 +426,30 @@ class DatabaseManager:
     # ==========================================
     def create_recurso(self, recurso: Any) -> int:
         with self.connect() as conn:
+            tipo = getattr(recurso, "tipo", "Enlace")
+            titulo = getattr(recurso, "titulo", "Recurso")
+            url = getattr(recurso, "url", "")
+            descripcion = getattr(recurso, "descripcion", "")
             cur = conn.execute(
                 "INSERT INTO recursos (tipo, titulo, url, descripcion) VALUES (?, ?, ?, ?)",
-                (recurso.tipo, recurso.titulo, recurso.url, recurso.descripcion)
+                (tipo, titulo, url, descripcion)
             )
             return cur.lastrowid or 0
 
     def list_recursos_globales(self) -> list[Any]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM recursos ORDER BY id DESC")
-            res = []
-            for r in cur.fetchall():
-                try:
-                    rec = Recurso(r["tipo"], r["titulo"], r["url"], r["descripcion"], r["id"])
-                except Exception:
-                    rec = Recurso(titulo=r["titulo"], tipo=r["tipo"], url=r["url"], descripcion=r["descripcion"])
-                    rec.id = r["id"]
-                res.append(rec)
-            return res
+            return [safe_recurso(r["id"], r["tipo"], r["titulo"], r["url"], r["descripcion"]) for r in cur.fetchall()]
 
     def update_recurso(self, recurso_id: int, recurso: Any) -> None:
         with self.connect() as conn:
+            tipo = getattr(recurso, "tipo", "Enlace")
+            titulo = getattr(recurso, "titulo", "Recurso")
+            url = getattr(recurso, "url", "")
+            descripcion = getattr(recurso, "descripcion", "")
             conn.execute(
                 "UPDATE recursos SET tipo = ?, titulo = ?, url = ?, descripcion = ? WHERE id = ?",
-                (recurso.tipo, recurso.titulo, recurso.url, recurso.descripcion, recurso_id)
+                (tipo, titulo, url, descripcion, recurso_id)
             )
 
     def delete_recurso(self, recurso_id: int) -> None:
@@ -445,15 +477,7 @@ class DatabaseManager:
     def list_frases(self) -> list[Any]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM frases ORDER BY id DESC")
-            res = []
-            for r in cur.fetchall():
-                try:
-                    f = Frase(r["texto"], r["autor"], r["id"])
-                except Exception:
-                    f = Frase(texto=r["texto"], autor=r["autor"])
-                    f.id = r["id"]
-                res.append(f)
-            return res
+            return [safe_frase(r["id"], r["texto"], r["autor"]) for r in cur.fetchall()]
 
     def create_frase(self, texto: str, autor: str) -> int:
         with self.connect() as conn:
@@ -478,7 +502,6 @@ class DatabaseManager:
             
             fecha_val = getattr(item, "fecha", None)
             if not fecha_val:
-                # El parche oficial de Haggi: usar hora local sin restar
                 fecha_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             else:
                 fecha_str = fecha_val if isinstance(fecha_val, str) else fecha_val.strftime("%Y-%m-%d %H:%M:%S")
@@ -542,7 +565,6 @@ class DatabaseManager:
     def add_log(self, nivel: str, mensaje: str) -> None:
         with self.connect() as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS bot_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, nivel TEXT, mensaje TEXT)")
-            # El parche oficial de Haggi: usar hora local sin restar
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("INSERT INTO bot_logs (fecha, nivel, mensaje) VALUES (?, ?, ?)", (fecha, nivel, mensaje))
 
