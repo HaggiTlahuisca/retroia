@@ -217,7 +217,7 @@ class DatabaseManager:
                 )
             """)
 
-    def _add_missing_columns(self, conn: Any = None) -> None:
+        def _add_missing_columns(self, conn: Any = None) -> None:
         if conn is None:
             with self.connect() as connection:
                 self._add_missing_columns(connection)
@@ -231,13 +231,19 @@ class DatabaseManager:
             "ALTER TABLE actividades ADD COLUMN rubrica_id INTEGER",
             "ALTER TABLE actividades ADD COLUMN frase_id INTEGER",
             "ALTER TABLE criterios ADD COLUMN orden INTEGER DEFAULT 0",
-            "ALTER TABLE recursos ADD COLUMN actividad_id INTEGER"
+            "ALTER TABLE recursos ADD COLUMN actividad_id INTEGER",
+            "ALTER TABLE historial ADD COLUMN actividad_nombre TEXT DEFAULT 'General'",
+            "ALTER TABLE historial ADD COLUMN criterios_evaluados TEXT",
+            "ALTER TABLE historial ADD COLUMN observaciones TEXT",
+            "ALTER TABLE historial ADD COLUMN prompt_usado TEXT",
+            "ALTER TABLE historial ADD COLUMN temperatura REAL"
         ]
         for alt in alterations:
             try:
                 conn.execute(alt)
             except Exception:
                 pass
+
 
     def _init_default_directrices(self) -> None:
         defaults = {
