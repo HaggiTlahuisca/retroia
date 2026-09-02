@@ -134,8 +134,17 @@ class DatabaseManager:
                     nombre TEXT NOT NULL,
                     proposito TEXT NOT NULL,
                     instrucciones TEXT NOT NULL,
-                    grupo TEXT DEFAULT 'M11C1G77-050',
-                    orden INTEGER DEFAULT 0
+                    grupo TEXT DEFAULT 'M11C1G78-050',
+                    orden INTEGER DEFAULT 0,
+                    rubrica_id INTEGER,
+                    frase_id INTEGER
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS rubricas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nombre TEXT NOT NULL,
+                    contenido TEXT NOT NULL
                 )
             """)
             conn.execute("""
@@ -209,30 +218,26 @@ class DatabaseManager:
             """)
 
     def _add_missing_columns(self, conn: Any = None) -> None:
-        if conn is not None:
-            try:
-                conn.execute("ALTER TABLE actividades ADD COLUMN grupo TEXT DEFAULT 'M11C1G77-050'")
-            except Exception:
-                pass
-            try:
-                conn.execute("ALTER TABLE actividades ADD COLUMN orden INTEGER DEFAULT 0")
-            except Exception:
-                pass
-            try:
-                conn.execute("ALTER TABLE actividades ADD COLUMN proposito TEXT DEFAULT ''")
-            except Exception:
-                pass
-            try:
-                conn.execute("ALTER TABLE actividades ADD COLUMN instrucciones TEXT DEFAULT ''")
-            except Exception:
-                pass
-            try:
-                conn.execute("ALTER TABLE criterios ADD COLUMN orden INTEGER DEFAULT 0")
-            except Exception:
-                pass
-        else:
+        if conn is None:
             with self.connect() as connection:
                 self._add_missing_columns(connection)
+            return
+
+        alterations = [
+            "ALTER TABLE actividades ADD COLUMN grupo TEXT DEFAULT 'M11C1G78-050'",
+            "ALTER TABLE actividades ADD COLUMN orden INTEGER DEFAULT 0",
+            "ALTER TABLE actividades ADD COLUMN proposito TEXT DEFAULT ''",
+            "ALTER TABLE actividades ADD COLUMN instrucciones TEXT DEFAULT ''",
+            "ALTER TABLE actividades ADD COLUMN rubrica_id INTEGER",
+            "ALTER TABLE actividades ADD COLUMN frase_id INTEGER",
+            "ALTER TABLE criterios ADD COLUMN orden INTEGER DEFAULT 0",
+            "ALTER TABLE recursos ADD COLUMN actividad_id INTEGER"
+        ]
+        for alt in alterations:
+            try:
+                conn.execute(alt)
+            except Exception:
+                pass
 
     def _init_default_directrices(self) -> None:
         defaults = {
@@ -251,13 +256,38 @@ class DatabaseManager:
                 pass
 
     # ==========================================
-    # GESTIÓN DE ACTIVIDADES
+    # GESTIÓN DE ACTIVIDADES Y RÚBRICAS
     # ==========================================
+    def create_rubric(self, rubrica: Rubrica) -> int:
+        with self.connect() as conn:
+            cur = conn.execute("INSERT INTO rubricas (nombre, contenido) VALUES (?, ?)", (rubrica.nombre, rubrica.contenido))
+            return cur.lastrowid or 0
+
+    def list_rubrics(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            cur = conn.execute("SELECT id, nombre FROM rubricas ORDER BY id DESC")
+            return [dict(r) for r in cur.fetchall()]
+
+    def get_rubric(self, rubric_id: int) -> Optional[Rubrica]:
+        with self.connect() as conn:
+            cur = conn.execute("SELECT * FROM rubricas WHERE id = ?", (rubric_id,))
+            row = cur.fetchone()
+            if row:
+                return Rubrica(row["nombre"], row["contenido"], [], row["id"])
+            return None
+
+    def update_rubric(self, rubric_id: int, rubrica: Rubrica) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE rubricas SET nombre = ?, contenido = ? WHERE id = ?", (rubrica.nombre, rubrica.contenido, rubric_id))
+
+    def delete_rubric(self, rubric_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM rubricas WHERE id = ?", (rubric_id,))
+
     def list_activities(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM actividades ORDER BY orden ASC, id ASC")
-            rows = cur.fetchall()
-            return [dict(r) for r in rows]
+            return [dict(r) for r in cur.fetchall()]
 
     def get_activity(self, actividad_id: int) -> Optional[Actividad]:
         with self.connect() as conn:
@@ -266,94 +296,64 @@ class DatabaseManager:
             if not row:
                 return None
             
-            grupo = row["grupo"] if "grupo" in row and row["grupo"] else "M11C1G77-050"
+            grupo = row.get("grupo") or "M11C1G78-050"
             act = Actividad(row["nombre"], row["proposito"], row["instrucciones"], grupo, row["id"], row["orden"])
             
-            cur_crit = conn.execute("SELECT * FROM criterios WHERE actividad_id = ? ORDER BY orden ASC, id ASC", (actividad_id,))
-            for crit_row in cur_crit.fetchall():
-                criterio = Criterio(crit_row["nombre"], crit_row["id"], crit_row["orden"])
-                cur_niv = conn.execute("SELECT * FROM niveles WHERE criterio_id = ? ORDER BY puntaje DESC", (crit_row["id"],))
-                for niv_row in cur_niv.fetchall():
-                    criterio.add_nivel(Nivel(niv_row["nombre"], float(niv_row["puntaje"]), niv_row["descripcion"], niv_row["id"]))
-                act.rubrica.add_criterio(criterio)
+            if row.get("rubrica_id"):
+                rub = self.get_rubric(row["rubrica_id"])
+                if rub: act.rubrica = rub
+            
+            if row.get("frase_id"):
+                cur_f = conn.execute("SELECT * FROM frases WHERE id = ?", (row["frase_id"],))
+                row_f = cur_f.fetchone()
+                if row_f: act.frase = Frase(row_f["texto"], row_f["autor"], row_f["id"])
 
-            cur_rec = conn.execute("SELECT * FROM recursos WHERE actividad_id = ? OR actividad_id IS NULL", (actividad_id,))
+            cur_rec = conn.execute("SELECT * FROM recursos WHERE actividad_id = ?", (actividad_id,))
             for rec_row in cur_rec.fetchall():
                 act.add_recurso(Recurso(rec_row["tipo"], rec_row["titulo"], rec_row["url"], rec_row["descripcion"], rec_row["id"]))
 
             return act
 
-    def create_activity(self, actividad: Actividad) -> int:
+    def create_activity(self, act: Actividad, r_id: Optional[int], f_id: Optional[int], rec_ids: list[int]) -> int:
         with self.connect() as conn:
             cur = conn.execute(
-                "INSERT INTO actividades (nombre, proposito, instrucciones, grupo, orden) VALUES (?, ?, ?, ?, ?)",
-                (actividad.nombre, actividad.proposito, actividad.instrucciones, actividad.grupo, actividad.orden)
+                "INSERT INTO actividades (nombre, proposito, instrucciones, grupo, orden, rubrica_id, frase_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (act.nombre, act.proposito, act.instrucciones, act.grupo, act.orden, r_id, f_id)
             )
-            return cur.lastrowid or 0
+            act_id = cur.lastrowid
+            for rec_id in rec_ids:
+                conn.execute("UPDATE recursos SET actividad_id = ? WHERE id = ?", (act_id, rec_id))
+            return act_id or 0
 
-    def update_activity(self, actividad: Actividad) -> None:
-        if actividad.id is None:
-            return
+    def update_activity(self, act_id: int, act: Actividad, r_id: Optional[int], f_id: Optional[int], rec_ids: list[int]) -> None:
         with self.connect() as conn:
             conn.execute(
-                "UPDATE actividades SET nombre = ?, proposito = ?, instrucciones = ?, grupo = ?, orden = ? WHERE id = ?",
-                (actividad.nombre, actividad.proposito, actividad.instrucciones, actividad.grupo, actividad.orden, actividad.id)
+                "UPDATE actividades SET nombre=?, proposito=?, instrucciones=?, grupo=?, orden=?, rubrica_id=?, frase_id=? WHERE id=?",
+                (act.nombre, act.proposito, act.instrucciones, act.grupo, act.orden, r_id, f_id, act_id)
             )
+            conn.execute("UPDATE recursos SET actividad_id = NULL WHERE actividad_id = ?", (act_id,))
+            for rec_id in rec_ids:
+                conn.execute("UPDATE recursos SET actividad_id = ? WHERE id = ?", (act_id, rec_id))
 
     def delete_activity(self, actividad_id: int) -> None:
         with self.connect() as conn:
             conn.execute("DELETE FROM actividades WHERE id = ?", (actividad_id,))
 
     # ==========================================
-    # GESTIÓN DE CRITERIOS Y NIVELES (RÚBRICA)
-    # ==========================================
-    def add_criterio(self, actividad_id: int, criterio: Criterio) -> int:
-        with self.connect() as conn:
-            cur = conn.execute(
-                "INSERT INTO criterios (actividad_id, nombre, orden) VALUES (?, ?, ?)",
-                (actividad_id, criterio.nombre, criterio.orden)
-            )
-            return cur.lastrowid or 0
-
-    def delete_criterio(self, criterio_id: int) -> None:
-        with self.connect() as conn:
-            conn.execute("DELETE FROM criterios WHERE id = ?", (criterio_id,))
-
-    def add_nivel(self, criterio_id: int, nivel: Nivel) -> int:
-        with self.connect() as conn:
-            cur = conn.execute(
-                "INSERT INTO niveles (criterio_id, nombre, puntaje, descripcion) VALUES (?, ?, ?, ?)",
-                (criterio_id, nivel.nombre, nivel.puntaje, nivel.descripcion)
-            )
-            return cur.lastrowid or 0
-
-    def delete_nivel(self, nivel_id: int) -> None:
-        with self.connect() as conn:
-            conn.execute("DELETE FROM niveles WHERE id = ?", (nivel_id,))
-
-    # ==========================================
     # GESTIÓN DE RECURSOS
     # ==========================================
-    def get_recursos_by_actividad(self, actividad_id: int) -> list[Recurso]:
-        with self.connect() as conn:
-            cur = conn.execute("SELECT * FROM recursos WHERE actividad_id = ? ORDER BY id DESC", (actividad_id,))
-            return [Recurso(r["tipo"], r["titulo"], r["url"], r["descripcion"], r["id"]) for r in cur.fetchall()]
-
-    def get_recursos_globales(self) -> list[Recurso]:
-        with self.connect() as conn:
-            cur = conn.execute("SELECT * FROM recursos WHERE actividad_id IS NULL ORDER BY id DESC")
-            return [Recurso(r["tipo"], r["titulo"], r["url"], r["descripcion"], r["id"]) for r in cur.fetchall()]
-
-    def add_recurso(self, actividad_id: Optional[int], recurso: Recurso) -> int:
+    def create_recurso(self, recurso: Recurso) -> int:
         with self.connect() as conn:
             cur = conn.execute(
-                "INSERT INTO recursos (actividad_id, tipo, titulo, url, descripcion) VALUES (?, ?, ?, ?, ?)",
-                (actividad_id, recurso.tipo, recurso.titulo, recurso.url, recurso.descripcion)
+                "INSERT INTO recursos (tipo, titulo, url, descripcion) VALUES (?, ?, ?, ?)",
+                (recurso.tipo, recurso.titulo, recurso.url, recurso.descripcion)
             )
             return cur.lastrowid or 0
 
-    def add_recurso_global(self, recurso: Recurso) -> int:
-        return self.add_recurso(None, recurso)
+    def list_recursos_globales(self) -> list[Recurso]:
+        with self.connect() as conn:
+            cur = conn.execute("SELECT * FROM recursos ORDER BY id DESC")
+            return [Recurso(r["tipo"], r["titulo"], r["url"], r["descripcion"], r["id"]) for r in cur.fetchall()]
 
     def update_recurso(self, recurso_id: int, recurso: Recurso) -> None:
         with self.connect() as conn:
@@ -374,12 +374,6 @@ class DatabaseManager:
             cur = conn.execute("SELECT nombre, contenido FROM directrices")
             return {r["nombre"]: r["contenido"] for r in cur.fetchall()}
 
-    def get_directriz(self, nombre: str) -> str:
-        with self.connect() as conn:
-            cur = conn.execute("SELECT contenido FROM directrices WHERE nombre = ?", (nombre,))
-            row = cur.fetchone()
-            return row["contenido"] if row else ""
-
     def update_directriz(self, nombre: str, contenido: str) -> None:
         with self.connect() as conn:
             conn.execute(
@@ -390,17 +384,10 @@ class DatabaseManager:
     # ==========================================
     # FRASES MOTIVACIONALES
     # ==========================================
-    def get_frases(self) -> list[Frase]:
+    def list_frases(self) -> list[Frase]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM frases ORDER BY id DESC")
             return [Frase(r["texto"], r["autor"], r["id"]) for r in cur.fetchall()]
-
-    def list_frases(self) -> list[Frase]:
-        return self.get_frases()
-
-    def get_random_frase(self) -> Optional[Frase]:
-        frases = self.get_frases()
-        return random.choice(frases) if frases else None
 
     def create_frase(self, texto: str, autor: str) -> int:
         with self.connect() as conn:
@@ -466,20 +453,6 @@ class DatabaseManager:
             cur = conn.execute(sql, tuple(params))
             return [dict(r) for r in cur.fetchall()]
 
-    def get_history(self, history_id: int) -> Optional[dict[str, Any]]:
-        with self.connect() as conn:
-            cur = conn.execute("SELECT * FROM historial WHERE id = ?", (history_id,))
-            row = cur.fetchone()
-            return dict(row) if row else None
-
-    def delete_history(self, history_id: int) -> None:
-        with self.connect() as conn:
-            conn.execute("DELETE FROM historial WHERE id = ?", (history_id,))
-
-    def clear_history(self) -> None:
-        with self.connect() as conn:
-            conn.execute("DELETE FROM historial")
-
     # ==========================================
     # LOGS (BITÁCORA DE BOT PARA STREAMLIT)
     # ==========================================
@@ -505,12 +478,16 @@ class DatabaseManager:
     # UTILIDADES DE RESPALDO Y EXPORTACIÓN
     # ==========================================
     def export_all_json(self) -> dict[str, Any]:
-        data = {
-            "actividades": self.list_activities(),
-            "historial": self.list_history(limit=5000),
-            "recursos": [dict(r) for r in self.get_recursos_globales()] if hasattr(self.get_recursos_globales()[0], 'keys') else [{"id": r.id, "titulo": r.titulo, "tipo": r.tipo, "url": r.url, "descripcion": r.descripcion} for r in self.get_recursos_globales()]
-        }
-        return data
+        with self.connect() as conn:
+            tables = ["actividades", "criterios", "niveles", "recursos", "directrices", "frases", "historial", "rubricas", "bot_logs"]
+            data = {}
+            for t in tables:
+                try:
+                    cur = conn.execute(f"SELECT * FROM {t}")
+                    data[t] = [dict(r) for r in cur.fetchall()]
+                except Exception:
+                    data[t] = []
+            return data
 
     def backup(self) -> Path:
         data = self.export_all_json()
