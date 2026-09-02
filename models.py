@@ -54,8 +54,6 @@ class Actividad:
     nombre: str = ""
     proposito: str = ""
     instrucciones: str = ""
-    grupo: str = "" 
-    orden: int = 0
     rubrica: Rubrica | None = None
     frase: Frase | None = None
     recursos: list[Recurso] = field(default_factory=list)
