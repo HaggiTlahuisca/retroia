@@ -26,7 +26,10 @@ except ImportError:
 # ==========================================
 def safe_actividad(id_val, nombre, proposito, instrucciones, grupo, orden):
     try:
-        return Actividad(id_val, nombre, proposito, instrucciones, grupo, orden)
+        obj = Actividad(id=id_val, nombre=nombre, proposito=proposito, instrucciones=instrucciones)
+        obj.grupo = grupo
+        obj.orden = orden
+        return obj
     except Exception:
         pass
     # Inyección forzada si falla el orden normal
@@ -44,7 +47,7 @@ def safe_actividad(id_val, nombre, proposito, instrucciones, grupo, orden):
 
 def safe_rubrica(id_val, nombre, contenido):
     try:
-        return Rubrica(id_val, nombre, contenido, [])
+        return Rubrica(id=id_val, nombre=nombre, contenido=contenido, criterios=[])
     except Exception:
         pass
     obj = Rubrica.__new__(Rubrica)
@@ -56,7 +59,7 @@ def safe_rubrica(id_val, nombre, contenido):
 
 def safe_frase(id_val, texto, autor):
     try:
-        return Frase(id_val, texto, autor)
+        return Frase(id=id_val, texto=texto, autor=autor)
     except Exception:
         pass
     obj = Frase.__new__(Frase)
@@ -67,7 +70,7 @@ def safe_frase(id_val, texto, autor):
 
 def safe_recurso(id_val, tipo, titulo, url, descripcion):
     try:
-        return Recurso(id_val, tipo, titulo, url, descripcion)
+        return Recurso(id=id_val, tipo=tipo, titulo=titulo, url=url, descripcion=descripcion)
     except Exception:
         pass
     obj = Recurso.__new__(Recurso)
