@@ -232,7 +232,8 @@ class DatabaseManager:
                 "ALTER TABLE historial ADD COLUMN criterios_evaluados TEXT",
                 "ALTER TABLE historial ADD COLUMN observaciones TEXT",
                 "ALTER TABLE historial ADD COLUMN prompt_usado TEXT",
-                "ALTER TABLE historial ADD COLUMN temperatura REAL"
+                "ALTER TABLE historial ADD COLUMN temperatura REAL",
+                "ALTER TABLE historial ADD COLUMN modelo_usado TEXT DEFAULT 'IA'"
             ]
             for alt in alterations:
                 try:
