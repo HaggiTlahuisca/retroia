@@ -303,15 +303,20 @@ class DatabaseManager:
             if not row:
                 return None
             
-            grupo = row.get("grupo") or "M11C1G78-050"
-            act = Actividad(nombre=row["nombre"], proposito=row["proposito"], instrucciones=row["instrucciones"])
-            act.grupo = grupo
+            # Crear actividad con todos los atributos necesarios
+            act = Actividad(
+                nombre=row["nombre"],
+                proposito=row["proposito"],
+                instrucciones=row["instrucciones"],
+                grupo=row.get("grupo") or "M11C1G78-050",
+                orden=row.get("orden", 0)
+            )
             act.id = row["id"]
-            act.orden = row["orden"]
             
             if row.get("rubrica_id"):
                 rub = self.get_rubric(row["rubrica_id"])
-                if rub: act.rubrica = rub
+                if rub: 
+                    act.rubrica = rub
             
             if row.get("frase_id"):
                 cur_f = conn.execute("SELECT * FROM frases WHERE id = ?", (row["frase_id"],))
@@ -323,7 +328,12 @@ class DatabaseManager:
 
             cur_rec = conn.execute("SELECT * FROM recursos WHERE actividad_id = ?", (actividad_id,))
             for rec_row in cur_rec.fetchall():
-                recurso = Recurso(titulo=rec_row["titulo"], tipo=rec_row["tipo"], url=rec_row["url"], descripcion=rec_row["descripcion"])
+                recurso = Recurso(
+                    titulo=rec_row["titulo"], 
+                    tipo=rec_row["tipo"], 
+                    url=rec_row["url"], 
+                    descripcion=rec_row["descripcion"]
+                )
                 recurso.id = rec_row["id"]
                 act.add_recurso(recurso)
 
@@ -543,4 +553,3 @@ class DatabaseManager:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return filepath
- 
