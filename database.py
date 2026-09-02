@@ -432,7 +432,8 @@ class DatabaseManager:
     # ==========================================
     def create_history(self, item: Any, actividad_id: Optional[int] = None) -> int:
         with self.connect() as conn:
-            criterios_dict = getattr(item, "criterios_evaluados", getattr(item, "criterios", {}))
+            # Usamos "or" para forzar la búsqueda si la primera variable está vacía
+            criterios_dict = getattr(item, "criterios_evaluados", None) or getattr(item, "criterios", {})
             crit_json = json.dumps(criterios_dict, ensure_ascii=False)
             
             fecha_val = getattr(item, "fecha", None)
@@ -442,10 +443,13 @@ class DatabaseManager:
             else:
                 fecha_str = fecha_val if isinstance(fecha_val, str) else fecha_val.strftime("%Y-%m-%d %H:%M:%S")
             
-            actividad_nombre = getattr(item, "actividad_nombre", getattr(item, "actividad", "General"))
-            modelo_usado = getattr(item, "modelo_usado", getattr(item, "modelo", "IA"))
-            texto_generado = getattr(item, "texto_generado", getattr(item, "retroalimentacion", ""))
-            prompt_usado = getattr(item, "prompt_usado", getattr(item, "prompt", ""))
+            actividad_nombre = getattr(item, "actividad_nombre", None) or getattr(item, "actividad", "General")
+            modelo_usado = getattr(item, "modelo_usado", None) or getattr(item, "modelo", "IA")
+            
+            # EL PARACAÍDAS DEFINITIVO PARA EL TEXTO
+            texto_generado = getattr(item, "texto_generado", None) or getattr(item, "retroalimentacion", None) or getattr(item, "texto", "")
+            
+            prompt_usado = getattr(item, "prompt_usado", None) or getattr(item, "prompt", "")
             temperatura = getattr(item, "temperatura", 0.3)
             observaciones = getattr(item, "observaciones", "")
             calificacion = getattr(item, "calificacion", 0.0)
@@ -463,6 +467,7 @@ class DatabaseManager:
                 observaciones, prompt_usado, temperatura
             ))
             return cur.lastrowid or 0
+
 
     def list_history(
         self,
