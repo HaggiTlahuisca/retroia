@@ -422,13 +422,34 @@ class DatabaseManager:
         with self.connect() as conn:
             conn.execute("DELETE FROM frases WHERE id = ?", (frase_id,))
 
-    # ==========================================
+    
+                # ==========================================
     # HISTORIAL DE EVALUACIONES
     # ==========================================
-    def create_history(self, item: Retroalimentacion, actividad_id: Optional[int] = None) -> int:
+    def create_history(self, item: Any, actividad_id: Optional[int] = None) -> int:
         with self.connect() as conn:
-            crit_json = json.dumps(item.criterios_evaluados, ensure_ascii=False)
-            fecha_str = item.fecha if isinstance(item.fecha, str) else item.fecha.strftime("%Y-%m-%d %H:%M:%S")
+            # 1. Paracaídas para los criterios
+            criterios_dict = getattr(item, "criterios_evaluados", getattr(item, "criterios", {}))
+            crit_json = json.dumps(criterios_dict, ensure_ascii=False)
+            
+            # 2. Paracaídas para la fecha
+            fecha_val = getattr(item, "fecha", None)
+            if not fecha_val:
+                tz_utc_minus_6 = timezone(timedelta(hours=-6))
+                fecha_str = datetime.now(tz_utc_minus_6).strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                fecha_str = fecha_val if isinstance(fecha_val, str) else fecha_val.strftime("%Y-%m-%d %H:%M:%S")
+            
+            # 3. Paracaídas para los demás atributos de models.py
+            actividad_nombre = getattr(item, "actividad_nombre", getattr(item, "actividad", "General"))
+            modelo_usado = getattr(item, "modelo_usado", getattr(item, "modelo", "IA"))
+            texto_generado = getattr(item, "texto_generado", getattr(item, "retroalimentacion", ""))
+            prompt_usado = getattr(item, "prompt_usado", getattr(item, "prompt", ""))
+            temperatura = getattr(item, "temperatura", 0.3)
+            observaciones = getattr(item, "observaciones", "")
+            calificacion = getattr(item, "calificacion", 0.0)
+            estudiante = getattr(item, "estudiante", "Estudiante")
+
             cur = conn.execute("""
                 INSERT INTO historial (
                     actividad_id, estudiante, actividad_nombre, fecha, calificacion,
@@ -436,42 +457,12 @@ class DatabaseManager:
                     prompt_usado, temperatura
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                actividad_id, item.estudiante, item.actividad_nombre, fecha_str,
-                item.calificacion, item.modelo_usado, item.texto_generado, crit_json,
-                item.observaciones, item.prompt_usado, item.temperatura
+                actividad_id, estudiante, actividad_nombre, fecha_str,
+                calificacion, modelo_usado, texto_generado, crit_json,
+                observaciones, prompt_usado, temperatura
             ))
             return cur.lastrowid or 0
-
-    def list_history(
-        self,
-        estudiante: str = "",
-        actividad_id: int | None = None,
-        limit: int = 500,
-        fecha_inicio: str | None = None,
-        fecha_fin: str | None = None,
-    ) -> list[dict[str, Any]]:
-        sql = "SELECT * FROM historial WHERE 1=1"
-        params: list[Any] = []
-
-        if actividad_id:
-            sql += " AND actividad_id = ?"
-            params.append(actividad_id)
-        if estudiante:
-            sql += " AND estudiante LIKE ?"
-            params.append(f"%{estudiante}%")
-        if fecha_inicio:
-            sql += " AND date(fecha) >= date(?)"
-            params.append(fecha_inicio)
-        if fecha_fin:
-            sql += " AND date(fecha) <= date(?)"
-            params.append(fecha_fin)
-
-        sql += " ORDER BY id DESC LIMIT ?"
-        params.append(limit)
-
-        with self.connect() as conn:
-            cur = conn.execute(sql, tuple(params))
-            return [dict(r) for r in cur.fetchall()]
+ 
 
     # ==========================================
     # LOGS (BITÁCORA DE BOT PARA STREAMLIT)
