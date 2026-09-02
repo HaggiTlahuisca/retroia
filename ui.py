@@ -350,8 +350,8 @@ class RetroalimentacionApp:
             st.markdown("---")
             st.markdown("#### Frases Guardadas (Editar o Eliminar)")
             for f in self.db.list_frases():
-                f_txt = str(getattr(f, "texto", ""))
-                f_aut = str(getattr(f, "autor", ""))
+                f_txt = getattr(f, "texto", "")
+                f_aut = getattr(f, "autor", "")
                 with st.expander(f"💬 {f_aut} - {f_txt[:30]}..."):
                     with st.form(f"form_edit_fra_{f.id}"):
                         e_txt = st.text_area("Frase", f_txt, height=60)
@@ -407,7 +407,7 @@ class RetroalimentacionApp:
                 act_obj = self.db.get_activity(a_raw["id"])
                 if not act_obj: continue
                 
-                a_nom = str(getattr(act_obj, "nombre", ""))
+                a_nom = getattr(act_obj, "nombre", "")
                 
                 with st.expander(f"⚙️ Editar: {a_nom}"):
                     with st.form(f"form_edit_act_{act_obj.id}"):
@@ -422,7 +422,7 @@ class RetroalimentacionApp:
                         fra_id = getattr(fra_val, "id", None) if fra_val else None
 
                         rubric_opts = {"Sin rúbrica": None} | {r["nombre"]: r["id"] for r in all_rubrics}
-                        frase_opts = {"Sin frase": None} | {f'"{str(getattr(f, "texto", ""))[:40]}..." - {str(getattr(f, "autor", ""))}': f.id for f in all_frases}
+                        frase_opts = {"Sin frase": None} | {f'"{getattr(f, "texto", "")[:40]}..." - {getattr(f, "autor", "")}': f.id for f in all_frases}
                         recurso_opts = {getattr(r, "titulo", ""): r.id for r in all_recursos}
 
                         try:
