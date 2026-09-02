@@ -273,7 +273,9 @@ class DatabaseManager:
             cur = conn.execute("SELECT * FROM rubricas WHERE id = ?", (rubric_id,))
             row = cur.fetchone()
             if row:
-                return Rubrica(row["nombre"], row["contenido"], [], row["id"])
+                r = Rubrica(nombre=row["nombre"], contenido=row["contenido"])
+                r.id = row["id"]
+                return r
             return None
 
     def update_rubric(self, rubric_id: int, rubrica: Rubrica) -> None:
@@ -297,7 +299,10 @@ class DatabaseManager:
                 return None
             
             grupo = row.get("grupo") or "M11C1G78-050"
-            act = Actividad(row["nombre"], row["proposito"], row["instrucciones"], grupo, row["id"], row["orden"])
+            act = Actividad(nombre=row["nombre"], proposito=row["proposito"], instrucciones=row["instrucciones"])
+            act.grupo = grupo
+            act.id = row["id"]
+            act.orden = row["orden"]
             
             if row.get("rubrica_id"):
                 rub = self.get_rubric(row["rubrica_id"])
@@ -306,11 +311,16 @@ class DatabaseManager:
             if row.get("frase_id"):
                 cur_f = conn.execute("SELECT * FROM frases WHERE id = ?", (row["frase_id"],))
                 row_f = cur_f.fetchone()
-                if row_f: act.frase = Frase(row_f["texto"], row_f["autor"], row_f["id"])
+                if row_f: 
+                    f = Frase(texto=row_f["texto"], autor=row_f["autor"])
+                    f.id = row_f["id"]
+                    act.frase = f
 
             cur_rec = conn.execute("SELECT * FROM recursos WHERE actividad_id = ?", (actividad_id,))
             for rec_row in cur_rec.fetchall():
-                act.add_recurso(Recurso(rec_row["tipo"], rec_row["titulo"], rec_row["url"], rec_row["descripcion"], rec_row["id"]))
+                recurso = Recurso(titulo=rec_row["titulo"], tipo=rec_row["tipo"], url=rec_row["url"], descripcion=rec_row["descripcion"])
+                recurso.id = rec_row["id"]
+                act.add_recurso(recurso)
 
             return act
 
@@ -353,7 +363,12 @@ class DatabaseManager:
     def list_recursos_globales(self) -> list[Recurso]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM recursos ORDER BY id DESC")
-            return [Recurso(r["tipo"], r["titulo"], r["url"], r["descripcion"], r["id"]) for r in cur.fetchall()]
+            res = []
+            for r in cur.fetchall():
+                rec = Recurso(titulo=r["titulo"], tipo=r["tipo"], url=r["url"], descripcion=r["descripcion"])
+                rec.id = r["id"]
+                res.append(rec)
+            return res
 
     def update_recurso(self, recurso_id: int, recurso: Recurso) -> None:
         with self.connect() as conn:
@@ -387,7 +402,12 @@ class DatabaseManager:
     def list_frases(self) -> list[Frase]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM frases ORDER BY id DESC")
-            return [Frase(r["texto"], r["autor"], r["id"]) for r in cur.fetchall()]
+            res = []
+            for r in cur.fetchall():
+                f = Frase(texto=r["texto"], autor=r["autor"])
+                f.id = r["id"]
+                res.append(f)
+            return res
 
     def create_frase(self, texto: str, autor: str) -> int:
         with self.connect() as conn:
