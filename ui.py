@@ -27,6 +27,9 @@ from ui_components import (
 from utils import docx_bytes, export_json, feedback_to_moodle_html, pdf_bytes, sanitize_filename, get_activity_code, create_zip, generar_nombre_archivo
 
 
+# Clases "Dummy" para aislar la UI de los errores de los modelos originales
+class _Dummy: pass
+
 class RetroalimentacionApp:
     def __init__(self, db: DatabaseManager) -> None:
         self.db = db
@@ -312,25 +315,28 @@ class RetroalimentacionApp:
         with t1:
             st.subheader("Catálogo Global de Recursos")
             rec, sub_rec = recurso_global_form()
-            if sub_rec and rec.titulo:
+            if sub_rec and getattr(rec, "titulo", ""):
                 self.db.create_recurso(rec); st.success("Recurso guardado."); st.rerun()
             
             st.markdown("---")
             st.markdown("#### Recursos Guardados (Editar o Eliminar)")
             for r in self.db.list_recursos_globales():
-                with st.expander(f"📌 {r.titulo} [{r.tipo}]"):
+                r_tit = getattr(r, "titulo", "")
+                r_tip = getattr(r, "tipo", "Video")
+                r_url = getattr(r, "url", "")
+                r_des = getattr(r, "descripcion", "")
+                
+                with st.expander(f"📌 {r_tit} [{r_tip}]"):
                     with st.form(f"form_edit_rec_{r.id}"):
-                        e_tit = st.text_input("Título", r.titulo)
-                        e_tip = st.selectbox("Tipo", ["Video", "Artículo", "Enlace", "PDF", "Otro"], index=["Video", "Artículo", "Enlace", "PDF", "Otro"].index(r.tipo) if r.tipo in ["Video", "Artículo", "Enlace", "PDF", "Otro"] else 0)
-                        e_url = st.text_input("URL", r.url)
-                        e_des = st.text_area("Descripción", r.descripcion, height=60)
+                        e_tit = st.text_input("Título", r_tit)
+                        e_tip = st.selectbox("Tipo", ["Video", "Artículo", "Enlace", "PDF", "Otro"], index=["Video", "Artículo", "Enlace", "PDF", "Otro"].index(r_tip) if r_tip in ["Video", "Artículo", "Enlace", "PDF", "Otro"] else 0)
+                        e_url = st.text_input("URL", r_url)
+                        e_des = st.text_area("Descripción", r_des, height=60)
                         c1, c2 = st.columns(2)
                         if c1.form_submit_button("Actualizar Recurso"):
-                            try:
-                                n_rec = Recurso(e_tit, e_tip, e_url, e_des)
-                            except Exception:
-                                n_rec = Recurso(titulo=e_tit, tipo=e_tip, url=e_url, descripcion=e_des)
-                            self.db.update_recurso(r.id, n_rec)
+                            d = _Dummy()
+                            d.tipo, d.titulo, d.url, d.descripcion = e_tip, e_tit, e_url, e_des
+                            self.db.update_recurso(r.id, d)
                             st.success("Recurso actualizado."); st.rerun()
                         if c2.form_submit_button("Eliminar Recurso"):
                             self.db.delete_recurso(r.id); st.rerun()
@@ -338,16 +344,18 @@ class RetroalimentacionApp:
         with t2:
             st.subheader("Catálogo Global de Frases Célebres")
             frase, sub_fra = frase_global_form()
-            if sub_fra and frase.texto:
+            if sub_fra and getattr(frase, "texto", ""):
                 self.db.create_frase(frase.texto, frase.autor); st.success("Frase guardada."); st.rerun()
             
             st.markdown("---")
             st.markdown("#### Frases Guardadas (Editar o Eliminar)")
             for f in self.db.list_frases():
-                with st.expander(f"💬 {f.autor} - {f.texto[:30]}..."):
+                f_txt = getattr(f, "texto", "")
+                f_aut = getattr(f, "autor", "")
+                with st.expander(f"💬 {f_aut} - {f_txt[:30]}..."):
                     with st.form(f"form_edit_fra_{f.id}"):
-                        e_txt = st.text_area("Frase", f.texto, height=60)
-                        e_aut = st.text_input("Autor", f.autor)
+                        e_txt = st.text_area("Frase", f_txt, height=60)
+                        e_aut = st.text_input("Autor", f_aut)
                         c1, c2 = st.columns(2)
                         if c1.form_submit_button("Actualizar Frase"):
                             self.db.update_frase(f.id, e_txt, e_aut)
@@ -359,7 +367,7 @@ class RetroalimentacionApp:
             st.subheader("Rúbricas Institucionales")
             mode = st.radio("Modo", ["Manual", "Importar tabla"], horizontal=True)
             rubrica, sub_rub = rubric_manual_form() if mode == "Manual" else rubric_import_form()
-            if sub_rub and rubrica.nombre:
+            if sub_rub and getattr(rubrica, "nombre", ""):
                 try: self.db.create_rubric(rubrica); st.success("Rúbrica guardada."); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
             
@@ -370,15 +378,13 @@ class RetroalimentacionApp:
                     rub_obj = self.db.get_rubric(r["id"])
                     if not rub_obj: continue
                     with st.form(f"form_edit_rub_{r['id']}"):
-                        e_nom = st.text_input("Nombre de la rúbrica", rub_obj.nombre)
-                        e_cont = st.text_area("Contenido base", rub_obj.contenido, height=150)
+                        e_nom = st.text_input("Nombre de la rúbrica", getattr(rub_obj, "nombre", ""))
+                        e_cont = st.text_area("Contenido base", getattr(rub_obj, "contenido", ""), height=150)
                         c1, c2 = st.columns(2)
                         if c1.form_submit_button("Actualizar Rúbrica"):
-                            try:
-                                updated_rub = Rubrica(e_nom, e_cont)
-                            except Exception:
-                                updated_rub = Rubrica(nombre=e_nom, contenido=e_cont)
-                            self.db.update_rubric(r["id"], updated_rub)
+                            d = _Dummy()
+                            d.nombre, d.contenido = e_nom, e_cont
+                            self.db.update_rubric(r["id"], d)
                             st.success("Rúbrica actualizada."); st.rerun()
                         if c2.form_submit_button("Eliminar Rúbrica"):
                             self.db.delete_rubric(r["id"]); st.rerun()
@@ -387,7 +393,7 @@ class RetroalimentacionApp:
             st.subheader("Configurar Nueva Actividad")
             st.caption("Une la rúbrica, la frase y los recursos para crear la actividad final.")
             act, r_id, f_id, rec_ids, sub_act = activity_form(self.db.list_rubrics(), self.db.list_frases(), self.db.list_recursos_globales())
-            if sub_act and act.nombre:
+            if sub_act and getattr(act, "nombre", ""):
                 try: self.db.create_activity(act, r_id, f_id, rec_ids); st.success("Actividad Ensamblada."); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
 
@@ -401,11 +407,13 @@ class RetroalimentacionApp:
                 act_obj = self.db.get_activity(a_raw["id"])
                 if not act_obj: continue
                 
-                with st.expander(f"⚙️ Editar: {act_obj.nombre}"):
+                a_nom = getattr(act_obj, "nombre", "")
+                
+                with st.expander(f"⚙️ Editar: {a_nom}"):
                     with st.form(f"form_edit_act_{act_obj.id}"):
-                        e_nom = st.text_input("Nombre de la actividad", act_obj.nombre)
-                        e_pro = st.text_area("Propósito de la actividad", act_obj.proposito, height=60)
-                        e_ins = st.text_area("Instrucciones detalladas", act_obj.instrucciones, height=90)
+                        e_nom = st.text_input("Nombre de la actividad", a_nom)
+                        e_pro = st.text_area("Propósito de la actividad", getattr(act_obj, "proposito", ""), height=60)
+                        e_ins = st.text_area("Instrucciones detalladas", getattr(act_obj, "instrucciones", ""), height=90)
 
                         rub_val = getattr(act_obj, "rubrica", None)
                         rub_id = getattr(rub_val, "id", None) if rub_val else None
@@ -414,8 +422,8 @@ class RetroalimentacionApp:
                         fra_id = getattr(fra_val, "id", None) if fra_val else None
 
                         rubric_opts = {"Sin rúbrica": None} | {r["nombre"]: r["id"] for r in all_rubrics}
-                        frase_opts = {"Sin frase": None} | {f'"{f.texto[:40]}..." - {f.autor}': f.id for f in all_frases}
-                        recurso_opts = {r.titulo: r.id for r in all_recursos}
+                        frase_opts = {"Sin frase": None} | {f'"{getattr(f, "texto", "")[:40]}..." - {getattr(f, "autor", "")}': f.id for f in all_frases}
+                        recurso_opts = {getattr(r, "titulo", ""): r.id for r in all_recursos}
 
                         try:
                             curr_rub_idx = list(rubric_opts.values()).index(rub_id)
@@ -428,7 +436,7 @@ class RetroalimentacionApp:
                             curr_fra_idx = 0
 
                         recs_list = getattr(act_obj, "recursos", [])
-                        curr_recs_nombres = [r.titulo for r in recs_list if getattr(r, "titulo", "") in recurso_opts]
+                        curr_recs_nombres = [getattr(r, "titulo", "") for r in recs_list if getattr(r, "titulo", "") in recurso_opts]
 
                         col1, col2 = st.columns(2)
                         e_rub = col1.selectbox("Rúbrica asociada", list(rubric_opts.keys()), index=curr_rub_idx)
@@ -441,7 +449,6 @@ class RetroalimentacionApp:
                         if c1.form_submit_button("Actualizar Ensamblado"):
                             g_val = getattr(act_obj, "grupo", "M11C1G78-050")
                             o_val = getattr(act_obj, "orden", 0)
-                            # SE ACTUALIZAN SOLO LOS DATOS COMO TEXTO, SIN OBJETOS QUE DEN ERROR
                             self.db.update_activity(act_obj.id, e_nom, e_pro, e_ins, g_val, o_val, rubric_opts[e_rub], frase_opts[e_fra], e_recs_ids)
                             st.success("Actividad actualizada correctamente."); st.rerun()
                         if c2.form_submit_button("Eliminar Actividad"):
