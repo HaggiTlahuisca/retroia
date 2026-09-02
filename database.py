@@ -7,7 +7,7 @@ import sqlite3
 import json
 import random
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 from datetime import datetime, timezone, timedelta
 
 from config import DB_PATH, EXPORTS_DIR
@@ -217,33 +217,31 @@ class DatabaseManager:
                 )
             """)
 
-        def _add_missing_columns(self, conn: Any = None) -> None:
-        if conn is None:
+    def _add_missing_columns(self, conn: Any = None) -> None:
+        if conn is not None:
+            alterations = [
+                "ALTER TABLE actividades ADD COLUMN grupo TEXT DEFAULT 'M11C1G78-050'",
+                "ALTER TABLE actividades ADD COLUMN orden INTEGER DEFAULT 0",
+                "ALTER TABLE actividades ADD COLUMN proposito TEXT DEFAULT ''",
+                "ALTER TABLE actividades ADD COLUMN instrucciones TEXT DEFAULT ''",
+                "ALTER TABLE actividades ADD COLUMN rubrica_id INTEGER",
+                "ALTER TABLE actividades ADD COLUMN frase_id INTEGER",
+                "ALTER TABLE criterios ADD COLUMN orden INTEGER DEFAULT 0",
+                "ALTER TABLE recursos ADD COLUMN actividad_id INTEGER",
+                "ALTER TABLE historial ADD COLUMN actividad_nombre TEXT DEFAULT 'General'",
+                "ALTER TABLE historial ADD COLUMN criterios_evaluados TEXT",
+                "ALTER TABLE historial ADD COLUMN observaciones TEXT",
+                "ALTER TABLE historial ADD COLUMN prompt_usado TEXT",
+                "ALTER TABLE historial ADD COLUMN temperatura REAL"
+            ]
+            for alt in alterations:
+                try:
+                    conn.execute(alt)
+                except Exception:
+                    pass
+        else:
             with self.connect() as connection:
                 self._add_missing_columns(connection)
-            return
-
-        alterations = [
-            "ALTER TABLE actividades ADD COLUMN grupo TEXT DEFAULT 'M11C1G78-050'",
-            "ALTER TABLE actividades ADD COLUMN orden INTEGER DEFAULT 0",
-            "ALTER TABLE actividades ADD COLUMN proposito TEXT DEFAULT ''",
-            "ALTER TABLE actividades ADD COLUMN instrucciones TEXT DEFAULT ''",
-            "ALTER TABLE actividades ADD COLUMN rubrica_id INTEGER",
-            "ALTER TABLE actividades ADD COLUMN frase_id INTEGER",
-            "ALTER TABLE criterios ADD COLUMN orden INTEGER DEFAULT 0",
-            "ALTER TABLE recursos ADD COLUMN actividad_id INTEGER",
-            "ALTER TABLE historial ADD COLUMN actividad_nombre TEXT DEFAULT 'General'",
-            "ALTER TABLE historial ADD COLUMN criterios_evaluados TEXT",
-            "ALTER TABLE historial ADD COLUMN observaciones TEXT",
-            "ALTER TABLE historial ADD COLUMN prompt_usado TEXT",
-            "ALTER TABLE historial ADD COLUMN temperatura REAL"
-        ]
-        for alt in alterations:
-            try:
-                conn.execute(alt)
-            except Exception:
-                pass
-
 
     def _init_default_directrices(self) -> None:
         defaults = {
@@ -428,17 +426,14 @@ class DatabaseManager:
         with self.connect() as conn:
             conn.execute("DELETE FROM frases WHERE id = ?", (frase_id,))
 
-    
-                # ==========================================
+    # ==========================================
     # HISTORIAL DE EVALUACIONES
     # ==========================================
     def create_history(self, item: Any, actividad_id: Optional[int] = None) -> int:
         with self.connect() as conn:
-            # 1. Paracaídas para los criterios
             criterios_dict = getattr(item, "criterios_evaluados", getattr(item, "criterios", {}))
             crit_json = json.dumps(criterios_dict, ensure_ascii=False)
             
-            # 2. Paracaídas para la fecha
             fecha_val = getattr(item, "fecha", None)
             if not fecha_val:
                 tz_utc_minus_6 = timezone(timedelta(hours=-6))
@@ -446,7 +441,6 @@ class DatabaseManager:
             else:
                 fecha_str = fecha_val if isinstance(fecha_val, str) else fecha_val.strftime("%Y-%m-%d %H:%M:%S")
             
-            # 3. Paracaídas para los demás atributos de models.py
             actividad_nombre = getattr(item, "actividad_nombre", getattr(item, "actividad", "General"))
             modelo_usado = getattr(item, "modelo_usado", getattr(item, "modelo", "IA"))
             texto_generado = getattr(item, "texto_generado", getattr(item, "retroalimentacion", ""))
@@ -468,7 +462,37 @@ class DatabaseManager:
                 observaciones, prompt_usado, temperatura
             ))
             return cur.lastrowid or 0
- 
+
+    def list_history(
+        self,
+        estudiante: str = "",
+        actividad_id: int | None = None,
+        limit: int = 500,
+        fecha_inicio: str | None = None,
+        fecha_fin: str | None = None,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM historial WHERE 1=1"
+        params: list[Any] = []
+
+        if actividad_id:
+            sql += " AND actividad_id = ?"
+            params.append(actividad_id)
+        if estudiante:
+            sql += " AND estudiante LIKE ?"
+            params.append(f"%{estudiante}%")
+        if fecha_inicio:
+            sql += " AND date(fecha) >= date(?)"
+            params.append(fecha_inicio)
+        if fecha_fin:
+            sql += " AND date(fecha) <= date(?)"
+            params.append(fecha_fin)
+
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+
+        with self.connect() as conn:
+            cur = conn.execute(sql, tuple(params))
+            return [dict(r) for r in cur.fetchall()]
 
     # ==========================================
     # LOGS (BITÁCORA DE BOT PARA STREAMLIT)
@@ -513,3 +537,4 @@ class DatabaseManager:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return filepath
+ 
