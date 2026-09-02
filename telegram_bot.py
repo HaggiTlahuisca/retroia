@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 import random
-import logging
+import io
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from dotenv import load_dotenv
@@ -15,15 +15,6 @@ from prompt_builder import PromptBuilder
 from ia_client import IAClient
 from models import Retroalimentacion
 from utils import docx_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html, generar_nombre_archivo
-
-# --- CONFIGURACIÓN DE LOGS (LA CAJA NEGRA) ---
-logging.basicConfig(
-    filename='retroia_bot.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    encoding='utf-8'
-)
-logger = logging.getLogger(__name__)
 
 # 1. CARGA DE CREDENCIALES
 load_dotenv()
@@ -35,6 +26,14 @@ if not TOKEN:
 bot = telebot.TeleBot(TOKEN)
 db = DatabaseManager()
 ia_client = IAClient("openrouter")
+
+# --- FUNCIÓN DE BITÁCORA (LOGS A BASE DE DATOS) ---
+def bot_log(nivel: str, mensaje: str):
+    print(f"[{nivel}] {mensaje}")
+    try:
+        db.add_log(nivel, mensaje)
+    except Exception as e:
+        print(f"Error escribiendo en BD: {e}")
 
 # 2. LÓGICA DE LA EVALUACIÓN Y CATÁLOGO DE MODELOS
 sesiones: dict[int, dict] = {}
@@ -126,7 +125,7 @@ def iniciar_evaluacion(message):
         "modelo_nombre": "🎲 Rotación Aleatoria"
     }
 
-    logger.info(f"Sesión iniciada. Modo: {modo}. Usuario: {message.chat.id}")
+    bot_log("INFO", f"Sesión iniciada. Modo: {modo}. Usuario: {message.chat.id}")
 
     encabezado = "📦 *Modo Lote activado*\n" if modo == "batch" else "👋 ¡Hola, Haggi!\n"
     bot.send_message(
@@ -142,7 +141,7 @@ def cancelar_evaluacion(message):
     chat_id = message.chat.id
     if chat_id in sesiones:
         del sesiones[chat_id]
-        logger.info(f"Sesión cancelada por el usuario: {chat_id}")
+        bot_log("INFO", f"Sesión cancelada por el usuario: {chat_id}")
         bot.send_message(chat_id, "🚫 Evaluación cancelada. Escribe /evaluar o /lote para iniciar.")
     else:
         bot.send_message(chat_id, "No hay ninguna evaluación en curso para cancelar.")
@@ -380,7 +379,7 @@ def batch_add(call):
 def batch_run(call):
     chat_id = call.message.chat.id
     cola = sesiones[chat_id].get("cola", [])
-    logger.info(f"Iniciando procesamiento de lote para {len(cola)} estudiantes.")
+    bot_log("INFO", f"Iniciando procesamiento de lote para {len(cola)} estudiantes.")
     bot.edit_message_text(f"🚀 Generando lote de {len(cola)} retroalimentaciones. Esto tomará un momento...", chat_id=chat_id, message_id=call.message.message_id)
 
     for idx, item in enumerate(cola):
@@ -388,12 +387,13 @@ def batch_run(call):
         procesar_generacion_individual(chat_id, None, item["estudiante"], item["criterios"], item["total_puntos"], item["observaciones"])
 
     del sesiones[chat_id]
-    logger.info("Lote completado exitosamente.")
+    bot_log("INFO", "Lote completado exitosamente.")
     bot.send_message(chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /lote para iniciar de nuevo.")
 
 
 def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs):
-    datos = sesiones[chat_id]
+    datos = sesiones.get(chat_id)
+    if not datos: return
     actividad = datos["actividad"]
     modelo_id_base = datos.get("modelo_id", "auto")
     modelos_reales = [m for k, m in MODELOS_DISPONIBLES.items() if k != "auto"]
@@ -403,26 +403,22 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
     
     if modelo_id_base == "auto":
         if datos.get("modo") == "batch":
-            # Para lotes: Rotación secuencial estricta para distribuir la carga
             ultimo_idx = datos.get("ultimo_indice_modelo", -1)
             siguiente_idx = (ultimo_idx + 1) % len(modelos_reales)
             datos["ultimo_indice_modelo"] = siguiente_idx
         else:
-            # Para individuales: Verdadera aleatoriedad
+            # Aleatoriedad VERDADERA para modo individual
             siguiente_idx = random.randint(0, len(modelos_reales) - 1)
-            logger.info(f"[{estudiante}] Modo individual aleatorio seleccionó índice {siguiente_idx}.")
+            bot_log("INFO", f"[{estudiante}] Modo individual aleatorio seleccionó índice {siguiente_idx}.")
         
-        # Agregamos el modelo elegido, y luego los demás como respaldo
         modelos_a_intentar.append(modelos_reales[siguiente_idx])
         for i in range(1, len(modelos_reales)):
             idx = (siguiente_idx + i) % len(modelos_reales)
             modelos_a_intentar.append(modelos_reales[idx])
     else:
-        # Si elegiste uno fijo, lo ponemos primero
         modelo_fijo = next((m for m in modelos_reales if m["id"] == modelo_id_base), None)
         if modelo_fijo:
             modelos_a_intentar.append(modelo_fijo)
-        # Y ponemos todos los demás como respaldo en caso de que falle
         for m in modelos_reales:
             if m["id"] != modelo_id_base:
                 modelos_a_intentar.append(m)
@@ -443,9 +439,9 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         modelo_exitoso = None
         ultimo_error = None
 
-        logger.info(f"[{estudiante}] Iniciando peticiones a OpenRouter.")
+        bot_log("INFO", f"[{estudiante}] Iniciando peticiones a OpenRouter.")
 
-        # 2. Bucle de intentos: Si falla, prueba con el siguiente
+        # 2. Bucle de intentos (El Salvavidas)
         for intento, modelo_actual in enumerate(modelos_a_intentar):
             if message_id_to_edit:
                 if intento == 0:
@@ -453,38 +449,38 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
                 else:
                     mensaje = f"🔄 Servidor saturado. Reintentando con {modelo_actual['nombre']}..."
                 
-                bot.edit_message_text(mensaje, chat_id=chat_id, message_id=message_id_to_edit)
+                try: bot.edit_message_text(mensaje, chat_id=chat_id, message_id=message_id_to_edit)
+                except Exception: pass
             
-            logger.info(f"[{estudiante}] Intentando API con modelo: {modelo_actual['nombre']}")
+            bot_log("INFO", f"[{estudiante}] Intentando API con modelo: {modelo_actual['nombre']}")
             start_time = time.time()
             try:
                 texto_generado = ia_client.generar(prompt, api_key, modelo_actual["id"], 0.3, 4000)
                 elapsed = time.time() - start_time
-                logger.info(f"[{estudiante}] ÉXITO con {modelo_actual['nombre']}. Tiempo: {elapsed:.2f}s. Longitud: {len(texto_generado)} chars.")
+                bot_log("INFO", f"[{estudiante}] ÉXITO con {modelo_actual['nombre']}. Tiempo: {elapsed:.2f}s.")
                 
-                # Detectar posibles textos truncados como el de "articulando los proced"
-                if texto_generado.endswith((" y", " con", " el", " la", " los", " las", " de", " un", " una")):
-                    logger.warning(f"[{estudiante}] ATENCIÓN: El texto parece haberse truncado prematuramente.")
+                if texto_generado.endswith((" y", " con", " el", " la", " los", " las", " de", " un", " una", " proced", " funcion")):
+                    bot_log("WARNING", f"[{estudiante}] ATENCIÓN: El texto parece haberse truncado.")
 
                 modelo_exitoso = modelo_actual
-                break  # ¡Éxito! Rompemos el ciclo
+                break
             except Exception as e:
                 elapsed = time.time() - start_time
                 ultimo_error = e
-                logger.error(f"[{estudiante}] FALLÓ {modelo_actual['nombre']} tras {elapsed:.2f}s. Error: {e}")
-                time.sleep(2)  # Pausa breve antes de intentar con el siguiente
+                bot_log("ERROR", f"[{estudiante}] FALLÓ {modelo_actual['nombre']} tras {elapsed:.2f}s. Error: {e}")
+                time.sleep(2)
                 continue
 
-        # 3. Si se agotaron TODOS los modelos y ninguno funcionó
         if not texto_generado:
-            logger.critical(f"[{estudiante}] TODOS los modelos fallaron. Último error: {ultimo_error}")
+            bot_log("ERROR", f"[{estudiante}] TODOS los modelos fallaron. Último error: {ultimo_error}")
             if message_id_to_edit:
-                bot.edit_message_text(f"❌ Ocurrió un error crítico con {estudiante} y todos los modelos fallaron. Último error: {ultimo_error}", chat_id, message_id_to_edit)
+                try: bot.edit_message_text(f"❌ Ocurrió un error crítico con {estudiante} y todos los modelos fallaron. Último error: {ultimo_error}", chat_id, message_id_to_edit)
+                except: bot.send_message(chat_id, f"❌ Ocurrió un error crítico con {estudiante} y todos los modelos fallaron.")
             else:
                 bot.send_message(chat_id, f"❌ Ocurrió un error con {estudiante}: {ultimo_error}")
             return
 
-        # 4. Guardar y enviar archivos
+        # 3. Guardar y enviar archivos
         item = Retroalimentacion(
             estudiante, actividad.nombre, texto_generado,
             modelo_exitoso["id"], total_puntos, criterios, obs, prompt, 0.3
@@ -495,11 +491,20 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         html_text = feedback_to_moodle_html(texto_generado)
         nombre_base = generar_nombre_archivo(estudiante, actividad.nombre)
 
+        # ¡CLAVE! Borramos el mensaje de "Redactando" pero vaciamos la variable para que no crashee si falla después
         if message_id_to_edit:
-            bot.delete_message(chat_id, message_id_to_edit)
+            try: bot.delete_message(chat_id, message_id_to_edit)
+            except Exception: pass
+            message_id_to_edit = None
 
-        bot.send_document(chat_id, document=(f"{nombre_base}.docx", word_bytes), caption=f"📄 Word: {estudiante} ({modelo_exitoso['nombre']})")
-        bot.send_document(chat_id, document=(f"{nombre_base}.html", html_text.encode('utf-8')), caption=f"🌐 HTML: {estudiante}")
+        # ¡CLAVE! Empaquetamos en formato BytesIO seguro para Telegram
+        word_buffer = io.BytesIO(word_bytes)
+        word_buffer.name = f"{nombre_base}.docx"
+        html_buffer = io.BytesIO(html_text.encode('utf-8'))
+        html_buffer.name = f"{nombre_base}.html"
+
+        bot.send_document(chat_id, document=word_buffer, caption=f"📄 Word: {estudiante} ({modelo_exitoso['nombre']})")
+        bot.send_document(chat_id, document=html_buffer, caption=f"🌐 HTML: {estudiante}")
 
         if "foro de integración" in actividad.nombre.lower():
             bot.send_message(chat_id, f"🔢 *Calificación de {estudiante}:* `{total_puntos:.1f} / 100`", parse_mode="Markdown")
@@ -509,9 +514,10 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             del sesiones[chat_id]
 
     except Exception as e:
-        logger.error(f"[{estudiante}] Error inesperado en el proceso general: {e}")
+        bot_log("ERROR", f"[{estudiante}] Error inesperado al procesar: {e}")
         if message_id_to_edit:
-            bot.edit_message_text(f"❌ Ocurrió un error procesando a {estudiante}: {e}", chat_id, message_id_to_edit)
+            try: bot.edit_message_text(f"❌ Ocurrió un error procesando a {estudiante}: {e}", chat_id, message_id_to_edit)
+            except Exception: bot.send_message(chat_id, f"❌ Ocurrió un error procesando a {estudiante}: {e}")
         else:
             bot.send_message(chat_id, f"❌ Ocurrió un error procesando a {estudiante}: {e}")
 
@@ -529,6 +535,5 @@ if __name__ == '__main__':
     ]
     bot.set_my_commands(comandos)
     
-    logger.info("🤖 Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
-    print("🤖 Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
+    bot_log("INFO", "Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
