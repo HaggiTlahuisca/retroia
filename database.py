@@ -308,7 +308,6 @@ class DatabaseManager:
             
             grupo = row.get("grupo") or "M11C1G78-050"
             
-            # PARACAÍDAS PARA INICIAR LA ACTIVIDAD
             try:
                 act = Actividad(row["nombre"], row["proposito"], row["instrucciones"], grupo, row["id"], row["orden"])
             except Exception:
@@ -316,12 +315,14 @@ class DatabaseManager:
                     act = Actividad(nombre=row["nombre"], proposito=row["proposito"], instrucciones=row["instrucciones"])
                 except Exception:
                     act = Actividad(row["nombre"], row["proposito"], row["instrucciones"])
-                
-                act.grupo = grupo
-                act.id = row["id"]
-                act.orden = row["orden"]
             
-            # PARACAÍDAS PARA RÚBRICA Y FRASE
+            # Paracaídas seguros para asignar atributos extra
+            for attr, val in [("grupo", grupo), ("id", row["id"]), ("orden", row["orden"])]:
+                try:
+                    setattr(act, attr, val)
+                except AttributeError:
+                    pass
+            
             if row.get("rubrica_id"):
                 rub = self.get_rubric(row["rubrica_id"])
                 if rub: act.rubrica = rub
@@ -336,7 +337,6 @@ class DatabaseManager:
                         act.frase = Frase(texto=row_f["texto"], autor=row_f["autor"])
                         act.frase.id = row_f["id"]
 
-            # PARACAÍDAS ANTI-ERROR DE RECURSOS
             if not hasattr(act, "recursos"):
                 act.recursos = []
 
@@ -360,25 +360,26 @@ class DatabaseManager:
 
     def create_activity(self, act: Any, r_id: Optional[int], f_id: Optional[int], rec_ids: list[int]) -> int:
         with self.connect() as conn:
+            nombre = getattr(act, "nombre", "Nueva Actividad")
+            proposito = getattr(act, "proposito", "")
+            instrucciones = getattr(act, "instrucciones", "")
             grupo = getattr(act, "grupo", "M11C1G78-050")
             orden = getattr(act, "orden", 0)
+            
             cur = conn.execute(
                 "INSERT INTO actividades (nombre, proposito, instrucciones, grupo, orden, rubrica_id, frase_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (act.nombre, act.proposito, act.instrucciones, grupo, orden, r_id, f_id)
+                (nombre, proposito, instrucciones, grupo, orden, r_id, f_id)
             )
             act_id = cur.lastrowid
             for rec_id in rec_ids:
                 conn.execute("UPDATE recursos SET actividad_id = ? WHERE id = ?", (act_id, rec_id))
             return act_id or 0
 
-    def update_activity(self, act_id: int, act: Any, r_id: Optional[int], f_id: Optional[int], rec_ids: list[int]) -> None:
+    def update_activity(self, act_id: int, nombre: str, proposito: str, instrucciones: str, grupo: str, orden: int, r_id: Optional[int], f_id: Optional[int], rec_ids: list[int]) -> None:
         with self.connect() as conn:
-            # PARACAÍDAS ANTI-ERROR DE GRUPO EN LA ACTUALIZACIÓN
-            grupo = getattr(act, "grupo", "M11C1G78-050")
-            orden = getattr(act, "orden", 0)
             conn.execute(
                 "UPDATE actividades SET nombre=?, proposito=?, instrucciones=?, grupo=?, orden=?, rubrica_id=?, frase_id=? WHERE id=?",
-                (act.nombre, act.proposito, act.instrucciones, grupo, orden, r_id, f_id, act_id)
+                (nombre, proposito, instrucciones, grupo, orden, r_id, f_id, act_id)
             )
             conn.execute("UPDATE recursos SET actividad_id = NULL WHERE actividad_id = ?", (act_id,))
             for rec_id in rec_ids:
@@ -477,8 +478,8 @@ class DatabaseManager:
             
             fecha_val = getattr(item, "fecha", None)
             if not fecha_val:
-                tz_utc_minus_6 = timezone(timedelta(hours=-6))
-                fecha_str = datetime.now(tz_utc_minus_6).strftime("%Y-%m-%d %H:%M:%S")
+                # El parche oficial de Haggi: usar hora local sin restar
+                fecha_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             else:
                 fecha_str = fecha_val if isinstance(fecha_val, str) else fecha_val.strftime("%Y-%m-%d %H:%M:%S")
             
@@ -541,8 +542,8 @@ class DatabaseManager:
     def add_log(self, nivel: str, mensaje: str) -> None:
         with self.connect() as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS bot_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, nivel TEXT, mensaje TEXT)")
-            tz_utc_minus_6 = timezone(timedelta(hours=-6))
-            fecha = datetime.now(tz_utc_minus_6).strftime("%Y-%m-%d %H:%M:%S")
+            # El parche oficial de Haggi: usar hora local sin restar
+            fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("INSERT INTO bot_logs (fecha, nivel, mensaje) VALUES (?, ?, ?)", (fecha, nivel, mensaje))
 
     def get_logs(self, limit: int = 100) -> list[dict]:
