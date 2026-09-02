@@ -263,7 +263,7 @@ class DatabaseManager:
     # ==========================================
     # GESTIÓN DE ACTIVIDADES Y RÚBRICAS
     # ==========================================
-    def create_rubric(self, rubrica: Rubrica) -> int:
+    def create_rubric(self, rubrica: Any) -> int:
         with self.connect() as conn:
             cur = conn.execute("INSERT INTO rubricas (nombre, contenido) VALUES (?, ?)", (rubrica.nombre, rubrica.contenido))
             return cur.lastrowid or 0
@@ -273,17 +273,20 @@ class DatabaseManager:
             cur = conn.execute("SELECT id, nombre FROM rubricas ORDER BY id DESC")
             return [dict(r) for r in cur.fetchall()]
 
-    def get_rubric(self, rubric_id: int) -> Optional[Rubrica]:
+    def get_rubric(self, rubric_id: int) -> Optional[Any]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM rubricas WHERE id = ?", (rubric_id,))
             row = cur.fetchone()
             if row:
-                r = Rubrica(nombre=row["nombre"], contenido=row["contenido"])
-                r.id = row["id"]
+                try:
+                    r = Rubrica(row["nombre"], row["contenido"], [], row["id"])
+                except Exception:
+                    r = Rubrica(nombre=row["nombre"], contenido=row["contenido"])
+                    r.id = row["id"]
                 return r
             return None
 
-    def update_rubric(self, rubric_id: int, rubrica: Rubrica) -> None:
+    def update_rubric(self, rubric_id: int, rubrica: Any) -> None:
         with self.connect() as conn:
             conn.execute("UPDATE rubricas SET nombre = ?, contenido = ? WHERE id = ?", (rubrica.nombre, rubrica.contenido, rubric_id))
 
@@ -296,7 +299,7 @@ class DatabaseManager:
             cur = conn.execute("SELECT * FROM actividades ORDER BY orden ASC, id ASC")
             return [dict(r) for r in cur.fetchall()]
 
-    def get_activity(self, actividad_id: int) -> Optional[Actividad]:
+    def get_activity(self, actividad_id: int) -> Optional[Any]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM actividades WHERE id = ?", (actividad_id,))
             row = cur.fetchone()
@@ -304,11 +307,21 @@ class DatabaseManager:
                 return None
             
             grupo = row.get("grupo") or "M11C1G78-050"
-            act = Actividad(nombre=row["nombre"], proposito=row["proposito"], instrucciones=row["instrucciones"])
-            act.grupo = grupo
-            act.id = row["id"]
-            act.orden = row["orden"]
             
+            # PARACAÍDAS PARA INICIAR LA ACTIVIDAD
+            try:
+                act = Actividad(row["nombre"], row["proposito"], row["instrucciones"], grupo, row["id"], row["orden"])
+            except Exception:
+                try:
+                    act = Actividad(nombre=row["nombre"], proposito=row["proposito"], instrucciones=row["instrucciones"])
+                except Exception:
+                    act = Actividad(row["nombre"], row["proposito"], row["instrucciones"])
+                
+                act.grupo = grupo
+                act.id = row["id"]
+                act.orden = row["orden"]
+            
+            # PARACAÍDAS PARA RÚBRICA Y FRASE
             if row.get("rubrica_id"):
                 rub = self.get_rubric(row["rubrica_id"])
                 if rub: act.rubrica = rub
@@ -317,34 +330,55 @@ class DatabaseManager:
                 cur_f = conn.execute("SELECT * FROM frases WHERE id = ?", (row["frase_id"],))
                 row_f = cur_f.fetchone()
                 if row_f: 
-                    f = Frase(texto=row_f["texto"], autor=row_f["autor"])
-                    f.id = row_f["id"]
-                    act.frase = f
+                    try:
+                        act.frase = Frase(row_f["texto"], row_f["autor"], row_f["id"])
+                    except Exception:
+                        act.frase = Frase(texto=row_f["texto"], autor=row_f["autor"])
+                        act.frase.id = row_f["id"]
+
+            # PARACAÍDAS ANTI-ERROR DE RECURSOS
+            if not hasattr(act, "recursos"):
+                act.recursos = []
 
             cur_rec = conn.execute("SELECT * FROM recursos WHERE actividad_id = ?", (actividad_id,))
             for rec_row in cur_rec.fetchall():
-                recurso = Recurso(titulo=rec_row["titulo"], tipo=rec_row["tipo"], url=rec_row["url"], descripcion=rec_row["descripcion"])
-                recurso.id = rec_row["id"]
-                act.add_recurso(recurso)
+                try:
+                    recurso = Recurso(rec_row["tipo"], rec_row["titulo"], rec_row["url"], rec_row["descripcion"], rec_row["id"])
+                except Exception:
+                    try:
+                        recurso = Recurso(titulo=rec_row["titulo"], tipo=rec_row["tipo"], url=rec_row["url"], descripcion=rec_row["descripcion"])
+                    except Exception:
+                        recurso = Recurso(rec_row["titulo"], rec_row["tipo"], rec_row["url"], rec_row["descripcion"])
+                    recurso.id = rec_row["id"]
+                
+                if hasattr(act, "add_recurso"):
+                    act.add_recurso(recurso)
+                else:
+                    act.recursos.append(recurso)
 
             return act
 
-    def create_activity(self, act: Actividad, r_id: Optional[int], f_id: Optional[int], rec_ids: list[int]) -> int:
+    def create_activity(self, act: Any, r_id: Optional[int], f_id: Optional[int], rec_ids: list[int]) -> int:
         with self.connect() as conn:
+            grupo = getattr(act, "grupo", "M11C1G78-050")
+            orden = getattr(act, "orden", 0)
             cur = conn.execute(
                 "INSERT INTO actividades (nombre, proposito, instrucciones, grupo, orden, rubrica_id, frase_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (act.nombre, act.proposito, act.instrucciones, act.grupo, act.orden, r_id, f_id)
+                (act.nombre, act.proposito, act.instrucciones, grupo, orden, r_id, f_id)
             )
             act_id = cur.lastrowid
             for rec_id in rec_ids:
                 conn.execute("UPDATE recursos SET actividad_id = ? WHERE id = ?", (act_id, rec_id))
             return act_id or 0
 
-    def update_activity(self, act_id: int, act: Actividad, r_id: Optional[int], f_id: Optional[int], rec_ids: list[int]) -> None:
+    def update_activity(self, act_id: int, act: Any, r_id: Optional[int], f_id: Optional[int], rec_ids: list[int]) -> None:
         with self.connect() as conn:
+            # PARACAÍDAS ANTI-ERROR DE GRUPO EN LA ACTUALIZACIÓN
+            grupo = getattr(act, "grupo", "M11C1G78-050")
+            orden = getattr(act, "orden", 0)
             conn.execute(
                 "UPDATE actividades SET nombre=?, proposito=?, instrucciones=?, grupo=?, orden=?, rubrica_id=?, frase_id=? WHERE id=?",
-                (act.nombre, act.proposito, act.instrucciones, act.grupo, act.orden, r_id, f_id, act_id)
+                (act.nombre, act.proposito, act.instrucciones, grupo, orden, r_id, f_id, act_id)
             )
             conn.execute("UPDATE recursos SET actividad_id = NULL WHERE actividad_id = ?", (act_id,))
             for rec_id in rec_ids:
@@ -357,7 +391,7 @@ class DatabaseManager:
     # ==========================================
     # GESTIÓN DE RECURSOS
     # ==========================================
-    def create_recurso(self, recurso: Recurso) -> int:
+    def create_recurso(self, recurso: Any) -> int:
         with self.connect() as conn:
             cur = conn.execute(
                 "INSERT INTO recursos (tipo, titulo, url, descripcion) VALUES (?, ?, ?, ?)",
@@ -365,17 +399,20 @@ class DatabaseManager:
             )
             return cur.lastrowid or 0
 
-    def list_recursos_globales(self) -> list[Recurso]:
+    def list_recursos_globales(self) -> list[Any]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM recursos ORDER BY id DESC")
             res = []
             for r in cur.fetchall():
-                rec = Recurso(titulo=r["titulo"], tipo=r["tipo"], url=r["url"], descripcion=r["descripcion"])
-                rec.id = r["id"]
+                try:
+                    rec = Recurso(r["tipo"], r["titulo"], r["url"], r["descripcion"], r["id"])
+                except Exception:
+                    rec = Recurso(titulo=r["titulo"], tipo=r["tipo"], url=r["url"], descripcion=r["descripcion"])
+                    rec.id = r["id"]
                 res.append(rec)
             return res
 
-    def update_recurso(self, recurso_id: int, recurso: Recurso) -> None:
+    def update_recurso(self, recurso_id: int, recurso: Any) -> None:
         with self.connect() as conn:
             conn.execute(
                 "UPDATE recursos SET tipo = ?, titulo = ?, url = ?, descripcion = ? WHERE id = ?",
@@ -404,13 +441,16 @@ class DatabaseManager:
     # ==========================================
     # FRASES MOTIVACIONALES
     # ==========================================
-    def list_frases(self) -> list[Frase]:
+    def list_frases(self) -> list[Any]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM frases ORDER BY id DESC")
             res = []
             for r in cur.fetchall():
-                f = Frase(texto=r["texto"], autor=r["autor"])
-                f.id = r["id"]
+                try:
+                    f = Frase(r["texto"], r["autor"], r["id"])
+                except Exception:
+                    f = Frase(texto=r["texto"], autor=r["autor"])
+                    f.id = r["id"]
                 res.append(f)
             return res
 
@@ -432,23 +472,19 @@ class DatabaseManager:
     # ==========================================
     def create_history(self, item: Any, actividad_id: Optional[int] = None) -> int:
         with self.connect() as conn:
-            # Usamos "or" para forzar la búsqueda si la primera variable está vacía
             criterios_dict = getattr(item, "criterios_evaluados", None) or getattr(item, "criterios", {})
             crit_json = json.dumps(criterios_dict, ensure_ascii=False)
             
             fecha_val = getattr(item, "fecha", None)
             if not fecha_val:
-                tz_utc_minus_6 = timezone(timedelta(hours=+0))
+                tz_utc_minus_6 = timezone(timedelta(hours=-6))
                 fecha_str = datetime.now(tz_utc_minus_6).strftime("%Y-%m-%d %H:%M:%S")
             else:
                 fecha_str = fecha_val if isinstance(fecha_val, str) else fecha_val.strftime("%Y-%m-%d %H:%M:%S")
             
             actividad_nombre = getattr(item, "actividad_nombre", None) or getattr(item, "actividad", "General")
             modelo_usado = getattr(item, "modelo_usado", None) or getattr(item, "modelo", "IA")
-            
-            # EL PARACAÍDAS DEFINITIVO PARA EL TEXTO
             texto_generado = getattr(item, "texto_generado", None) or getattr(item, "retroalimentacion", None) or getattr(item, "texto", "")
-            
             prompt_usado = getattr(item, "prompt_usado", None) or getattr(item, "prompt", "")
             temperatura = getattr(item, "temperatura", 0.3)
             observaciones = getattr(item, "observaciones", "")
@@ -467,7 +503,6 @@ class DatabaseManager:
                 observaciones, prompt_usado, temperatura
             ))
             return cur.lastrowid or 0
-
 
     def list_history(
         self,
@@ -506,7 +541,7 @@ class DatabaseManager:
     def add_log(self, nivel: str, mensaje: str) -> None:
         with self.connect() as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS bot_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, nivel TEXT, mensaje TEXT)")
-            tz_utc_minus_6 = timezone(timedelta(hours=+0))
+            tz_utc_minus_6 = timezone(timedelta(hours=-6))
             fecha = datetime.now(tz_utc_minus_6).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("INSERT INTO bot_logs (fecha, nivel, mensaje) VALUES (?, ?, ?)", (fecha, nivel, mensaje))
 
@@ -543,4 +578,3 @@ class DatabaseManager:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return filepath
- 
