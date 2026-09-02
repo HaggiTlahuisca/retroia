@@ -34,7 +34,7 @@ class LibSQLCursorWrapper:
     def __init__(self, cursor: Any) -> None:
         self._cursor = cursor
 
-    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> LibSQLCursorWrapper:
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> "LibSQLCursorWrapper":
         self._cursor.execute(sql, params)
         return self
 
@@ -94,7 +94,7 @@ class LibSQLConnectionWrapper:
             except Exception:
                 pass
 
-    def __enter__(self) -> LibSQLConnectionWrapper:
+    def __enter__(self) -> "LibSQLConnectionWrapper":
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
@@ -114,7 +114,7 @@ class DatabaseManager:
         if HAS_LIBSQL and self.turso_url and self.turso_token:
             conn = libsql.connect(self.turso_url, auth_token=self.turso_token)
             return LibSQLConnectionWrapper(conn)
-        
+
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
@@ -217,7 +217,7 @@ class DatabaseManager:
                 )
             """)
 
-        def _add_missing_columns(self, conn: Any = None) -> None:
+    def _add_missing_columns(self, conn: Any = None) -> None:
         if conn is None:
             with self.connect() as connection:
                 self._add_missing_columns(connection)
@@ -231,19 +231,13 @@ class DatabaseManager:
             "ALTER TABLE actividades ADD COLUMN rubrica_id INTEGER",
             "ALTER TABLE actividades ADD COLUMN frase_id INTEGER",
             "ALTER TABLE criterios ADD COLUMN orden INTEGER DEFAULT 0",
-            "ALTER TABLE recursos ADD COLUMN actividad_id INTEGER",
-            "ALTER TABLE historial ADD COLUMN actividad_nombre TEXT DEFAULT 'General'",
-            "ALTER TABLE historial ADD COLUMN criterios_evaluados TEXT",
-            "ALTER TABLE historial ADD COLUMN observaciones TEXT",
-            "ALTER TABLE historial ADD COLUMN prompt_usado TEXT",
-            "ALTER TABLE historial ADD COLUMN temperatura REAL"
+            "ALTER TABLE recursos ADD COLUMN actividad_id INTEGER"
         ]
         for alt in alterations:
             try:
                 conn.execute(alt)
             except Exception:
                 pass
-
 
     def _init_default_directrices(self) -> None:
         defaults = {
@@ -303,21 +297,22 @@ class DatabaseManager:
             row = cur.fetchone()
             if not row:
                 return None
-            
+
             grupo = row.get("grupo") or "M11C1G78-050"
             act = Actividad(nombre=row["nombre"], proposito=row["proposito"], instrucciones=row["instrucciones"])
             act.grupo = grupo
             act.id = row["id"]
             act.orden = row["orden"]
-            
+
             if row.get("rubrica_id"):
                 rub = self.get_rubric(row["rubrica_id"])
-                if rub: act.rubrica = rub
-            
+                if rub:
+                    act.rubrica = rub
+
             if row.get("frase_id"):
                 cur_f = conn.execute("SELECT * FROM frases WHERE id = ?", (row["frase_id"],))
                 row_f = cur_f.fetchone()
-                if row_f: 
+                if row_f:
                     f = Frase(texto=row_f["texto"], autor=row_f["autor"])
                     f.id = row_f["id"]
                     act.frase = f
@@ -428,8 +423,7 @@ class DatabaseManager:
         with self.connect() as conn:
             conn.execute("DELETE FROM frases WHERE id = ?", (frase_id,))
 
-    
-                # ==========================================
+    # ==========================================
     # HISTORIAL DE EVALUACIONES
     # ==========================================
     def create_history(self, item: Any, actividad_id: Optional[int] = None) -> int:
@@ -437,7 +431,7 @@ class DatabaseManager:
             # 1. Paracaídas para los criterios
             criterios_dict = getattr(item, "criterios_evaluados", getattr(item, "criterios", {}))
             crit_json = json.dumps(criterios_dict, ensure_ascii=False)
-            
+
             # 2. Paracaídas para la fecha
             fecha_val = getattr(item, "fecha", None)
             if not fecha_val:
@@ -445,7 +439,7 @@ class DatabaseManager:
                 fecha_str = datetime.now(tz_utc_minus_6).strftime("%Y-%m-%d %H:%M:%S")
             else:
                 fecha_str = fecha_val if isinstance(fecha_val, str) else fecha_val.strftime("%Y-%m-%d %H:%M:%S")
-            
+
             # 3. Paracaídas para los demás atributos de models.py
             actividad_nombre = getattr(item, "actividad_nombre", getattr(item, "actividad", "General"))
             modelo_usado = getattr(item, "modelo_usado", getattr(item, "modelo", "IA"))
@@ -468,7 +462,6 @@ class DatabaseManager:
                 observaciones, prompt_usado, temperatura
             ))
             return cur.lastrowid or 0
- 
 
     # ==========================================
     # LOGS (BITÁCORA DE BOT PARA STREAMLIT)
