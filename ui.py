@@ -478,26 +478,20 @@ class RetroalimentacionApp:
         data = self.db.export_all_json()
         c2.download_button("Exportar BD JSON", json.dumps(data, ensure_ascii=False, indent=2), "retro_export.json", "application/json", width="stretch")
 
-        # --- NUEVA SECCIÓN DE LOGS DE EVENTOS ---
+        # --- SECCIÓN DE LOGS DE EVENTOS DESDE LA BASE DE DATOS ---
         st.markdown("---")
-        st.subheader("📝 Registro de Eventos (Logs del Bot)")
-        st.caption("Revisa los procesos internos, errores de conexión y tiempos de espera.")
-        log_path = "retroia_bot.log"
-        if os.path.exists(log_path):
-            with open(log_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            
-            mostrar_lineas = "".join(lines[-100:]) if lines else "El archivo de logs está vacío."
-            st.text_area("Últimos 100 eventos:", value=mostrar_lineas, height=250)
-            
-            c3, c4 = st.columns(2)
-            with open(log_path, "rb") as f:
-                c3.download_button("📥 Descargar Log completo", f, "retro_bot.log", "text/plain", width="stretch")
-            if c4.button("🗑️ Limpiar Logs", width="stretch"):
-                open(log_path, "w").close()
+        st.subheader("📝 Registro de Eventos (Caja Negra del Bot)")
+        st.caption("Revisa los procesos internos, errores de conexión y tiempos de espera desde Heroku.")
+        
+        logs = self.db.get_logs(limit=100)
+        if logs:
+            log_text = "\n".join([f"[{l['fecha']}] {l['nivel']}: {l['mensaje']}" for l in reversed(logs)])
+            st.text_area("Últimos 100 eventos:", value=log_text, height=250)
+            if st.button("🗑️ Limpiar Logs", width="stretch"):
+                self.db.clear_logs()
                 st.rerun()
         else:
-            st.info("No hay eventos registrados todavía (El archivo retroia_bot.log se creará al usar el bot).")
+            st.info("No hay eventos registrados todavía (Usa el bot para empezar a ver los registros).")
 
     def tab_forums(self) -> None:
         """Pestaña para la generación automatizada de aportaciones a Foros Aprendiendo."""
