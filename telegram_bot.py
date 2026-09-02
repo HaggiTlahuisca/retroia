@@ -455,7 +455,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             bot_log("INFO", f"[{estudiante}] Intentando API con modelo: {modelo_actual['nombre']}")
             start_time = time.time()
             try:
-                texto_generado = ia_client.generar(prompt, api_key, modelo_actual["id"], 0.3, 4000)
+                texto_generado = ia_client.generar(prompt, api_key, modelo_actual["id"], 0.65, 4000)
                 elapsed = time.time() - start_time
                 bot_log("INFO", f"[{estudiante}] ÉXITO con {modelo_actual['nombre']}. Tiempo: {elapsed:.2f}s.")
                 
@@ -483,7 +483,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         # 3. Guardar y enviar archivos
         item = Retroalimentacion(
             estudiante, actividad.nombre, texto_generado,
-            modelo_exitoso["id"], total_puntos, criterios, obs, prompt, 0.3
+            modelo_exitoso["id"], total_puntos, criterios, obs, prompt, 0.65
         )
         db.create_history(item, actividad.id)
 
