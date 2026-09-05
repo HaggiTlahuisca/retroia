@@ -58,7 +58,7 @@ class PromptBuilder:
             "Al analizar tu actividad, es evidente la dedicación que has puesto...",
             "Quiero comenzar destacando la claridad y empeño en tu documento...",
             "Es muy grato reconocer el esfuerzo plasmado en tu entrega...",
-            "Tras leer con atención tu documento, destaco de inmediato...",
+            "Tras leer tu documento, destaco de inmediato la solidez...",
             "Tu envío demuestra un claro compromiso con tu aprendizaje...",
             "Me resulta muy interesante la manera en que abordaste los temas...",
             "Aprecio mucho el tiempo y el detalle que invertiste en esta entrega..."
@@ -124,10 +124,12 @@ ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "#
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
 1. **SALUDO Y FORTALEZAS (VARIEDAD OBLIGATORIA):**
-   Inicia con **Apreciable, {self.estudiante}.** Sigue esta directriz: {self.dirs.get('saludo', '')} {self.dirs.get('fortalezas', '')}
+   Inicia EXACTAMENTE con: **Apreciable, {self.estudiante}.**
+   ¡DEBES DAR UN SALTO DE LÍNEA DESPUÉS DEL SALUDO! (El saludo debe quedar solo en su propio renglón).
+   En un NUEVO PÁRRAFO, inicia adaptando obligatoriamente esta idea: "{apertura_aleatoria}"
+   Sigue esta directriz: {self.dirs.get('saludo', '')} {self.dirs.get('fortalezas', '')}
    IMPORTANTE: Al referirte al trabajo del estudiante, usa siempre el nombre de la actividad entre comillas ("{n_act}").
    ¡REGLA ESTRICTA DE APERTURA!: Tienes PROHIBIDO usar las frases "He revisado detalladamente", "He revisado con atención", o variaciones similares. 
-   Para garantizar una variedad real, DEBES iniciar tu primer párrafo adaptando obligatoriamente esta idea: "{apertura_aleatoria}"
 
 2. **EVALUACIÓN POR CRITERIOS (ORDEN OBLIGATORIO):**
    - ORDEN ESTRICTO: Debes redactar los párrafos EXACTAMENTE en el orden en que se listaron los criterios arriba (1, 2, 3, 4). ¡Bajo ninguna circunstancia alteres la secuencia de los criterios!
