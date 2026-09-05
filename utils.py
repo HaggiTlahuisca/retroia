@@ -74,6 +74,9 @@ def get_activity_code(name: str | None) -> str:
 
 def feedback_to_moodle_html(text: str) -> str:
     """Genera HTML con formato estricto y exacto para Moodle."""
+    # Escudo preventivo: Si la IA junta el saludo con el texto en la misma línea, lo forzamos a separarse
+    text = re.sub(r"^(Apreciable,\s*[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+[.:;])\s+(.+)$", r"\1\n\n\2", text, flags=re.MULTILINE | re.IGNORECASE)
+    
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     html_lines: list[str] = []
     
@@ -87,23 +90,29 @@ def feedback_to_moodle_html(text: str) -> str:
     ]
 
     for i, line in enumerate(lines):
-        clean_line = line.replace("**", "").replace("##", "").strip()
-        lower_line = clean_line.lower()
+        # Limpiamos los hashes, pero MANTENEMOS los asteriscos vivos
+        clean_line = line.replace("##", "").strip()
+        # Creamos una versión en minúsculas sin asteriscos solo para validaciones de reglas lógicas
+        lower_line = clean_line.lower().replace("**", "").replace("*", "").strip()
         es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", lower_line)
         
         if lower_line.startswith("apreciable") or lower_line.startswith("criterio ") or lower_line in signature_lines or es_grupo:
-            html_lines.append(f"<p><strong>{escape(clean_line)}</strong></p>")
+            # Quitamos asteriscos al momento de envolver en <strong> para no tener * sueltos
+            texto_limpio = clean_line.replace("**", "").replace("*", "")
+            html_lines.append(f"<p><strong>{escape(texto_limpio)}</strong></p>")
             if lower_line.startswith("apreciable") or lower_line in ["cordialmente.", "atentamente.", "con afecto."]:
                 html_lines.append("<p> </p>")
         else:
-            safe_line = escape(line)
-            safe_line = re.sub(r"\*\*(.+?)\*\*", r'<strong style="font-size: 1rem;">\1</strong>', safe_line)
+            safe_line = escape(clean_line)
+            # Detecta asteriscos SIMPLES y DOBLES y los convierte a negrita HTML
+            safe_line = re.sub(r"\*{1,2}([^*]+)\*{1,2}", r'<strong style="font-size: 1rem;">\1</strong>', safe_line)
+            # Detecta URLs y las convierte a enlaces
             safe_line = re.sub(r"(https?://[^\s]+)", r'<a href="\1">\1</a>', safe_line)
             
             html_lines.append(f'<p><span style="font-size: 1rem;">{safe_line}</span></p>')
             
             if i < len(lines) - 1:
-                next_clean = lines[i+1].replace("**", "").replace("##", "").strip().lower()
+                next_clean = lines[i+1].replace("##", "").strip().lower().replace("**", "").replace("*", "").strip()
                 next_es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", next_clean)
                 
                 if not (lower_line in signature_lines and (next_clean in signature_lines or next_es_grupo)):
@@ -188,11 +197,12 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
         "atentamente."
     ]
     
-    lower_stripped = stripped.lower()
+    lower_stripped = stripped.lower().replace("**", "").replace("*", "")
     es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", lower_stripped)
 
     if lower_stripped in signature_lines or es_grupo:
-        return agregar_parrafo_firma(doc, stripped)
+        texto_limpio = stripped.replace("**", "").replace("*", "")
+        return agregar_parrafo_firma(doc, texto_limpio)
 
     p = doc.add_paragraph()
     p.paragraph_format.line_spacing = 1.0
@@ -210,17 +220,21 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
     ]
 
     if lower_stripped in known_headings or lower_stripped.startswith("criterio "):
-        if "**" not in stripped:
-            run = p.add_run(stripped)
-            set_run_font(run, nombre="Arial", tamano=12, bold=True)
-            return p
-
-    if lower_stripped.startswith("apreciable") and "**" not in stripped:
-        run = p.add_run(stripped)
+        texto_limpio = stripped.replace("**", "").replace("*", "")
+        run = p.add_run(texto_limpio)
         set_run_font(run, nombre="Arial", tamano=12, bold=True)
         return p
 
-    normalized = stripped.replace("***", "**").replace("##", "").strip()
+    if lower_stripped.startswith("apreciable"):
+        texto_limpio = stripped.replace("**", "").replace("*", "")
+        run = p.add_run(texto_limpio)
+        set_run_font(run, nombre="Arial", tamano=12, bold=True)
+        return p
+
+    # Estandarizar asteriscos simples a dobles para que el generador de Word los procese igual
+    normalized = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"**\1**", stripped)
+    normalized = normalized.replace("***", "**").replace("##", "").strip()
+    
     tokens = re.split(r"(\*\*.*?\*\*|https?://[^\s]+)", normalized)
 
     for token in tokens:
@@ -255,6 +269,8 @@ def docx_bytes(title: str, text: str, signature_details: list[str] | None = None
         section.left_margin = Pt(72)
         section.right_margin = Pt(72)
 
+    # Forzar separación del saludo igual que en HTML por si la IA lo pegó
+    text = re.sub(r"^(Apreciable,\s*[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+[.:;])\s+(.+)$", r"\1\n\n\2", text, flags=re.MULTILINE | re.IGNORECASE)
     lines = text.split("\n")
 
     for line in lines:
@@ -291,6 +307,9 @@ def pdf_bytes(title: str, text: str) -> bytes:
     normal_style = ParagraphStyle("CustomNormal", parent=styles["Normal"], fontName="Helvetica", fontSize=11, leading=16.5, spaceBefore=0, spaceAfter=0, alignment=4)
     title_style = ParagraphStyle("CustomTitle", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=14, leading=18, spaceAfter=12, alignment=4)
 
+    # Forzar separación del saludo
+    text = re.sub(r"^(Apreciable,\s*[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+[.:;])\s+(.+)$", r"\1\n\n\2", text, flags=re.MULTILINE | re.IGNORECASE)
+
     story = []
     if title:
         story.append(Paragraph(title, title_style))
@@ -299,7 +318,8 @@ def pdf_bytes(title: str, text: str) -> bytes:
     for paragraph in text.split("\n"):
         p_text = paragraph.strip().replace("##", "")
         if p_text:
-            p_text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', p_text)
+            # Soporta tanto asterisco simple como doble para negritas
+            p_text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'<b>\1</b>', p_text)
             p_formatted = p_text.replace("\n", "<br/>")
             story.append(Paragraph(p_formatted, normal_style))
 
