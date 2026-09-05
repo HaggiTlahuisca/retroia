@@ -1,6 +1,7 @@
 """Constructor de prompts optimizado para redacción pedagógica modular."""
 
 from __future__ import annotations
+import random
 from typing import Any
 from models import Actividad
 from validators import ValidationResult
@@ -48,6 +49,21 @@ class PromptBuilder:
         rec_str = ""
         if act and act.recursos:
             rec_str = "".join([f"- {r.tipo}: {r.url} (Propósito: {r.descripcion})\n" for r in act.recursos])
+
+        # Lista de aperturas dinámicas forzadas para evitar repetición de la IA
+        aperturas_variadas = [
+            "Es un gusto observar en tu trabajo el esfuerzo reflejado...",
+            "El desarrollo de tu documento refleja un compromiso notable...",
+            "Me complace revisar tu entrega, donde se aprecia un análisis...",
+            "Al analizar tu actividad, es evidente la dedicación que has puesto...",
+            "Quiero comenzar destacando la claridad y empeño en tu documento...",
+            "Es muy grato reconocer el esfuerzo plasmado en tu entrega...",
+            "Tras leer con atención tu documento, destaco de inmediato...",
+            "Tu envío demuestra un claro compromiso con tu aprendizaje...",
+            "Me resulta muy interesante la manera en que abordaste los temas...",
+            "Aprecio mucho el tiempo y el detalle que invertiste en esta entrega..."
+        ]
+        apertura_aleatoria = random.choice(aperturas_variadas)
 
         if is_foro:
             return f"""Eres un Asesor Virtual empático y profesional de Prepa en Línea SEP llamado Haggi de Jesús Tlahuisca Hernández.
@@ -110,7 +126,8 @@ ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "#
 1. **SALUDO Y FORTALEZAS (VARIEDAD OBLIGATORIA):**
    Inicia con **Apreciable, {self.estudiante}.** Sigue esta directriz: {self.dirs.get('saludo', '')} {self.dirs.get('fortalezas', '')}
    IMPORTANTE: Al referirte al trabajo del estudiante, usa siempre el nombre de la actividad entre comillas ("{n_act}").
-   ¡PROHIBIDO REPETIR LA MISMA ENTRADA! Está estrictamente prohibido iniciar siempre el párrafo diciendo "Tu actividad destaca por...". Debes ser creativo. Usa verbos y estructuras diferentes (Ejemplo: "He revisado detalladamente tu entrega y noto que...", "Es un gusto observar en tu trabajo...", "El desarrollo de tu documento refleja un esfuerzo destacable en...", etc.).
+   ¡REGLA ESTRICTA DE APERTURA!: Tienes PROHIBIDO usar las frases "He revisado detalladamente", "He revisado con atención", o variaciones similares. 
+   Para garantizar una variedad real, DEBES iniciar tu primer párrafo adaptando obligatoriamente esta idea: "{apertura_aleatoria}"
 
 2. **EVALUACIÓN POR CRITERIOS (ORDEN OBLIGATORIO):**
    - ORDEN ESTRICTO: Debes redactar los párrafos EXACTAMENTE en el orden en que se listaron los criterios arriba (1, 2, 3, 4). ¡Bajo ninguna circunstancia alteres la secuencia de los criterios!
