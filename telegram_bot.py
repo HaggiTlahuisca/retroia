@@ -411,18 +411,19 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             # Aleatoriedad VERDADERA para modo individual
             siguiente_idx = random.randint(0, len(modelos_reales) - 1)
             bot_log("INFO", f"[{estudiante}] Modo individual aleatorio seleccionó índice {siguiente_idx}.")
-        
-        modelos_a_intentar.append(modelos_reales[siguiente_idx])
-        for i in range(1, len(modelos_reales)):
-            idx = (siguiente_idx + i) % len(modelos_reales)
-            modelos_a_intentar.append(modelos_reales[idx])
+            
+        modelo_principal = modelos_reales[siguiente_idx]
     else:
-        modelo_fijo = next((m for m in modelos_reales if m["id"] == modelo_id_base), None)
-        if modelo_fijo:
-            modelos_a_intentar.append(modelo_fijo)
-        for m in modelos_reales:
-            if m["id"] != modelo_id_base:
-                modelos_a_intentar.append(m)
+        modelo_principal = next((m for m in modelos_reales if m["id"] == modelo_id_base), modelos_reales[0])
+
+    modelos_a_intentar.append(modelo_principal)
+
+    # 1.5 Crear lista de fallback inteligente (Priorizar gratuitos si el principal falla)
+    modelos_fallback = [m for m in modelos_reales if m["id"] != modelo_principal["id"]]
+    random.shuffle(modelos_fallback) # Mezclar para no usar siempre el mismo de pago
+    modelos_fallback.sort(key=lambda x: 0 if "free" in x["id"].lower() else 1) # Mover gratuitos al inicio
+    
+    modelos_a_intentar.extend(modelos_fallback)
 
     try:
         builder = PromptBuilder(
