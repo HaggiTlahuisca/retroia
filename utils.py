@@ -72,7 +72,7 @@ def get_activity_code(name: str | None) -> str:
     return "Gen"
 
 
-def feedback_to_moodle_html(text: str) -> str:
+def feedback_to_moodle_html(text: str, nombre_asesor: str = "", id_asesor: str = "") -> str:
     """Genera HTML con formato estricto y exacto para Moodle."""
     # Escudo preventivo: Si la IA junta el saludo con el texto en la misma línea, lo forzamos a separarse
     text = re.sub(r"^(Apreciable,\s*[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]+[.:;])\s+(.+)$", r"\1\n\n\2", text, flags=re.MULTILINE | re.IGNORECASE)
@@ -81,13 +81,16 @@ def feedback_to_moodle_html(text: str) -> str:
     html_lines: list[str] = []
     
     signature_lines = [
-        "haggi de jesús tlahuisca hernández",
         "asesor virtual",
-        "21d28277",
         "con afecto.",
         "cordialmente.",
-        "atentamente."
+        "atentamente.",
+        "saludos cordiales."
     ]
+    if nombre_asesor:
+        signature_lines.append(nombre_asesor.strip().lower())
+    if id_asesor:
+        signature_lines.append(id_asesor.strip().lower())
 
     for i, line in enumerate(lines):
         # Limpiamos los hashes, pero MANTENEMOS los asteriscos vivos
@@ -177,7 +180,7 @@ def agregar_parrafo_firma(doc: Document, texto: str) -> Any:
     return p
 
 
-def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
+def add_formatted_line_to_doc(doc: Document, line: str, nombre_asesor: str = "", id_asesor: str = "") -> Any:
     stripped = line.strip()
 
     if not stripped:
@@ -189,13 +192,16 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
         return p
 
     signature_lines = [
-        "haggi de jesús tlahuisca hernández",
         "asesor virtual",
-        "21d28277",
         "con afecto.",
         "cordialmente.",
-        "atentamente."
+        "atentamente.",
+        "saludos cordiales."
     ]
+    if nombre_asesor:
+        signature_lines.append(nombre_asesor.strip().lower())
+    if id_asesor:
+        signature_lines.append(id_asesor.strip().lower())
     
     lower_stripped = stripped.lower().replace("**", "").replace("*", "")
     es_grupo = re.match(r"^m\d{1,2}c\d{1,2}g\d{1,3}-\d{3}$", lower_stripped)
@@ -260,7 +266,7 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
     return p
 
 
-def docx_bytes(title: str, text: str, signature_details: list[str] | None = None) -> bytes:
+def docx_bytes(title: str, text: str, nombre_asesor: str = "", id_asesor: str = "") -> bytes:
     doc = Document()
 
     for section in doc.sections:
@@ -276,23 +282,24 @@ def docx_bytes(title: str, text: str, signature_details: list[str] | None = None
     for line in lines:
         stripped = line.strip()
 
-        if "Haggi de Jesús Tlahuisca Hernández" in stripped and "Asesor virtual" in stripped:
+        if nombre_asesor and nombre_asesor in stripped and "Asesor virtual" in stripped:
             match_grupo = re.search(r"(M\d{1,2}C\d{1,2}G\d{1,3}-\d{3})", stripped, re.IGNORECASE)
             cohort = match_grupo.group(1).upper() if match_grupo else "M11C1G77-050"
             
             greeting = "Cordialmente." if "Cordialmente" in stripped else "Con afecto."
             partes_firma = [
                 greeting,
-                "Haggi de Jesús Tlahuisca Hernández",
+                nombre_asesor,
                 "Asesor virtual",
-                "21D28277",
+                id_asesor,
                 cohort
             ]
             for parte in partes_firma:
-                agregar_parrafo_firma(doc, parte)
+                if parte:
+                    agregar_parrafo_firma(doc, parte)
             continue
 
-        add_formatted_line_to_doc(doc, line)
+        add_formatted_line_to_doc(doc, line, nombre_asesor, id_asesor)
 
     buffer = io.BytesIO()
     doc.save(buffer)
