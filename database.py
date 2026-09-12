@@ -186,6 +186,7 @@ class DatabaseManager:
         self._create_tables()
         self._add_missing_columns()
         self._init_default_directrices()
+        self._init_default_models()
 
     def _create_tables(self) -> None:
         with self.connect() as conn:
@@ -277,6 +278,14 @@ class DatabaseManager:
                     mensaje TEXT NOT NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS modelos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nombre TEXT NOT NULL,
+                    api_id TEXT NOT NULL UNIQUE,
+                    categoria TEXT NOT NULL
+                )
+            """)
 
     def _add_missing_columns(self, conn: Any = None) -> None:
         if conn is not None:
@@ -307,12 +316,20 @@ class DatabaseManager:
 
     def _init_default_directrices(self) -> None:
         defaults = {
+            "asesor_nombre": "Tu Nombre Completo",
+            "asesor_rol": "Asesor virtual",
+            "asesor_id": "00000000",
+            "grupo": "M00C0G00-000",
+            "prompt_sistema": "Eres un {asesor_rol} empático y profesional llamado {asesor_nombre}. Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO repetir estructuras sintácticas entre un estudiante y otro.",
+            "reglas_formato": "ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas \"## Áreas de Oportunidad\"). Todo debe fluir como una carta natural, separada únicamente por saltos de párrafo.",
             "saludo": "Inicia con 'Apreciable, [Nombre]'. Resalta fortalezas de forma personalizada evitando muletillas.",
+            "fortalezas": "Destaca los puntos fuertes del estudiante de forma motivadora y clara.",
             "criterios": "Menciona los criterios en orden numérico estricto indicando el nivel obtenido en minúsculas y negritas.",
             "areas_oportunidad": "Redacta áreas de oportunidad en prosa fluida y natural sin subtítulos Markdown.",
-            "recursos": "Si existen recursos registrados, compártelos en párrafos independientes.",
-            "cierre": "Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu actividad. Me despido con una frase motivadora.",
-            "firma": "Haggi de Jesús Tlahuisca Hernández\nAsesor virtual\n21D28277\n[Grupo]"
+            "sugerencias": "Brinda consejos prácticos y amigables para mejorar en futuras entregas.",
+            "recursos_apoyo": "Si existen recursos registrados, compártelos en párrafos independientes.",
+            "despedida": "Para finalizar con tu retroalimentación nuevamente te felicito y agradezco tu entrega. Me despido con una frase motivadora.",
+            "firma": "Cordialmente."
         }
         for name, content in defaults.items():
             try:
@@ -320,6 +337,42 @@ class DatabaseManager:
                     conn.execute("INSERT OR IGNORE INTO directrices(nombre, contenido) VALUES (?, ?)", (name, content))
             except Exception:
                 pass
+
+    def _init_default_models(self) -> None:
+        defaults = [
+            ("⚡ Claude Haiku 4.5", "anthropic/claude-haiku-4.5", "De pago"),
+            ("🚀 Cohere-gratis", "cohere/north-mini-code:free", "Gratis"),
+            ("🟢 GPT Luna", "openai/gpt-5.6-luna", "De pago"),
+            ("🟣 GPT Luna Pro", "openai/gpt-5.6-luna-pro", "De pago")
+        ]
+        try:
+            with self.connect() as conn:
+                cur = conn.execute("SELECT COUNT(*) as c FROM modelos")
+                row = cur.fetchone()
+                if row and row["c"] == 0:
+                    for n, a, c in defaults:
+                        conn.execute("INSERT INTO modelos (nombre, api_id, categoria) VALUES (?, ?, ?)", (n, a, c))
+        except Exception:
+            pass
+
+    # ==========================================
+    # GESTIÓN DE MODELOS DE IA
+    # ==========================================
+    def get_modelos(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            cur = conn.execute("SELECT * FROM modelos ORDER BY categoria, nombre")
+            return [dict(r) for r in cur.fetchall()]
+
+    def create_modelo(self, nombre: str, api_id: str, categoria: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT INTO modelos (nombre, api_id, categoria) VALUES (?, ?, ?)",
+                (nombre, api_id, categoria)
+            )
+
+    def delete_modelo(self, modelo_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM modelos WHERE id = ?", (modelo_id,))
 
     # ==========================================
     # GESTIÓN DE ACTIVIDADES Y RÚBRICAS
@@ -587,7 +640,7 @@ class DatabaseManager:
     # ==========================================
     def export_all_json(self) -> dict[str, Any]:
         with self.connect() as conn:
-            tables = ["actividades", "criterios", "niveles", "recursos", "directrices", "frases", "historial", "rubricas", "bot_logs"]
+            tables = ["actividades", "criterios", "niveles", "recursos", "directrices", "frases", "historial", "rubricas", "bot_logs", "modelos"]
             data = {}
             for t in tables:
                 try:
