@@ -41,9 +41,13 @@ class RetroalimentacionApp:
         st.markdown(app_css(), unsafe_allow_html=True)
         self._state()
 
+        # Extraer el nombre del asesor para la interfaz
+        dirs_cache = self.db.get_all_directrices()
+        nombre_asesor = dirs_cache.get("asesor_nombre", "Asesor").split()[0] if dirs_cache.get("asesor_nombre") else "Asesor"
+
         # --- MENÚ VERTICAL EN SIDEBAR ---
         with st.sidebar:
-            st.markdown("### Haggi")
+            st.markdown(f"### {nombre_asesor}")
             if st.button("Cerrar sesión", width="stretch"):
                 st.info("Sesión cerrada (Simulación)")
             
@@ -56,7 +60,7 @@ class RetroalimentacionApp:
                 "🏠 1. Generar retroalimentación",
                 "📜 2. Historial y Lotes",
                 "📋 3. Configuración de actividades",
-                "🤖 4. Configuración IA",
+                "🤖 4. Configuración IA y Perfil",
                 "⚙️ 5. Configuración del Sistema",
                 "💬 6. Generador de Foros"
             ]
@@ -113,6 +117,33 @@ class RetroalimentacionApp:
         selected = st.selectbox("Selecciona la Actividad a evaluar", list(labels.keys()))
         activity = self.db.get_activity(labels[selected])
         if not activity: return
+
+        # --- SELECCIÓN DEL MODELO EN LA PANTALLA PRINCIPAL ---
+        modelos = self.db.get_modelos()
+        if not modelos:
+            st.error("No hay modelos de IA configurados. Ve a 'Configuración del Sistema' para agregar uno.")
+            return
+
+        with st.expander("🤖 Configuración del Modelo de IA (Despliega para cambiar)", expanded=False):
+            col_m1, col_m2, col_m3 = st.columns([2, 1, 1])
+            
+            opciones_modelos = {f"{m['nombre']} ({m['categoria']})": m for m in modelos}
+            nombres_modelos = list(opciones_modelos.keys())
+            
+            idx_modelo = 0
+            for i, nom in enumerate(nombres_modelos):
+                if opciones_modelos[nom]['api_id'] == st.session_state.model_id:
+                    idx_modelo = i
+                    break
+
+            sel_nombre = col_m1.selectbox("Modelo", nombres_modelos, index=idx_modelo)
+            mod_seleccionado = opciones_modelos[sel_nombre]
+            
+            st.session_state.model_name = mod_seleccionado["nombre"]
+            st.session_state.model_id = mod_seleccionado["api_id"]
+            
+            st.session_state.temperature = col_m2.slider("Temperatura", 0.0, 1.5, float(st.session_state.temperature), 0.1)
+            st.session_state.max_tokens = col_m3.slider("Tokens (Max)", 200, 8000, int(st.session_state.max_tokens), 100)
 
         # =========================================================
         # LA BURBUJA: Todo esto pasa sin recargar la pantalla
@@ -178,8 +209,12 @@ class RetroalimentacionApp:
         # =========================================================
         if modo == "👤 Individual":
             if st.session_state.last_feedback:
+                dirs = self.db.get_all_directrices()
+                n_ase = dirs.get("asesor_nombre", "")
+                id_ase = dirs.get("asesor_id", "")
+                
                 title = generar_nombre_archivo(estudiante, activity.nombre)
-                html_feedback = feedback_to_moodle_html(st.session_state.last_feedback)
+                html_feedback = feedback_to_moodle_html(st.session_state.last_feedback, n_ase, id_ase)
                 
                 st.subheader("Resultado")
                 if "foro de integración" in activity.nombre.lower():
@@ -190,11 +225,11 @@ class RetroalimentacionApp:
                     st.text_area("Código HTML", value=html_feedback, height=220, key="html_feedback_moodle")
                 
                 payload = json.dumps({"retroalimentacion": st.session_state.last_feedback, "prompt": st.session_state.last_prompt}, ensure_ascii=False, indent=2)
-                download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback), pdf_bytes("", st.session_state.last_feedback), payload)
+                download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback, n_ase, id_ase), pdf_bytes("", st.session_state.last_feedback), payload)
                 
         else:
             if st.session_state.batch_queue:
-                st.markdown("### 📋 Cola de Procesamiento")
+                st.markdown("### 📋 Cola de Processing")
                 for i, item in enumerate(st.session_state.batch_queue):
                     st.write(f"{i+1}. **{item['estudiante']}** ({item['calificacion_total']} pts)")
                 
@@ -291,7 +326,10 @@ class RetroalimentacionApp:
             df = pd.DataFrame(df_data)
             edited_df = st.data_editor(df, hide_index=True, disabled=["Fecha", "Estudiante", "Calificación", "ID"], width="stretch")
             
-            grupo_actual = self.db.get_all_directrices().get("grupo", "M11C1G78-050")
+            dirs = self.db.get_all_directrices()
+            n_ase = dirs.get("asesor_nombre", "")
+            id_ase = dirs.get("asesor_id", "")
+            grupo_actual = dirs.get("grupo", "M00C0G00-000")
             grupo_zip = st.text_input("Grupo (para nombrar el archivo ZIP)", value=grupo_actual)
             
             selected_ids = edited_df[edited_df["Seleccionar"]]["ID"].tolist()
@@ -308,8 +346,8 @@ class RetroalimentacionApp:
                         act_val = r.get("actividad_nombre") or r.get("actividad") or "General"
                     
                     nombre_base = generar_nombre_archivo(est_val, act_val)
-                    docx_data = docx_bytes("", r.get("retroalimentacion", ""))
-                    html_text = feedback_to_moodle_html(r.get("retroalimentacion", ""))
+                    docx_data = docx_bytes("", r.get("retroalimentacion", ""), n_ase, id_ase)
+                    html_text = feedback_to_moodle_html(r.get("retroalimentacion", ""), n_ase, id_ase)
                     
                     archivos.append((f"{nombre_base}.docx", docx_data))
                     archivos.append((f"{nombre_base}.html", html_text.encode('utf-8')))
@@ -459,7 +497,7 @@ class RetroalimentacionApp:
 
                         c1, c2 = st.columns(2)
                         if c1.form_submit_button("Actualizar Ensamblado"):
-                            g_val = getattr(act_obj, "grupo", "M11C1G78-050")
+                            g_val = getattr(act_obj, "grupo", "M00C0G00-000")
                             o_val = getattr(act_obj, "orden", 0)
                             self.db.update_activity(act_obj.id, e_nom, e_pro, e_ins, g_val, o_val, rubric_opts[e_rub], frase_opts[e_fra], e_recs_ids)
                             st.success("Actividad actualizada correctamente."); st.rerun()
@@ -467,23 +505,41 @@ class RetroalimentacionApp:
                             self.db.delete_activity(act_obj.id); st.rerun()
 
     def tab_ai_config(self) -> None:
-        st.subheader("Directrices de Estructura Pedagógica")
-        st.caption("Define cómo redacta la IA cada sección. Esta estructura reemplaza a los machotes tradicionales.")
-        
+        st.subheader("👤 Perfil del Asesor")
         dirs = self.db.get_all_directrices()
-        with st.form("form_directrices_estructuradas"):
-            d_grupo = st.text_input("Grupo asignado actual (Ej. M11C1G77-050)", dirs.get("grupo", "M11C1G77-050"))
+        
+        with st.form("form_perfil_y_prompts"):
+            c1, c2 = st.columns(2)
+            d_nombre = c1.text_input("Nombre Completo (Firma)", dirs.get("asesor_nombre", ""))
+            d_rol = c2.text_input("Puesto / Rol", dirs.get("asesor_rol", ""))
+            c3, c4 = st.columns(2)
+            d_id = c3.text_input("ID / Matrícula", dirs.get("asesor_id", ""))
+            d_grupo = c4.text_input("Grupo asignado actual", dirs.get("grupo", ""))
+            
             st.markdown("---")
+            st.subheader("🧠 Instrucciones del Sistema (Prompt Builder)")
+            st.caption("Configura el comportamiento base de la Inteligencia Artificial. Las etiquetas {asesor_nombre} y {asesor_rol} se reemplazarán automáticamente.")
+            d_sistema = st.text_area("Rol de la IA (System Prompt)", dirs.get("prompt_sistema", ""), height=70)
+            d_formato = st.text_area("Reglas de Formato Estrictas", dirs.get("reglas_formato", ""), height=70)
+            
+            st.markdown("---")
+            st.subheader("📏 Directrices Pedagógicas por Sección")
+            st.caption("Controla la redacción específica de cada bloque en las retroalimentaciones.")
             d_saludo = st.text_area("1. Saludo", dirs.get("saludo", ""), height=70)
-            d_fortalezas = st.text_area("2. Fortalezas", dirs.get("fortalezas", ""), height=90)
-            d_areas = st.text_area("3. Áreas de oportunidad", dirs.get("areas_oportunidad", ""), height=90)
-            d_sugerencias = st.text_area("4. Sugerencias", dirs.get("sugerencias", ""), height=90)
+            d_fortalezas = st.text_area("2. Fortalezas", dirs.get("fortalezas", ""), height=70)
+            d_areas = st.text_area("3. Áreas de oportunidad", dirs.get("areas_oportunidad", ""), height=70)
+            d_sugerencias = st.text_area("4. Sugerencias", dirs.get("sugerencias", ""), height=70)
             d_recursos = st.text_area("5. Recursos de apoyo", dirs.get("recursos_apoyo", ""), height=70)
             d_despedida = st.text_area("6. Despedida", dirs.get("despedida", ""), height=70)
-            d_firma = st.text_area("7. Firma (Datos opcionales adicionales, el nombre y grupo van fijos)", dirs.get("firma", ""), height=70)
+            d_firma = st.text_input("7. Frase de cortesía final (Ej. Cordialmente.)", dirs.get("firma", "Cordialmente."))
             
-            if st.form_submit_button("Guardar Estructura Global", type="primary", width="stretch"):
+            if st.form_submit_button("Guardar Perfil e Instrucciones", type="primary", use_container_width=True):
+                self.db.update_directriz("asesor_nombre", d_nombre)
+                self.db.update_directriz("asesor_rol", d_rol)
+                self.db.update_directriz("asesor_id", d_id)
                 self.db.update_directriz("grupo", d_grupo)
+                self.db.update_directriz("prompt_sistema", d_sistema)
+                self.db.update_directriz("reglas_formato", d_formato)
                 self.db.update_directriz("saludo", d_saludo)
                 self.db.update_directriz("fortalezas", d_fortalezas)
                 self.db.update_directriz("areas_oportunidad", d_areas)
@@ -491,33 +547,53 @@ class RetroalimentacionApp:
                 self.db.update_directriz("recursos_apoyo", d_recursos)
                 self.db.update_directriz("despedida", d_despedida)
                 self.db.update_directriz("firma", d_firma)
-                st.success("Estructura actualizada. ¡Grupo modificado con éxito!")
+                st.success("¡Perfil, System Prompts y Directrices actualizados con éxito!")
                 st.rerun()
 
     def tab_settings(self) -> None:
-        st.subheader("API y modelo")
+        st.subheader("🔑 Clave de API Global")
         st.session_state.api_key = st.text_input("Clave de API OpenRouter", st.session_state.api_key, type="password")
         
-        cat_idx = 1 if st.session_state.model_name in MODELOS_PAGO else 0
-        categoria = st.radio("Categoría de modelo", ["Gratis", "De pago"], index=cat_idx, horizontal=True)
-        modelos_disponibles = MODELOS_GRATIS if categoria == "Gratis" else MODELOS_PAGO
-        
-        default_index = list(modelos_disponibles.keys()).index(st.session_state.model_name) if st.session_state.model_name in modelos_disponibles else 0
-        model_name = st.selectbox("Modelo", list(modelos_disponibles.keys()), index=default_index)
-        
-        st.session_state.model_name = model_name
-        st.session_state.model_id = modelos_disponibles[model_name]
-        st.session_state.temperature = st.slider("Temperatura", 0.0, 1.5, float(st.session_state.temperature), 0.1)
-        st.session_state.max_tokens = st.slider("Máximo de tokens", 200, 8000, int(st.session_state.max_tokens), 100)
-        
-        if st.button("Probar conexión", width="stretch"):
-            ok, msg = self.ia_client.probar_conexion(st.session_state.api_key, st.session_state.model_id)
+        if st.button("Probar conexión con API", width="stretch"):
+            ok, msg = self.ia_client.probar_conexion(st.session_state.api_key, "cohere/north-mini-code:free")
             st.success(msg) if ok else st.error(msg)
             
-        st.subheader("Base de datos")
+        st.markdown("---")
+        st.subheader("🤖 Catálogo de Modelos de IA")
+        st.caption("Administra tu propio portafolio de modelos. Los modelos marcados como 'Gratis' se usarán como salvavidas automáticos si el principal falla.")
+        
+        with st.form("form_add_modelo"):
+            st.markdown("**Agregar Nuevo Modelo**")
+            col1, col2, col3 = st.columns(3)
+            m_nom = col1.text_input("Nombre a mostrar (Ej. GPT-4o)")
+            m_api = col2.text_input("ID en OpenRouter (Ej. openai/gpt-4o)")
+            m_cat = col3.selectbox("Categoría", ["Gratis", "De pago"])
+            
+            if st.form_submit_button("Guardar Modelo"):
+                if m_nom and m_api:
+                    try:
+                        self.db.create_modelo(m_nom, m_api, m_cat)
+                        st.success("Modelo agregado correctamente.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error (¿El ID ya existe?): {e}")
+                else:
+                    st.error("El nombre y el ID de OpenRouter son obligatorios.")
+
+        st.markdown("#### Modelos Configurados")
+        for m in self.db.get_modelos():
+            with st.expander(f"{m['nombre']} ({m['categoria']}) — {m['api_id']}"):
+                if st.button("🗑️ Eliminar modelo", key=f"del_mod_{m['id']}"):
+                    self.db.delete_modelo(m['id'])
+                    st.rerun()
+            
+        st.markdown("---")
+        st.subheader("💾 Base de datos")
         c1, c2 = st.columns(2)
         if c1.button("Crear respaldo", width="stretch"):
-            path = self.db.backup(); st.success(f"Respaldo: {path.name}")
+            path = self.db.backup()
+            st.success(f"Respaldo: {path.name}")
+            
         data = self.db.export_all_json()
         c2.download_button("Exportar BD JSON", json.dumps(data, ensure_ascii=False, indent=2), "retro_export.json", "application/json", width="stretch")
 
@@ -560,6 +636,12 @@ class RetroalimentacionApp:
         ])
         
         if st.button("✨ Generar Aportación Automática", type="primary", width="stretch"):
+            dirs = self.db.get_all_directrices()
+            n_ase = dirs.get("asesor_nombre", "Asesor")
+            r_ase = dirs.get("asesor_rol", "Asesor virtual")
+            id_ase = dirs.get("asesor_id", "000000")
+            g_ase = dirs.get("grupo", "M00C0G00-000")
+
             temas = {
                 "Semana 1": "Razones y proporciones. Problema detonador: Luis viajó 600 km y gastó 85 litros. ¿Cuántos litros para 870 km?",
                 "Semana 2": "Lenguaje común y algebraico. Problema detonador: Jardinero, campo de futbol de 14m de largo. Superficie es b. Expresar el ancho.",
@@ -576,7 +658,7 @@ class RetroalimentacionApp:
             }
             
             prompt = f"""
-            Eres Haggi de Jesús Tlahuisca Hernández, Asesor virtual de Prepa en Línea-SEP (Grupo M11C1G78-050).
+            Eres {n_ase}, {r_ase} (Grupo {g_ase}).
             Necesito que redactes mi aportación diaria para el "Foro Aprendiendo".
             
             Contexto del módulo actual:
@@ -587,10 +669,10 @@ class RetroalimentacionApp:
             Reglas estrictas de redacción (basado en mi banco de datos histórico):
             1. Saludo inicial: "Apreciables estudiantes." (Debe ir en una línea separada al inicio).
             2. Despedida obligatoria (Al final del mensaje, tal cual esto):
-            Haggi de Jesús Tlahuisca Hernández
-            Asesor virtual
-            21D28277
-            M11C1G78-050
+            {n_ase}
+            {r_ase}
+            {id_ase}
+            {g_ase}
             3. Escribe en español de México, formal pero cálido y empático. Sin muletillas, con excelente ortografía.
             4. No pongas formato Markdown de títulos grandes (##) ni "Asunto:". El texto debe verse natural, listo para copiar y pegar en un foro de Moodle. Usa negritas solo si es estrictamente necesario para resaltar una pista matemática.
             """
