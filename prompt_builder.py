@@ -1,4 +1,4 @@
-"""Constructor de prompts optimizado para redacción pedagógica modular."""
+"""Constructor de prompts optimizado para redacción pedagógica modular, libre de código duro."""
 
 from __future__ import annotations
 import random
@@ -32,7 +32,19 @@ class PromptBuilder:
         act = self.actividad
         n_act = act.nombre if act else "Actividad"
         prop_act = act.proposito if act else ""
-        grupo_asignado = self.dirs.get('grupo', 'M11C1G77-050').strip()
+        
+        # DATOS DINÁMICOS DEL ASESOR
+        n_ase = self.dirs.get('asesor_nombre', 'Asesor').strip()
+        r_ase = self.dirs.get('asesor_rol', 'Asesor virtual').strip()
+        id_ase = self.dirs.get('asesor_id', '000000').strip()
+        grupo_asignado = self.dirs.get('grupo', 'M00C0G00-000').strip()
+        
+        # PROMPTS DINÁMICOS DEL SISTEMA
+        prompt_sistema = self.dirs.get('prompt_sistema', f'Eres un {r_ase} empático y profesional llamado {n_ase}. Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO repetir estructuras sintácticas entre un estudiante y otro.')
+        prompt_sistema = prompt_sistema.replace('{asesor_nombre}', n_ase).replace('{asesor_rol}', r_ase)
+        
+        reglas_formato = self.dirs.get('reglas_formato', 'ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "## Áreas de Oportunidad"). Todo debe fluir como una carta natural, separada únicamente por saltos de párrafo.')
+        firma_corta = self.dirs.get('firma', 'Cordialmente.')
         
         is_foro = "foro de integración" in n_act.lower()
         
@@ -66,8 +78,7 @@ class PromptBuilder:
         apertura_aleatoria = random.choice(aperturas_variadas)
 
         if is_foro:
-            return f"""Eres un Asesor Virtual empático y profesional de Prepa en Línea SEP llamado Haggi de Jesús Tlahuisca Hernández.
-Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO repetir estructuras sintácticas entre un estudiante y otro.
+            return f"""{prompt_sistema}
 
 ### DATOS DEL ALUMNO Y ACTIVIDAD:
 - Estudiante: {self.estudiante}
@@ -77,6 +88,7 @@ Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO r
 - Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles."}
 
 ### REGLAS DE ORO DE FORMATO PARA EL FORO (¡MUY IMPORTANTE!):
+- {reglas_formato}
 - ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos, negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.). Todo debe fluir como párrafos naturales.
 - ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo cualitativamente.
 
@@ -97,18 +109,17 @@ Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO r
 4. **CIERRE EXACTO Y DESPEDIDA:**
    Usa EXACTAMENTE esta redacción final. Solo asegúrate de copiarla tal cual:
 
-Espero que todo lo aprendido en estas cuatro semanas te sea de mucha ayuda. 
+{self.dirs.get('despedida', 'Espero que todo lo aprendido en estas cuatro semanas te sea de mucha ayuda.')}
 
-Con afecto. 
+{firma_corta} 
 
-Haggi de Jesús Tlahuisca Hernández
-Asesor virtual
-21D28277
+{n_ase}
+{r_ase}
+{id_ase}
 {grupo_asignado}"""
 
         else:
-            return f"""Eres un Asesor Virtual empático y profesional de Prepa en Línea SEP llamado Haggi de Jesús Tlahuisca Hernández.
-Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO repetir estructuras sintácticas entre un estudiante y otro.
+            return f"""{prompt_sistema}
 
 ### DATOS DEL ALUMNO Y ACTIVIDAD:
 - Estudiante: {self.estudiante}
@@ -119,7 +130,7 @@ Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO r
 - Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles. Redacta justificando por qué alcanzó esos niveles en el contexto de la actividad."}
 
 ### REGLA DE ORO DE FORMATO (¡MUY IMPORTANTE!):
-ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "## Áreas de Oportunidad"). Todo debe fluir como una carta natural, separada únicamente por saltos de párrafo.
+{reglas_formato}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
@@ -152,13 +163,13 @@ ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "#
 5. **CIERRE EXACTO Y DESPEDIDA:**
    Usa EXACTAMENTE esta redacción final. Solo asegúrate de copiarla tal cual:
 
-Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu "{n_act}". Me despido con esta frase de {autor_frase}: **"{texto_frase}"**. 
+{self.dirs.get('despedida', f'Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu "{n_act}".')} Me despido con esta frase de {autor_frase}: **"{texto_frase}"**. 
 
 Recuerda que siempre estoy para ti al otro lado de la pantalla. Me puedes contactar por medio de los canales institucionales.
 
-Cordialmente.
+{firma_corta}
 
-Haggi de Jesús Tlahuisca Hernández
-Asesor virtual
-21D28277
+{n_ase}
+{r_ase}
+{id_ase}
 {grupo_asignado}"""
