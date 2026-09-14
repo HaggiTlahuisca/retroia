@@ -39,12 +39,14 @@ def bot_log(nivel: str, mensaje: str):
 sesiones: dict[int, dict] = {}
 
 MODELOS_DISPONIBLES = {
-    "auto": {"nombre": "🎲 Rotación Aleatoria", "id": "auto"},
+    "auto": {"nombre": "🎲 Rotación aleatoria", "id": "auto"},
     "haiku": {"nombre": "⚡ Claude Haiku 4.5", "id": "anthropic/claude-haiku-4.5"},
-    "cohere": {"nombre": "🚀 Cohere-gratis", "id":  "cohere/north-mini-code:free"},
-    #"kimi": {"nombre": "🌙 Kimi K3", "id": "moonshotai/kimi-k3"},
-    "luna": {"nombre": "🟢 GPT Luna", "id": "openai/gpt-5.6-luna"},
-    "lunapro": {"nombre": "🟣 GPT Luna Pro", "id": "openai/gpt-5.6-luna-pro"},
+    #"cohere": {"nombre": "🚀 Cohere-gratis", "id":  "cohere/north-mini-code:free"},
+    #"kimi": {"nombre": " Kimi K3", "id": "moonshotai/kimi-k3"},
+    "luna": {"nombre": "🌜 GPT Luna", "id": "openai/gpt-5.6-luna"},
+    "lunapro": {"nombre": "🌙 GPT Luna Pro", "id": "openai/gpt-5.6-luna-pro"},
+    "inclusion": {"nombre": "🌈 Ling 3.0-gratis", "id": "inclusionai/ling-3.0-flash-vl:free"},
+    "zai": {"nombre": "💭 GLM 5.3 Flash", "id": "z-ai/glm-5.3-flash"},
 }
 
 NIVELES_NOMBRES = ["Experto", "Capacitado", "Aceptable", "Aprendiz", "Requiere apoyo", "No evaluable"]
