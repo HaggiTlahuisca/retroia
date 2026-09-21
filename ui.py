@@ -166,7 +166,7 @@ class RetroalimentacionApp:
             if modo == "👤 Individual":
                 modelo_usar = self._get_model_for_format_error(st.session_state.model_id, modelos) if formato_err else st.session_state.model_id
                 if not modelo_usar:
-                    st.error("No hay un modelo alternativo que no sea Haiku para evaluar errores de formato.")
+                    st.error("No hay un modelo disponible para procesar el error de formato.")
                     return
                 if formato_err and modelo_usar != st.session_state.model_id:
                     st.warning("⚠️ Haiku excluido temporalmente. Se usará un modelo alternativo.")
