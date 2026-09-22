@@ -1,4 +1,4 @@
-"""Interfaz Streamlit con módulos de edición integrados."""
+"""Interfaz Streamlit con módulos de edición integrados y descarga en lote persistente."""
 
 from __future__ import annotations
 
@@ -85,7 +85,9 @@ class RetroalimentacionApp:
             "last_feedback": "",
             "last_prompt": "",
             "last_reasoning": "",
-            "batch_queue": []
+            "batch_queue": [],
+            "zip_ready_bytes": None,
+            "zip_ready_name": "Retroalimentaciones.zip"
         }
         for key, value in defaults.items(): st.session_state.setdefault(key, value)
 
@@ -157,12 +159,7 @@ class RetroalimentacionApp:
             )
 
             if modo == "👤 Individual":
-                modelo_usar = st.session_state.model_id
-                if formato_incorrecto and "haiku" in modelo_usar.lower():
-                    st.warning("⚠️ Haiku ha sido excluido temporalmente para este error de formato. Se utilizará un modelo alternativo automáticamente.")
-                    modelo_usar = next((m["api_id"] for m in modelos if "haiku" not in m["api_id"].lower()), "auto")
-
-                self._generate_feedback(builder, activity.id, modelo_usar)
+                self._generate_feedback(builder, activity.id, formato_incorrecto)
             else:
                 validation = builder.validate()
                 if validation.ok:
@@ -173,7 +170,7 @@ class RetroalimentacionApp:
                         "observaciones": texto_base,
                         "es_error_formato": formato_incorrecto
                     })
-                    st.success(f"✅ {estudiante} agregado a la cola de procesamiento.")
+                    st.success(f"✅ {estudiante} agregado a la cola de procesamiento ({len(st.session_state.batch_queue)} acumulados).")
                 else:
                     for error in validation.errors: st.error(error)
 
@@ -191,11 +188,10 @@ class RetroalimentacionApp:
                 with st.expander("📋 HTML compacto para Moodle"):
                     st.text_area("Código HTML", value=html_feedback, height=220, key="html_feedback_moodle")
                 
-                # --- DESPLIEGUE OCULTO DEL RAZONAMIENTO EN LA PANTALLA PRINCIPAL ---
                 if st.session_state.get("last_reasoning"):
                     with st.expander("🧠 Razonamiento pedagógico interno de la IA (Oculto)", expanded=False):
-                        st.info("Este es el proceso de pensamiento que siguió el modelo antes de redactar la retroalimentación:")
-                        st.text_area("Cadena de pensamiento:", value=st.session_state.last_reasoning, height=220, key="reasoning_area_preview")
+                        st.info("Proceso de pensamiento que siguió el modelo antes de redactar:")
+                        st.text_area("Cadena de pensamiento:", value=st.session_state.last_reasoning, height=220, key="reasoning_preview")
 
                 payload = json.dumps({
                     "retroalimentacion": st.session_state.last_feedback,
@@ -206,73 +202,110 @@ class RetroalimentacionApp:
                 
         else:
             if st.session_state.batch_queue:
-                st.markdown("### 📋 Cola de Procesamiento")
+                st.markdown(f"### 📋 Cola de Procesamiento ({len(st.session_state.batch_queue)} evaluaciones)")
                 for i, item in enumerate(st.session_state.batch_queue): st.write(f"{i+1}. **{item['estudiante']}** ({item['calificacion_total']} pts)")
-                if st.button("🚀 Procesar todo el lote ahora", type="primary"):
+                
+                c_btn1, c_btn2 = st.columns([3, 1])
+                ejecutar_lote = c_btn1.button("🚀 Procesar todo el lote ahora", type="primary", use_container_width=True)
+                if c_btn2.button("🗑️ Vaciar cola", use_container_width=True):
+                    st.session_state.batch_queue.clear()
+                    st.rerun()
+
+                if ejecutar_lote:
                     progress_bar = st.progress(0)
+                    status_info = st.empty()
                     total_q = len(st.session_state.batch_queue)
+                    exitosos = 0
+                    
+                    modelos_db = self.db.get_modelos()
                     
                     for idx, item in enumerate(st.session_state.batch_queue):
-                        b = PromptBuilder(self.db.get_all_directrices(), activity, item["estudiante"], item["calificacion_total"], item["criterios_evaluados"], item["observaciones"], item.get("es_error_formato", False))
+                        est_nom = item["estudiante"]
+                        status_info.info(f"⏳ Evaluando a **{est_nom}** ({idx + 1} de {total_q})... Por favor no cierres la ventana.")
+                        
+                        b = PromptBuilder(
+                            self.db.get_all_directrices(), activity, est_nom,
+                            item["calificacion_total"], item["criterios_evaluados"],
+                            item["observaciones"], item.get("es_error_formato", False)
+                        )
                         prompt = b.build()
                         
-                        modelo_usar = st.session_state.model_id
-                        if item.get("es_error_formato", False) and "haiku" in modelo_usar.lower():
-                            modelo_usar = next((m["api_id"] for m in self.db.get_modelos() if "haiku" not in m["api_id"].lower()), "auto")
-                            
-                        modelo_nombre = next((m["nombre"] for m in self.db.get_modelos() if m["api_id"] == modelo_usar), st.session_state.model_name)
+                        modelos_candidatos = [m for m in modelos_db if not (item.get("es_error_formato", False) and "haiku" in m["api_id"].lower())]
+                        modelo_fav = next((m for m in modelos_candidatos if m["api_id"] == st.session_state.model_id), modelos_candidatos[0] if modelos_candidatos else None)
+                        
+                        intentos = [modelo_fav] if modelo_fav else []
+                        intentos += [m for m in modelos_candidatos if modelo_fav and m["api_id"] != modelo_fav["api_id"]]
 
-                        try:
-                            text = self.ia_client.generar(prompt, st.session_state.api_key, modelo_usar, st.session_state.temperature, st.session_state.max_tokens)
-                            razonamiento = self.ia_client.ultimo_razonamiento
+                        texto_generado = None
+                        modelo_usado_nombre = st.session_state.model_name
+                        razonamiento = ""
+
+                        for mod in intentos:
+                            try:
+                                texto_generado = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 6500, timeout=45)
+                                razonamiento = self.ia_client.ultimo_razonamiento
+                                modelo_usado_nombre = mod["nombre"]
+                                break
+                            except Exception:
+                                continue
+
+                        if texto_generado:
                             retro = Retroalimentacion(
-                                b.estudiante, 
-                                activity.nombre, 
-                                text, 
-                                modelo_nombre, 
-                                b.calificacion, 
-                                b.criterios_evaluados, 
-                                b.observaciones, 
-                                prompt, 
-                                st.session_state.temperature,
-                                razonamiento
+                                b.estudiante, activity.nombre, texto_generado,
+                                modelo_usado_nombre, b.calificacion, b.criterios_evaluados,
+                                b.observaciones, prompt, st.session_state.temperature, razonamiento
                             )
                             self.db.create_history(retro, activity.id)
-                        except Exception as e:
-                            st.error(f"Error con {item['estudiante']}: {e}")
+                            exitosos += 1
+                        else:
+                            st.error(f"❌ No se pudo generar la retroalimentación para {est_nom}. Se omitió.")
+
                         progress_bar.progress((idx + 1) / total_q)
                     
                     st.session_state.batch_queue.clear()
-                    st.success("✨ ¡Lote generado exitosamente! Ve a la pestaña 'Historial' para descargar todos en un archivo ZIP.")
+                    status_info.empty()
+                    st.success(f"✨ ¡Lote completado! Se generaron {exitosos} de {total_q} retroalimentaciones. Ve a la pestaña 'Historial' para descargarlas en ZIP.")
 
-    def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None, modelo_override: str = None) -> None:
+    def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None, es_error_formato: bool = False) -> None:
         validation = builder.validate()
         for error in validation.errors: st.error(error)
         if not validation.ok: return
         try:
             with st.spinner("Generando redacción pedagógica original..."):
                 prompt = builder.build()
-                modelo_final = modelo_override if modelo_override else st.session_state.model_id
-                text = self.ia_client.generar(prompt, st.session_state.api_key, modelo_final, st.session_state.temperature, st.session_state.max_tokens)
-                razonamiento = self.ia_client.ultimo_razonamiento
+                modelos_db = self.db.get_modelos()
+                modelos_candidatos = [m for m in modelos_db if not (es_error_formato and "haiku" in m["api_id"].lower())]
+                modelo_fav = next((m for m in modelos_candidatos if m["api_id"] == st.session_state.model_id), modelos_candidatos[0] if modelos_candidatos else None)
+                
+                intentos = [modelo_fav] if modelo_fav else []
+                intentos += [m for m in modelos_candidatos if modelo_fav and m["api_id"] != modelo_fav["api_id"]]
 
-            st.session_state.last_feedback = text
+                texto = None
+                modelo_final_nombre = st.session_state.model_name
+                razonamiento = ""
+
+                for mod in intentos:
+                    try:
+                        texto = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 6500, timeout=45)
+                        razonamiento = self.ia_client.ultimo_razonamiento
+                        modelo_final_nombre = mod["nombre"]
+                        break
+                    except Exception:
+                        continue
+
+                if not texto:
+                    st.error("Todos los modelos fallaron o tardaron más de 45 segundos.")
+                    return
+
+            st.session_state.last_feedback = texto
             st.session_state.last_prompt = prompt
             st.session_state.last_reasoning = razonamiento
             
-            modelo_nombre = next((m["nombre"] for m in self.db.get_modelos() if m["api_id"] == modelo_final), st.session_state.model_name)
-            
             item = Retroalimentacion(
-                builder.estudiante, 
-                builder.actividad.nombre if builder.actividad else "", 
-                text, 
-                modelo_nombre, 
-                builder.calificacion, 
-                builder.criterios_evaluados, 
-                builder.observaciones, 
-                prompt, 
-                st.session_state.temperature,
-                razonamiento
+                builder.estudiante, builder.actividad.nombre if builder.actividad else "",
+                texto, modelo_final_nombre, builder.calificacion,
+                builder.criterios_evaluados, builder.observaciones, prompt,
+                st.session_state.temperature, razonamiento
             )
             self.db.create_history(item, activity_id)
             st.success("Guardado en el historial.")
@@ -295,7 +328,7 @@ class RetroalimentacionApp:
         if not rows: st.info("No hay registros en esas fechas."); return
         st.caption(f"Registros encontrados: {len(rows)}")
         
-        with st.expander("📦 Herramienta de Descarga en Lote (ZIP)", expanded=False):
+        with st.expander("📦 Herramienta de Descarga en Lote (ZIP)", expanded=True):
             st.markdown("Selecciona las retroalimentaciones que deseas incluir en el archivo ZIP.")
             if "select_all" not in st.session_state: st.session_state.select_all = False
             col_btn1, col_btn2 = st.columns(2)
@@ -314,19 +347,34 @@ class RetroalimentacionApp:
             selected_ids = edited_df[edited_df["Seleccionar"]]["ID"].tolist()
             selected_rows = [r for r in rows if r.get("id", 0) in selected_ids]
             
-            if st.button(f"📥 Descargar {len(selected_rows)} archivos en ZIP", type="primary", disabled=len(selected_rows)==0, width="stretch"):
-                archivos = []
-                for r in selected_rows:
-                    est_val = r.get("estudiante", "")
-                    act_val = act_map[r["actividad_id"]] if r.get("actividad_id") in act_map else r.get("actividad_nombre") or "General"
-                    nombre_base = generar_nombre_archivo(est_val, act_val)
-                    docx_data = docx_bytes("", r.get("retroalimentacion", ""), n_ase, id_ase)
-                    html_text = feedback_to_moodle_html(r.get("retroalimentacion", ""), n_ase, id_ase)
-                    archivos.append((f"{nombre_base}.docx", docx_data))
-                    archivos.append((f"{nombre_base}.html", html_text.encode('utf-8')))
-                zip_bytes = create_zip(archivos)
-                act_str = get_activity_code(selected_act_name) if selected_act_name != "Todas" else "Varias"
-                st.download_button("💾 Haz clic aquí para guardar tu archivo ZIP", data=zip_bytes, file_name=f"Retros_{grupo_zip}_{act_str}.zip", mime="application/zip", width="stretch")
+            # --- PROCESO EN DOS PASOS PERSISTENTES (EVITA RECARGAS Y CAÍDAS) ---
+            col_z1, col_z2 = st.columns(2)
+            
+            if col_z1.button(f"📦 Preparar ZIP ({len(selected_rows)} alumnos)", type="primary", disabled=len(selected_rows)==0, width="stretch"):
+                with st.spinner("Empaquetando documentos Word y HTML..."):
+                    archivos = []
+                    for r in selected_rows:
+                        est_val = r.get("estudiante", "")
+                        act_val = act_map[r["actividad_id"]] if r.get("actividad_id") in act_map else r.get("actividad_nombre") or "General"
+                        nombre_base = generar_nombre_archivo(est_val, act_val)
+                        docx_data = docx_bytes("", r.get("retroalimentacion", ""), n_ase, id_ase)
+                        html_text = feedback_to_moodle_html(r.get("retroalimentacion", ""), n_ase, id_ase)
+                        archivos.append((f"{nombre_base}.docx", docx_data))
+                        archivos.append((f"{nombre_base}.html", html_text.encode('utf-8')))
+                    
+                    st.session_state.zip_ready_bytes = create_zip(archivos)
+                    act_str = get_activity_code(selected_act_name) if selected_act_name != "Todas" else "Varias"
+                    st.session_state.zip_ready_name = f"Retros_{grupo_zip}_{act_str}.zip"
+                    st.success("✅ ¡Paquete ZIP generado y listo!")
+
+            if st.session_state.get("zip_ready_bytes"):
+                col_z2.download_button(
+                    "💾 Guardar archivo ZIP en mi equipo",
+                    data=st.session_state.zip_ready_bytes,
+                    file_name=st.session_state.get("zip_ready_name", "Retroalimentaciones.zip"),
+                    mime="application/zip",
+                    width="stretch"
+                )
 
         st.markdown("---")
         for row in rows: history_card(row, act_map)
@@ -593,7 +641,7 @@ class RetroalimentacionApp:
             
             with st.spinner("⏳ Redactando tu participación para el foro..."):
                 try:
-                    respuesta = self.ia_client.generar(prompt, st.session_state.api_key, st.session_state.model_id, st.session_state.temperature, 1500)
+                    respuesta = self.ia_client.generar(prompt, st.session_state.api_key, st.session_state.model_id, st.session_state.temperature, 1500, timeout=45)
                     st.success("¡Aportación generada con éxito!")
                     st.text_area("Copia y pega este texto directamente en Moodle:", value=respuesta, height=400)
                 except Exception as e:
