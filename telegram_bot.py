@@ -561,17 +561,17 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
                 bot.send_message(chat_id, f"❌ Ocurrió un error con {estudiante}: {ultimo_error}")
             return
 
-        # 3. Guardar y enviar archivos con argumentos nombrados
+        # 3. Guardar y enviar archivos (Paso posicional ordenado para máxima compatibilidad)
         item = Retroalimentacion(
-            estudiante=estudiante,
-            actividad=actividad.nombre,
-            texto_generado=texto_generado,
-            modelo_usado=modelo_exitoso["nombre"],
-            calificacion=total_puntos,
-            criterios=criterios,
-            observaciones=obs,
-            prompt=prompt,
-            temperatura=0.65
+            estudiante,
+            actividad.nombre,
+            texto_generado,
+            modelo_exitoso["nombre"],
+            total_puntos,
+            criterios,
+            obs,
+            prompt,
+            0.65
         )
         db.create_history(item, actividad.id)
 
@@ -660,4 +660,3 @@ if __name__ == '__main__':
     
     bot_log("INFO", "Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    
