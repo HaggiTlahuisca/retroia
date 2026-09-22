@@ -291,7 +291,6 @@ def seleccionar_actividad(call):
         bot.send_message(chat_id, "⚠️ Actividad no encontrada.")
 
 
-# Maneja tanto la captura inicial de nombre como los estudiantes subsecuentes del lote
 @bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") in ["nombre", "batch_siguiente_nombre"])
 def procesar_nombre_estudiante(message):
     chat_id = message.chat.id
@@ -507,7 +506,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
                 if intento == 0:
                     mensaje = f"⏳ Redactando con {modelo_actual['nombre']}..."
                 else:
-                    mensaje = f"🔄 Servidor saturado. Reintentando con {modelo_actual['nombre']}..."
+                    mensaje = f"🔄 Reintentando con {modelo_actual['nombre']}..."
                 
                 try: bot.edit_message_text(mensaje, chat_id=chat_id, message_id=message_id_to_edit)
                 except Exception: pass
@@ -515,19 +514,37 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             bot_log("INFO", f"[{estudiante}] Intentando API con modelo: {modelo_actual['nombre']}")
             start_time = time.time()
             try:
-                texto_generado = ia_client.generar(prompt, api_key, modelo_actual["id"], 0.65, 4000)
+                # 6500 tokens para que no se agote con el razonamiento
+                texto_candidato = ia_client.generar(prompt, api_key, modelo_actual["id"], 0.65, 6500)
+                
+                # VALIDACIÓN CRÍTICA 1: Que no venga vacío
+                if not texto_candidato or not texto_candidato.strip():
+                    raise ValueError(f"El modelo {modelo_actual['nombre']} entregó una respuesta vacía.")
+
+                # VALIDACIÓN CRÍTICA 2: Detección estricta de truncamiento
+                terminaciones_truncadas = (" y", " con", " el", " la", " los", " las", " de", " un", " una", " proced", " funcion", " cual", " que")
+                texto_limpio_fin = texto_candidato.strip().lower()
+                es_truncado = any(texto_limpio_fin.endswith(t) for t in terminaciones_truncadas)
+
+                dirs = db.get_all_directrices()
+                n_ase_check = dirs.get("asesor_nombre", "").strip().lower()
+                # Si el texto no contiene el nombre del asesor en su cierre, se cortó antes de terminar
+                if n_ase_check and n_ase_check not in texto_limpio_fin:
+                    es_truncado = True
+
+                if es_truncado:
+                    raise ValueError(f"El modelo {modelo_actual['nombre']} truncó la respuesta a la mitad.")
+
+                texto_generado = texto_candidato
                 elapsed = time.time() - start_time
                 bot_log("INFO", f"[{estudiante}] ÉXITO con {modelo_actual['nombre']}. Tiempo: {elapsed:.2f}s.")
-                
-                if texto_generado.endswith((" y", " con", " el", " la", " los", " las", " de", " un", " una", " proced", " funcion")):
-                    bot_log("WARNING", f"[{estudiante}] ATENCIÓN: El texto parece haberse truncado.")
-
                 modelo_exitoso = modelo_actual
                 break
             except Exception as e:
                 elapsed = time.time() - start_time
                 ultimo_error = e
                 bot_log("ERROR", f"[{estudiante}] FALLÓ {modelo_actual['nombre']} tras {elapsed:.2f}s. Error: {e}")
+                texto_generado = None
                 time.sleep(2)
                 continue
 
@@ -542,7 +559,6 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
 
         razonamiento = getattr(ia_client, "ultimo_razonamiento", "")
 
-        # Guardar en orden posicional exacto según models.py
         item = Retroalimentacion(
             estudiante,
             actividad.nombre,
@@ -641,3 +657,4 @@ if __name__ == '__main__':
     
     bot_log("INFO", "Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    
