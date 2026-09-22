@@ -57,6 +57,15 @@ def responder_callback(call):
         pass
 
 
+def obtener_criterios_actividad(actividad) -> list[str]:
+    """Obtiene los criterios de la actividad de forma tolerante y segura."""
+    if hasattr(actividad, "criterios") and actividad.criterios:
+        return list(actividad.criterios)
+    if "foro de integración" in getattr(actividad, "nombre", "").lower():
+        return ["Cognitivo", "Actitudinal", "Comunicativo", "Colaborativo", "Pensamiento crítico"]
+    return ["Cognitivo", "Actitudinal", "Comunicativo", "Pensamiento crítico"]
+
+
 def obtener_teclado_modelos() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(InlineKeyboardButton("🎲 Rotación Aleatoria", callback_data="mod_auto"))
@@ -143,12 +152,36 @@ def obtener_teclado_obs() -> InlineKeyboardMarkup:
 
 def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> float:
     is_foro = "foro de integración" in actividad_nombre.lower()
+    crit_lower = str(criterio).lower()
     if is_foro:
-        if criterio == "cog": return [40.0, 34.0, 32.0, 28.0, 24.0, 0.0][nivel_idx]
+        if "cog" in crit_lower: return [40.0, 34.0, 32.0, 28.0, 24.0, 0.0][nivel_idx]
         else: return [15.0, 14.0, 12.0, 11.0, 9.0, 0.0][nivel_idx]
     else:
-        if criterio == "cog": return [40.0, 36.0, 32.0, 28.0, 24.0, 0.0][nivel_idx]
+        if "cog" in crit_lower: return [40.0, 36.0, 32.0, 28.0, 24.0, 0.0][nivel_idx]
         else: return [20.0, 18.0, 16.0, 14.0, 12.0, 0.0][nivel_idx]
+
+
+def crear_cola_modelos_equilibrada(modelos_reales: list[dict]) -> list[dict]:
+    """
+    Crea una cola de modelos que se repite de forma aleatoria.
+    Garantiza distribución equitativa: si hay 5 modelos, cada uno aparecerá
+    en la cola de manera equilibrada.
+    """
+    cola = modelos_reales.copy()
+    random.shuffle(cola)
+    return cola
+
+
+def obtener_siguiente_modelo(sesion: dict, modelos_reales: list[dict]) -> dict:
+    """
+    Obtiene el siguiente modelo de la cola equilibrada.
+    Si la cola se agota, la regenera y baraja.
+    """
+    if "cola_modelos" not in sesion or not sesion["cola_modelos"]:
+        sesion["cola_modelos"] = crear_cola_modelos_equilibrada(modelos_reales)
+    
+    modelo = sesion["cola_modelos"].pop(0)
+    return modelo
 
 
 @bot.message_handler(commands=['ayuda'])
@@ -185,7 +218,8 @@ def iniciar_evaluacion(message):
         "total_puntos": 0.0,
         "cola": [],
         "modelo_id": "auto",
-        "modelo_nombre": "🎲 Rotación Aleatoria"
+        "modelo_nombre": "🎲 Rotación Aleatoria",
+        "cola_modelos": []
     }
 
     bot_log("INFO", f"Sesión iniciada. Modo: {modo}. Usuario: {message.chat.id}")
@@ -243,8 +277,8 @@ def seleccionar_modelo(call):
         markup.add(InlineKeyboardButton(act["nombre"], callback_data=f"act_{act['id']}"))
 
     bot.edit_message_text(
-        f"🤖 Modelo seleccionado: {nombre_display}\n\nSelecciona la actividad a evaluar:",
-        chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup
+        f"🤖 Modelo seleccionado: *{nombre_display}*\n\nSelecciona la actividad a evaluar:",
+        chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown"
     )
 
 
@@ -260,245 +294,137 @@ def seleccionar_actividad(call):
         sesiones[chat_id]["paso"] = "nombre"
         bot.edit_message_text(
             f"✅ Actividad: *{act_obj.nombre}*\n\nEscribe el nombre del estudiante:",
-            chat_id=chat_id, message_id=call.message.message_id, parse_mode="Markdown"
+            chat_id=chat_id, message_id=call.message.message_id
         )
-
-
-def iniciar_captura_estudiante(chat_id: int, estudiante: str):
-    sesiones[chat_id]["criterios"] = {}
-    sesiones[chat_id]["total_puntos"] = 0.0
-    sesiones[chat_id]["observaciones"] = ""
-    sesiones[chat_id]["es_error_formato"] = False
-    sesiones[chat_id]["estudiante"] = estudiante
-    sesiones[chat_id]["paso"] = "cognitivo"
-
-    bot.send_message(
-        chat_id, "🧠 *Criterio Cognitivo*\nSelecciona el nivel alcanzado:",
-        reply_markup=obtener_teclado_niveles("cog"), parse_mode="Markdown"
-    )
+    else:
+        bot.send_message(chat_id, "⚠️ Actividad no encontrada.")
 
 
 @bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "nombre")
-def recibir_nombre(message):
-    if message.text.startswith('/'):
-        return
+def procesar_nombre_estudiante(message):
     chat_id = message.chat.id
-    iniciar_captura_estudiante(chat_id, message.text)
+    sesiones[chat_id]["estudiante"] = message.text.strip()
+    sesiones[chat_id]["paso"] = "criterios"
+    
+    actividad = sesiones[chat_id]["actividad"]
+    markup = InlineKeyboardMarkup(row_width=1)
+    
+    criterios_lista = obtener_criterios_actividad(actividad)
+    for criterio in criterios_lista:
+        markup.add(InlineKeyboardButton(f"📋 {criterio}", callback_data=f"crit_{criterio}"))
+    
+    bot.send_message(chat_id, f"✍️ {sesiones[chat_id]['estudiante']}\n\nSelecciona un criterio a evaluar:", reply_markup=markup)
 
 
-@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "batch_siguiente_nombre")
-def recibir_nombre_batch_directo(message):
-    if message.text.startswith('/'):
-        return
-    chat_id = message.chat.id
-    iniciar_captura_estudiante(chat_id, message.text)
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "mostrar_modelos")
-def mostrar_modelos_callback(call):
-    responder_callback(call)
-    bot.edit_message_text(
-        construir_texto_modelos_disponibles(),
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        reply_markup=obtener_teclado_modelos_info()
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "volver_ayuda")
-def volver_ayuda_callback(call):
-    responder_callback(call)
-    bot.send_message(
-        call.message.chat.id,
-        construir_texto_ayuda(),
-        parse_mode="Markdown",
-        reply_markup=obtener_teclado_ayuda()
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data == "cerrar_panel")
-def cerrar_panel_callback(call):
-    responder_callback(call)
-    try:
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-    except Exception:
-        pass
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('cog_'))
-def recibir_cognitivo(call):
+@bot.callback_query_handler(func=lambda call: call.data.startswith('crit_'))
+def seleccionar_criterio(call):
     responder_callback(call)
     chat_id = call.message.chat.id
-    nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
-    nivel_nombre = NIVELES_NOMBRES[nivel_idx]
-
-    puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "cog", nivel_idx)
-
-    sesiones[chat_id]["criterios"]["Cognitivo"] = {"nivel": nivel_nombre, "puntos": puntos}
-    sesiones[chat_id]["total_puntos"] += puntos
-    sesiones[chat_id]["paso"] = "actitudinal"
-
+    criterio = call.data.split('_', 1)[1]
+    sesiones[chat_id]["criterio_actual"] = criterio
+    sesiones[chat_id]["paso"] = "nivel"
+    
     bot.edit_message_text(
-        "🤝 *Criterio Actitudinal*\nSelecciona el nivel alcanzado:",
-        chat_id=chat_id, message_id=call.message.message_id,
-        reply_markup=obtener_teclado_niveles("actitud"), parse_mode="Markdown"
+        f"📊 Criterio: *{criterio}*\n\nSelecciona el nivel de desempeño:",
+        chat_id=chat_id, message_id=call.message.message_id, reply_markup=obtener_teclado_niveles("niv"), parse_mode="Markdown"
     )
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('actitud_'))
-def recibir_actitudinal(call):
+@bot.callback_query_handler(func=lambda call: call.data.startswith('niv_'))
+def seleccionar_nivel(call):
     responder_callback(call)
     chat_id = call.message.chat.id
-    nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
-    nivel_nombre = NIVELES_NOMBRES[nivel_idx]
-
-    puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "act", nivel_idx)
-
-    sesiones[chat_id]["criterios"]["Actitudinal"] = {"nivel": nivel_nombre, "puntos": puntos}
+    nivel_clave = call.data.split('_', 1)[1]
+    nivel_idx = NIVELES_CLAVES.index(nivel_clave)
+    criterio = sesiones[chat_id]["criterio_actual"]
+    actividad = sesiones[chat_id]["actividad"]
+    
+    puntos = obtener_puntos(actividad.nombre, criterio, nivel_idx)
+    sesiones[chat_id]["criterios"][criterio] = (NIVELES_NOMBRES[nivel_idx], puntos)
     sesiones[chat_id]["total_puntos"] += puntos
-    sesiones[chat_id]["paso"] = "comunicativo"
-
-    bot.edit_message_text(
-        "🗣️ *Criterio Comunicativo*\nSelecciona el nivel alcanzado:",
-        chat_id=chat_id, message_id=call.message.message_id,
-        reply_markup=obtener_teclado_niveles("com"), parse_mode="Markdown"
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('com_'))
-def recibir_comunicativo(call):
-    responder_callback(call)
-    chat_id = call.message.chat.id
-    nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
-    nivel_nombre = NIVELES_NOMBRES[nivel_idx]
-
-    puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "com", nivel_idx)
-
-    sesiones[chat_id]["criterios"]["Comunicativo"] = {"nivel": nivel_nombre, "puntos": puntos}
-    sesiones[chat_id]["total_puntos"] += puntos
-
-    is_foro = "foro de integración" in sesiones[chat_id]["actividad"].nombre.lower()
-
-    if is_foro:
-        sesiones[chat_id]["paso"] = "colaborativo"
+    
+    criterios_lista = obtener_criterios_actividad(actividad)
+    criterios_restantes = [c for c in criterios_lista if c not in sesiones[chat_id]["criterios"]]
+    
+    if criterios_restantes:
+        markup = InlineKeyboardMarkup(row_width=1)
+        for criterio in criterios_restantes:
+            markup.add(InlineKeyboardButton(f"📋 {criterio}", callback_data=f"crit_{criterio}"))
+        
         bot.edit_message_text(
-            "👥 *Criterio Colaborativo*\nSelecciona el nivel alcanzado:",
-            chat_id=chat_id, message_id=call.message.message_id,
-            reply_markup=obtener_teclado_niveles("col"), parse_mode="Markdown"
+            f"✅ {criterio}: *{NIVELES_NOMBRES[nivel_idx]}* (+{puntos:.1f} pts)\n\nSiguiente criterio:",
+            chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown"
         )
     else:
-        sesiones[chat_id]["paso"] = "pensamiento"
+        sesiones[chat_id]["paso"] = "observaciones"
         bot.edit_message_text(
-            "💡 *Pensamiento Crítico*\nSelecciona el nivel alcanzado:",
-            chat_id=chat_id, message_id=call.message.message_id,
-            reply_markup=obtener_teclado_niveles("pen"), parse_mode="Markdown"
+            f"✅ {criterio}: *{NIVELES_NOMBRES[nivel_idx]}* (+{puntos:.1f} pts)\n\n¿Hay observaciones?",
+            chat_id=chat_id, message_id=call.message.message_id, reply_markup=obtener_teclado_obs(), parse_mode="Markdown"
         )
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('col_'))
-def recibir_colaborativo(call):
-    responder_callback(call)
-    chat_id = call.message.chat.id
-    nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
-    nivel_nombre = NIVELES_NOMBRES[nivel_idx]
-
-    puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "col", nivel_idx)
-
-    sesiones[chat_id]["criterios"]["Colaborativo"] = {"nivel": nivel_nombre, "puntos": puntos}
-    sesiones[chat_id]["total_puntos"] += puntos
-    sesiones[chat_id]["paso"] = "pensamiento"
-
-    bot.edit_message_text(
-        "💡 *Pensamiento Crítico*\nSelecciona el nivel alcanzado:",
-        chat_id=chat_id, message_id=call.message.message_id,
-        reply_markup=obtener_teclado_niveles("pen"), parse_mode="Markdown"
-    )
-
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('pen_'))
-def recibir_pensamiento(call):
-    responder_callback(call)
-    chat_id = call.message.chat.id
-    nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
-    nivel_nombre = NIVELES_NOMBRES[nivel_idx]
-
-    puntos = obtener_puntos(sesiones[chat_id]["actividad"].nombre, "pen", nivel_idx)
-
-    sesiones[chat_id]["criterios"]["Pensamiento crítico"] = {"nivel": nivel_nombre, "puntos": puntos}
-    sesiones[chat_id]["total_puntos"] += puntos
-
-    bot.edit_message_text(
-        "✅ Rúbrica completa.\n\n¿Deseas agregar observaciones adicionales para el estudiante?",
-        chat_id=chat_id, message_id=call.message.message_id,
-        reply_markup=obtener_teclado_obs()
-    )
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('obs_'))
-def recibir_opcion_observaciones(call):
+def procesar_observaciones(call):
     responder_callback(call)
     chat_id = call.message.chat.id
-    opcion = call.data.split('_')[1]
-
-    if opcion == "ninguna":
+    obs_tipo = call.data.split('_', 1)[1]
+    
+    if obs_tipo == "ninguna":
         sesiones[chat_id]["observaciones"] = ""
         sesiones[chat_id]["es_error_formato"] = False
-        evaluar_o_encolar(chat_id, call.message.message_id)
-    elif opcion == "formato":
-        sesiones[chat_id]["paso"] = "escribir_obs_formato"
-        bot.edit_message_text(
-            "⚠️ *Error de formato*\nEscribe el detalle (Ej: Entregó .docx en vez de .pptx):",
-            chat_id=chat_id, message_id=call.message.message_id, parse_mode="Markdown"
-        )
-    else:
-        sesiones[chat_id]["paso"] = "escribir_obs"
-        bot.edit_message_text(
-            "📝 Escribe tus observaciones para el estudiante:",
-            chat_id=chat_id, message_id=call.message.message_id
-        )
-
-
-@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") in ["escribir_obs", "escribir_obs_formato"])
-def recibir_texto_observaciones(message):
-    chat_id = message.chat.id
-    if message.text.startswith('/'): return
-
-    paso_actual = sesiones[chat_id]["paso"]
-    texto = message.text
-
-    if paso_actual == "escribir_obs_formato":
-        sesiones[chat_id]["observaciones"] = texto
+        procesar_finalizacion(chat_id, call.message.message_id)
+    elif obs_tipo == "escribir":
+        sesiones[chat_id]["paso"] = "obs_texto"
+        bot.edit_message_text("✍️ Escribe la observación:", chat_id=chat_id, message_id=call.message.message_id)
+    elif obs_tipo == "formato":
+        sesiones[chat_id]["observaciones"] = "Error de formato detectado"
         sesiones[chat_id]["es_error_formato"] = True
-    else:
-        sesiones[chat_id]["observaciones"] = texto
-        sesiones[chat_id]["es_error_formato"] = False
-
-    msg_espera = bot.send_message(chat_id, "⏳ Procesando...")
-    evaluar_o_encolar(chat_id, msg_espera.message_id)
+        procesar_finalizacion(chat_id, call.message.message_id)
 
 
-def evaluar_o_encolar(chat_id, message_id_to_edit):
-    datos = sesiones[chat_id]
+@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "obs_texto")
+def procesar_obs_texto(message):
+    chat_id = message.chat.id
+    sesiones[chat_id]["observaciones"] = message.text.strip()
+    sesiones[chat_id]["es_error_formato"] = False
+    procesar_finalizacion(chat_id, None)
+
+
+def procesar_finalizacion(chat_id, message_id_to_edit):
+    datos = sesiones.get(chat_id)
+    if not datos: return
+    
     if datos.get("modo") == "batch":
-        datos["cola"].append({
+        item = {
             "estudiante": datos["estudiante"],
-            "criterios": datos["criterios"].copy(),
+            "criterios": datos["criterios"],
             "total_puntos": datos["total_puntos"],
             "observaciones": datos.get("observaciones", ""),
             "es_error_formato": datos.get("es_error_formato", False)
-        })
-        markup = InlineKeyboardMarkup()
-        markup.add(
-            InlineKeyboardButton("➕ Evaluar a otro", callback_data="batch_add"),
-            InlineKeyboardButton("🚀 Generar lote", callback_data="batch_run")
-        )
-
-        bot.edit_message_text(
-            f"✅ *{datos['estudiante']}* guardado en la cola.\n"
-            f"Estudiantes en espera: {len(datos['cola'])}\n\n"
-            f"Escribe el nombre del siguiente estudiante o elige una opción:",
-            chat_id=chat_id, message_id=message_id_to_edit, reply_markup=markup, parse_mode="Markdown"
-        )
+        }
+        datos["cola"].append(item)
+        
+        if message_id_to_edit:
+            markup = InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                InlineKeyboardButton("➕ Otro", callback_data="batch_add"),
+                InlineKeyboardButton("🚀 Ejecutar", callback_data="batch_run")
+            )
+            bot.edit_message_text(
+                f"✨ *{datos['estudiante']}* guardado en lote ({len(datos['cola'])} evaluaciones).\n\n¿Continuar?",
+                chat_id, message_id_to_edit, reply_markup=markup, parse_mode="Markdown"
+            )
+        else:
+            markup = InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                InlineKeyboardButton("➕ Otro", callback_data="batch_add"),
+                InlineKeyboardButton("🚀 Ejecutar", callback_data="batch_run")
+            )
+            bot.send_message(
+                chat_id,
+                f"✨ *{datos['estudiante']}* guardado en lote ({len(datos['cola'])} evaluaciones).\n\n¿Continuar?",
+                reply_markup=markup, parse_mode="Markdown"
+            )
         datos["paso"] = "batch_siguiente_nombre"
     else:
         procesar_generacion_individual(
@@ -559,14 +485,12 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         if not modelos_reales:
             modelos_reales = [{"id": "cohere/north-mini-code:free", "nombre": "Cohere (Respaldo)", "categoria": "Gratis"}]
 
-    # 1. Definir el orden de los modelos a intentar con ALEATORIEDAD PURA
+    # 1. Definir el orden de los modelos a intentar con ALEATORIEDAD EQUILIBRADA
     modelos_a_intentar = []
     
     if modelo_id_base == "auto" or (es_error_formato and "haiku" in modelo_id_base.lower()):
-        # Tira los dados para cualquier modelo de la lista en cada evaluación individual o de lote
-        siguiente_idx = random.randint(0, len(modelos_reales) - 1)
-        modelo_principal = modelos_reales[siguiente_idx]
-        bot_log("INFO", f"[{estudiante}] Modelo aleatorio seleccionado: {modelo_principal['nombre']}.")
+        modelo_principal = obtener_siguiente_modelo(datos, modelos_reales)
+        bot_log("INFO", f"[{estudiante}] Modelo aleatorio equilibrado seleccionado: {modelo_principal['nombre']}.")
     else:
         modelo_principal = next((m for m in modelos_reales if m["id"] == modelo_id_base), modelos_reales[0])
 
@@ -637,10 +561,17 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
                 bot.send_message(chat_id, f"❌ Ocurrió un error con {estudiante}: {ultimo_error}")
             return
 
-        # 3. Guardar y enviar archivos
+        # 3. Guardar y enviar archivos con argumentos nombrados
         item = Retroalimentacion(
-            estudiante, actividad.nombre, texto_generado,
-            modelo_exitoso["nombre"], total_puntos, criterios, obs, prompt, 0.65
+            estudiante=estudiante,
+            actividad=actividad.nombre,
+            texto_generado=texto_generado,
+            modelo_usado=modelo_exitoso["nombre"],
+            calificacion=total_puntos,
+            criterios=criterios,
+            observaciones=obs,
+            prompt=prompt,
+            temperatura=0.65
         )
         db.create_history(item, actividad.id)
 
@@ -681,6 +612,38 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             bot.send_message(chat_id, f"❌ Ocurrió un error procesando a {estudiante}: {e}")
 
 
+@bot.callback_query_handler(func=lambda call: call.data == 'mostrar_modelos')
+def mostrar_modelos(call):
+    responder_callback(call)
+    bot.edit_message_text(
+        construir_texto_modelos_disponibles(),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=obtener_teclado_modelos_info()
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == 'volver_ayuda')
+def volver_ayuda(call):
+    responder_callback(call)
+    bot.edit_message_text(
+        construir_texto_ayuda(),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=obtener_teclado_ayuda(),
+        parse_mode="Markdown"
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == 'cerrar_panel')
+def cerrar_panel(call):
+    responder_callback(call)
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception:
+        pass
+
+
 if __name__ == '__main__':
     # 3. MODO POLLING PARA HEROKU WORKER DYNO
     bot.remove_webhook()
@@ -697,3 +660,4 @@ if __name__ == '__main__':
     
     bot_log("INFO", "Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    
