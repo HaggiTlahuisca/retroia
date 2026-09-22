@@ -79,4 +79,5 @@ class Retroalimentacion:
     observaciones: str
     prompt: str
     temperatura: float
+    razonamiento: str = ""
     id: int | None = None
