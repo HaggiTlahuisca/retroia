@@ -42,8 +42,8 @@ class IAClient:
         prompt: str,
         api_key: str,
         model_id: str,
-        temperature: float = 0.7,
-        max_tokens: int = 4000
+        temperature: float = 0.55,
+        max_tokens: int = 8500
     ) -> str:
         """Envía el prompt a OpenRouter, captura el razonamiento interno y retorna el texto limpio."""
         if not api_key:
@@ -65,7 +65,7 @@ class IAClient:
 
         self.ultimo_razonamiento = ""
 
-        resp = requests.post(self.base_url, headers=headers, json=payload, timeout=90)
+        resp = requests.post(self.base_url, headers=headers, json=payload, timeout=95)
         if resp.status_code != 200:
             raise RuntimeError(f"Fallo en API OpenRouter (Código {resp.status_code}): {resp.text}")
 
@@ -88,7 +88,12 @@ class IAClient:
             if len(partes) > 1:
                 texto_crudo = partes[-1].strip()
             else:
-                texto_crudo = re.sub(r"<think>.*", "", texto_crudo, flags=re.DOTALL).strip()
+                texto_crudo = ""
 
         self.ultimo_razonamiento = razonamiento.strip()
+
+        # Validación estricta: No permitir respuestas vacías como éxitos
+        if not texto_crudo.strip():
+            raise RuntimeError(f"El modelo {model_id} no generó texto de retroalimentación (Respuesta vacía o agotó tokens en pensamiento).")
+
         return texto_crudo.strip()
