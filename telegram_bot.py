@@ -291,7 +291,8 @@ def seleccionar_actividad(call):
         bot.send_message(chat_id, "⚠️ Actividad no encontrada.")
 
 
-@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "nombre")
+# Maneja tanto la captura inicial de nombre como los estudiantes subsecuentes del lote
+@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") in ["nombre", "batch_siguiente_nombre"])
 def procesar_nombre_estudiante(message):
     chat_id = message.chat.id
     sesiones[chat_id]["estudiante"] = message.text.strip()
@@ -388,35 +389,25 @@ def procesar_finalizacion(chat_id, message_id_to_edit):
     if datos.get("modo") == "batch":
         item = {
             "estudiante": datos["estudiante"],
-            "criterios": datos["criterios"],
+            "criterios": dict(datos["criterios"]),
             "total_puntos": datos["total_puntos"],
             "observaciones": datos.get("observaciones", ""),
             "es_error_formato": datos.get("es_error_formato", False)
         }
         datos["cola"].append(item)
+        datos["paso"] = "batch_esperando_decision"
         
+        markup = InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            InlineKeyboardButton("➕ Otro", callback_data="batch_add"),
+            InlineKeyboardButton("🚀 Ejecutar", callback_data="batch_run")
+        )
+
+        mensaje_texto = f"✨ *{datos['estudiante']}* guardado en lote ({len(datos['cola'])} evaluaciones acumuladas).\n\n¿Deseas agregar a otro estudiante o ejecutar el lote?"
         if message_id_to_edit:
-            markup = InlineKeyboardMarkup(row_width=2)
-            markup.add(
-                InlineKeyboardButton("➕ Otro", callback_data="batch_add"),
-                InlineKeyboardButton("🚀 Ejecutar", callback_data="batch_run")
-            )
-            bot.edit_message_text(
-                f"✨ *{datos['estudiante']}* guardado en lote ({len(datos['cola'])} evaluaciones).\n\n¿Continuar?",
-                chat_id, message_id_to_edit, reply_markup=markup, parse_mode="Markdown"
-            )
+            bot.edit_message_text(mensaje_texto, chat_id, message_id_to_edit, reply_markup=markup, parse_mode="Markdown")
         else:
-            markup = InlineKeyboardMarkup(row_width=2)
-            markup.add(
-                InlineKeyboardButton("➕ Otro", callback_data="batch_add"),
-                InlineKeyboardButton("🚀 Ejecutar", callback_data="batch_run")
-            )
-            bot.send_message(
-                chat_id,
-                f"✨ *{datos['estudiante']}* guardado en lote ({len(datos['cola'])} evaluaciones).\n\n¿Continuar?",
-                reply_markup=markup, parse_mode="Markdown"
-            )
-        datos["paso"] = "batch_siguiente_nombre"
+            bot.send_message(chat_id, mensaje_texto, reply_markup=markup, parse_mode="Markdown")
     else:
         procesar_generacion_individual(
             chat_id, message_id_to_edit,
@@ -432,7 +423,7 @@ def batch_add(call):
     sesiones[chat_id]["total_puntos"] = 0.0
     sesiones[chat_id]["observaciones"] = ""
     sesiones[chat_id]["es_error_formato"] = False
-    sesiones[chat_id]["paso"] = "batch_siguiente_nombre"
+    sesiones[chat_id]["paso"] = "nombre"
     bot.edit_message_text("✍️ Escribe el nombre del siguiente estudiante:", chat_id=chat_id, message_id=call.message.message_id)
 
 
@@ -440,7 +431,7 @@ def batch_add(call):
 def batch_run(call):
     responder_callback(call)
     chat_id = call.message.chat.id
-    cola = sesiones[chat_id].get("cola", [])
+    cola = list(sesiones[chat_id].get("cola", []))
     bot_log("INFO", f"Iniciando procesamiento de lote para {len(cola)} estudiantes.")
     bot.edit_message_text(f"🚀 Generando lote de {len(cola)} retroalimentaciones. Esto tomará un momento...", chat_id=chat_id, message_id=call.message.message_id)
 
@@ -448,7 +439,8 @@ def batch_run(call):
         bot.send_message(chat_id, f"⏳ Evaluando a {item['estudiante']} ({idx+1}/{len(cola)})...")
         procesar_generacion_individual(chat_id, None, item["estudiante"], item["criterios"], item["total_puntos"], item["observaciones"], item.get("es_error_formato", False))
 
-    del sesiones[chat_id]
+    if chat_id in sesiones:
+        del sesiones[chat_id]
     bot_log("INFO", "Lote completado exitosamente.")
     bot.send_message(chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /lote para iniciar de nuevo.")
 
@@ -548,9 +540,9 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
                 bot.send_message(chat_id, f"❌ Ocurrió un error con {estudiante}: {ultimo_error}")
             return
 
-        razonamiento = ia_client.ultimo_razonamiento
+        razonamiento = getattr(ia_client, "ultimo_razonamiento", "")
 
-        # Guardar pasando los argumentos en el orden exacto de models.py
+        # Guardar en orden posicional exacto según models.py
         item = Retroalimentacion(
             estudiante,
             actividad.nombre,
@@ -649,4 +641,3 @@ if __name__ == '__main__':
     
     bot_log("INFO", "Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    
