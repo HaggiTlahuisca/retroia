@@ -162,21 +162,12 @@ def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> floa
 
 
 def crear_cola_modelos_equilibrada(modelos_reales: list[dict]) -> list[dict]:
-    """
-    Crea una cola de modelos que se repite de forma aleatoria.
-    Garantiza distribución equitativa: si hay 5 modelos, cada uno aparecerá
-    en la cola de manera equilibrada.
-    """
     cola = modelos_reales.copy()
     random.shuffle(cola)
     return cola
 
 
 def obtener_siguiente_modelo(sesion: dict, modelos_reales: list[dict]) -> dict:
-    """
-    Obtiene el siguiente modelo de la cola equilibrada.
-    Si la cola se agota, la regenera y baraja.
-    """
     if "cola_modelos" not in sesion or not sesion["cola_modelos"]:
         sesion["cola_modelos"] = crear_cola_modelos_equilibrada(modelos_reales)
     
@@ -479,13 +470,11 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
     modelos_reales = [{"id": m["api_id"], "nombre": m["nombre"], "categoria": m["categoria"]} for m in modelos_db]
     modelo_id_base = datos.get("modelo_id", "auto")
 
-    # Si es error de formato, eliminamos a Haiku de la lista de candidatos
     if es_error_formato:
         modelos_reales = [m for m in modelos_reales if "haiku" not in m["id"].lower()]
         if not modelos_reales:
             modelos_reales = [{"id": "cohere/north-mini-code:free", "nombre": "Cohere (Respaldo)", "categoria": "Gratis"}]
 
-    # 1. Definir el orden de los modelos a intentar con ALEATORIEDAD EQUILIBRADA
     modelos_a_intentar = []
     
     if modelo_id_base == "auto" or (es_error_formato and "haiku" in modelo_id_base.lower()):
@@ -496,7 +485,6 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
 
     modelos_a_intentar.append(modelo_principal)
 
-    # 1.5 Paracaídas inteligente: Dar preferencia a modelos Gratis si el principal falla
     modelos_fallback = [m for m in modelos_reales if m["id"] != modelo_principal["id"]]
     random.shuffle(modelos_fallback) 
     modelos_fallback.sort(key=lambda x: 0 if x["categoria"].lower() == "gratis" else 1) 
@@ -522,7 +510,6 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
 
         bot_log("INFO", f"[{estudiante}] Iniciando peticiones a OpenRouter.")
 
-        # 2. Bucle de intentos (El Salvavidas)
         for intento, modelo_actual in enumerate(modelos_a_intentar):
             if message_id_to_edit:
                 if intento == 0:
@@ -561,7 +548,9 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
                 bot.send_message(chat_id, f"❌ Ocurrió un error con {estudiante}: {ultimo_error}")
             return
 
-        # 3. Guardar y enviar archivos (Paso posicional ordenado para máxima compatibilidad)
+        razonamiento = ia_client.ultimo_razonamiento
+
+        # Guardar pasando los argumentos en el orden exacto de models.py
         item = Retroalimentacion(
             estudiante,
             actividad.nombre,
@@ -571,7 +560,8 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             criterios,
             obs,
             prompt,
-            0.65
+            0.65,
+            razonamiento
         )
         db.create_history(item, actividad.id)
 
@@ -645,7 +635,6 @@ def cerrar_panel(call):
 
 
 if __name__ == '__main__':
-    # 3. MODO POLLING PARA HEROKU WORKER DYNO
     bot.remove_webhook()
     time.sleep(1)
 
@@ -660,3 +649,4 @@ if __name__ == '__main__':
     
     bot_log("INFO", "Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    
