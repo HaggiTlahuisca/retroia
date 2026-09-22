@@ -84,6 +84,7 @@ class RetroalimentacionApp:
             "max_tokens": DEFAULT_MAX_TOKENS,
             "last_feedback": "",
             "last_prompt": "",
+            "last_reasoning": "",
             "batch_queue": []
         }
         for key, value in defaults.items(): st.session_state.setdefault(key, value)
@@ -190,7 +191,17 @@ class RetroalimentacionApp:
                 with st.expander("📋 HTML compacto para Moodle"):
                     st.text_area("Código HTML", value=html_feedback, height=220, key="html_feedback_moodle")
                 
-                payload = json.dumps({"retroalimentacion": st.session_state.last_feedback, "prompt": st.session_state.last_prompt}, ensure_ascii=False, indent=2)
+                # --- DESPLIEGUE OCULTO DEL RAZONAMIENTO EN LA PANTALLA PRINCIPAL ---
+                if st.session_state.get("last_reasoning"):
+                    with st.expander("🧠 Razonamiento pedagógico interno de la IA (Oculto)", expanded=False):
+                        st.info("Este es el proceso de pensamiento que siguió el modelo antes de redactar la retroalimentación:")
+                        st.text_area("Cadena de pensamiento:", value=st.session_state.last_reasoning, height=220, key="reasoning_area_preview")
+
+                payload = json.dumps({
+                    "retroalimentacion": st.session_state.last_feedback,
+                    "prompt": st.session_state.last_prompt,
+                    "razonamiento": st.session_state.get("last_reasoning", "")
+                }, ensure_ascii=False, indent=2)
                 download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback, n_ase, id_ase), pdf_bytes("", st.session_state.last_feedback), payload)
                 
         else:
@@ -213,6 +224,7 @@ class RetroalimentacionApp:
 
                         try:
                             text = self.ia_client.generar(prompt, st.session_state.api_key, modelo_usar, st.session_state.temperature, st.session_state.max_tokens)
+                            razonamiento = self.ia_client.ultimo_razonamiento
                             retro = Retroalimentacion(
                                 b.estudiante, 
                                 activity.nombre, 
@@ -222,7 +234,8 @@ class RetroalimentacionApp:
                                 b.criterios_evaluados, 
                                 b.observaciones, 
                                 prompt, 
-                                st.session_state.temperature
+                                st.session_state.temperature,
+                                razonamiento
                             )
                             self.db.create_history(retro, activity.id)
                         except Exception as e:
@@ -241,8 +254,11 @@ class RetroalimentacionApp:
                 prompt = builder.build()
                 modelo_final = modelo_override if modelo_override else st.session_state.model_id
                 text = self.ia_client.generar(prompt, st.session_state.api_key, modelo_final, st.session_state.temperature, st.session_state.max_tokens)
+                razonamiento = self.ia_client.ultimo_razonamiento
+
             st.session_state.last_feedback = text
             st.session_state.last_prompt = prompt
+            st.session_state.last_reasoning = razonamiento
             
             modelo_nombre = next((m["nombre"] for m in self.db.get_modelos() if m["api_id"] == modelo_final), st.session_state.model_name)
             
@@ -255,7 +271,8 @@ class RetroalimentacionApp:
                 builder.criterios_evaluados, 
                 builder.observaciones, 
                 prompt, 
-                st.session_state.temperature
+                st.session_state.temperature,
+                razonamiento
             )
             self.db.create_history(item, activity_id)
             st.success("Guardado en el historial.")
@@ -581,3 +598,4 @@ class RetroalimentacionApp:
                     st.text_area("Copia y pega este texto directamente en Moodle:", value=respuesta, height=400)
                 except Exception as e:
                     st.error(f"Error al generar la aportación: {e}")
+                    
