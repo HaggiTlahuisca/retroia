@@ -1,76 +1,94 @@
-"""Cliente para comunicación con proveedores de Inteligencia Artificial (OpenRouter)."""
+"""Cliente para la integración con APIs de Inteligencia Artificial (OpenRouter)."""
 
 from __future__ import annotations
 
-import json
-from typing import Any
+import re
 import requests
-
-from config import DEFAULT_MAX_TOKENS, DEFAULT_MODEL_ID, DEFAULT_TEMPERATURE
 
 
 class IAClient:
     def __init__(self, provider: str = "openrouter") -> None:
         self.provider = provider
+        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.ultimo_razonamiento = ""
+
+    def probar_conexion(self, api_key: str, model_id: str) -> tuple[bool, str]:
+        """Verifica la conectividad con la API de OpenRouter."""
+        if not api_key:
+            return False, "Falta la clave de API de OpenRouter."
+        
+        headers = {
+            "Authorization": f"Bearer {api_key.strip()}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://prepaenlinea.sep.gob.mx",
+            "X-Title": "RetroIA"
+        }
+        payload = {
+            "model": model_id,
+            "messages": [{"role": "user", "content": "Hola, responde únicamente 'OK'."}],
+            "max_tokens": 10,
+            "temperature": 0.1
+        }
+        try:
+            resp = requests.post(self.base_url, headers=headers, json=payload, timeout=20)
+            if resp.status_code == 200:
+                return True, "Conexión exitosa con OpenRouter."
+            return False, f"Error HTTP {resp.status_code}: {resp.text}"
+        except Exception as err:
+            return False, f"Error de conexión: {err}"
 
     def generar(
         self,
         prompt: str,
         api_key: str,
-        model_id: str = DEFAULT_MODEL_ID,
-        temperature: float = DEFAULT_TEMPERATURE,
-        max_tokens: int = DEFAULT_MAX_TOKENS,
+        model_id: str,
+        temperature: float = 0.7,
+        max_tokens: int = 4000
     ) -> str:
+        """Envía el prompt a OpenRouter, captura el razonamiento interno y retorna el texto limpio."""
         if not api_key:
-            raise ValueError("No se proporcionó la clave de API.")
+            raise ValueError("No se proporcionó la clave de API de OpenRouter.")
 
-        url = "https://openrouter.ai/api/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {api_key.strip()}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/haggitlahuisca/retroia",
-            "X-Title": "RetroIA Formativas",
+            "HTTP-Referer": "https://prepaenlinea.sep.gob.mx",
+            "X-Title": "RetroIA"
         }
+
         payload = {
             "model": model_id,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_tokens": max_tokens
         }
 
-        resp = requests.post(url, headers=headers, json=payload, timeout=90)
+        self.ultimo_razonamiento = ""
+
+        resp = requests.post(self.base_url, headers=headers, json=payload, timeout=90)
         if resp.status_code != 200:
-            try:
-                err_data = resp.json()
-                msg = err_data.get("error", {}).get("message", resp.text)
-            except Exception:
-                msg = resp.text
-            raise RuntimeError(f"Error OpenRouter ({resp.status_code}): {msg}")
+            raise RuntimeError(f"Fallo en API OpenRouter (Código {resp.status_code}): {resp.text}")
 
         data = resp.json()
-        if "choices" not in data or not data["choices"]:
-            raise RuntimeError(f"Respuesta inesperada: {json.dumps(data)[:200]}")
+        choice = data["choices"][0]["message"]
+        
+        texto_crudo = choice.get("content", "") or ""
+        razonamiento = choice.get("reasoning", "") or ""
 
-        mensaje = data["choices"][0].get("message", {})
-        contenido = mensaje.get("content", "")
+        # Detección de razonamiento si viene dentro de etiquetas <think> en el texto principal
+        if not razonamiento and "<think>" in texto_crudo:
+            match = re.search(r"<think>(.*?)</think>", texto_crudo, flags=re.DOTALL)
+            if match:
+                razonamiento = match.group(1).strip()
+                texto_crudo = re.sub(r"<think>.*?</think>", "", texto_crudo, flags=re.DOTALL).strip()
 
-        # Fallback si el contenido viene en reasoning o texto directo
-        if not contenido and "reasoning" in mensaje:
-            contenido = mensaje["reasoning"]
-        elif not contenido and "text" in mensaje:
-            contenido = mensaje["text"]
+        # Limpieza residual por si quedaron etiquetas abiertas sin cerrar
+        if "<think>" in texto_crudo:
+            partes = texto_crudo.split("</think>")
+            if len(partes) > 1:
+                texto_crudo = partes[-1].strip()
+            else:
+                texto_crudo = re.sub(r"<think>.*", "", texto_crudo, flags=re.DOTALL).strip()
 
-        if "</think>" in contenido:
-            contenido = contenido.split("</think>")[-1].strip()
-
-        if not contenido.strip():
-            raise RuntimeError("La respuesta del proveedor no contiene texto utilizable.")
-
-        return contenido.strip()
-
-    def probar_conexion(self, api_key: str, model_id: str) -> tuple[bool, str]:
-        try:
-            res = self.generar("Di 'OK' en una palabra.", api_key, model_id, max_tokens=10)
-            return True, f"Conexión exitosa. Respuesta: {res}"
-        except Exception as exc:
-            return False, f"Fallo de conexión: {exc}"
+        self.ultimo_razonamiento = razonamiento.strip()
+        return texto_crudo.strip()
