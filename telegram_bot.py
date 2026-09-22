@@ -6,6 +6,7 @@ import os
 import time
 import random
 import io
+import logging
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from dotenv import load_dotenv
@@ -25,6 +26,13 @@ if not TOKEN:
 
 bot = telebot.TeleBot(TOKEN)
 db = DatabaseManager()
+try:
+    db.initialize()
+except Exception as exc:
+    logging.exception("No se pudo inicializar la base de datos del bot de Telegram.")
+    raise RuntimeError(
+        "Error inicializando la base de datos. Verifica la conexión SQLite/Turso antes de arrancar el bot."
+    ) from exc
 ia_client = IAClient("openrouter")
 
 # --- FUNCIÓN DE BITÁCORA (LOGS A BASE DE DATOS) ---
@@ -41,6 +49,14 @@ sesiones: dict[int, dict] = {}
 NIVELES_NOMBRES = ["Experto", "Capacitado", "Aceptable", "Aprendiz", "Requiere apoyo", "No evaluable"]
 NIVELES_CLAVES = ["experto", "capacitado", "aceptable", "aprendiz", "requiere_apoyo", "no_evaluable"]
 
+
+def responder_callback(call):
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+
+
 def obtener_teclado_modelos() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(InlineKeyboardButton("🎲 Rotación Aleatoria", callback_data="mod_auto"))
@@ -54,6 +70,53 @@ def obtener_teclado_modelos() -> InlineKeyboardMarkup:
         markup.add(*botones_reales)
         
     return markup
+
+
+def obtener_teclado_ayuda() -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup(row_width=1)
+    markup.add(InlineKeyboardButton("🤖 Modelos disponibles", callback_data="mostrar_modelos"))
+    return markup
+
+
+def obtener_teclado_modelos_info() -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        InlineKeyboardButton("⬅️ Volver a ayuda", callback_data="volver_ayuda"),
+        InlineKeyboardButton("❌ Cerrar", callback_data="cerrar_panel")
+    )
+    return markup
+
+
+def construir_texto_ayuda() -> str:
+    return (
+        "🤖 *Bienvenido al Asistente de Retroalimentación IA*\n\n"
+        "Comandos disponibles:\n\n"
+        "🔹 /evaluar - Inicia una evaluación individual.\n"
+        "🔹 /lote - Inicia el modo de captura masiva en lote.\n"
+        "🔹 /modelos - Muestra los modelos disponibles actualmente.\n"
+        "🔹 /cancelar - Cancela la sesión activa y reinicia el bot.\n"
+        "🔹 /ayuda - Muestra estas instrucciones."
+    )
+
+
+def construir_texto_modelos_disponibles() -> str:
+    modelos = db.get_modelos()
+    lineas = [
+        "🤖 Modelos disponibles actualmente:",
+        "",
+        "🎲 Rotación Aleatoria: selección automática entre los modelos listados (no es un modelo).",
+    ]
+    if not modelos:
+        lineas.extend(["", "⚠️ No hay modelos configurados en la base de datos."])
+        return "\n".join(lineas)
+
+    lineas.append("")
+    for modelo in modelos:
+        lineas.append(f"{modelo['nombre']}")
+        lineas.append(f"   Categoría: {modelo['categoria']}")
+        lineas.append(f"   OpenRouter ID: {modelo['api_id']}")
+        lineas.append("")
+    return "\n".join(lineas).strip()
 
 
 def obtener_teclado_niveles(prefijo: str) -> InlineKeyboardMarkup:
@@ -90,15 +153,21 @@ def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> floa
 
 @bot.message_handler(commands=['ayuda'])
 def comando_ayuda(message):
-    texto_ayuda = (
-        "🤖 *Bienvenido al Asistente de Retroalimentación IA*\n\n"
-        "Comandos disponibles:\n\n"
-        "🔹 /evaluar - Inicia una evaluación individual.\n"
-        "🔹 /lote - Inicia el modo de captura masiva en lote.\n"
-        "🔹 /cancelar - Cancela la sesión activa y reinicia el bot.\n"
-        "🔹 /ayuda - Muestra estas instrucciones."
+    bot.send_message(
+        message.chat.id,
+        construir_texto_ayuda(),
+        parse_mode="Markdown",
+        reply_markup=obtener_teclado_ayuda()
     )
-    bot.send_message(message.chat.id, texto_ayuda, parse_mode="Markdown")
+
+
+@bot.message_handler(commands=['modelos'])
+def comando_modelos(message):
+    bot.send_message(
+        message.chat.id,
+        construir_texto_modelos_disponibles(),
+        reply_markup=obtener_teclado_modelos_info()
+    )
 
 
 @bot.message_handler(commands=['start', 'evaluar', 'lote'])
@@ -146,6 +215,7 @@ def cancelar_evaluacion(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('mod_'))
 def seleccionar_modelo(call):
+    responder_callback(call)
     chat_id = call.message.chat.id
     mod_id_str = call.data.split('_', 1)[1]
     
@@ -173,13 +243,14 @@ def seleccionar_modelo(call):
         markup.add(InlineKeyboardButton(act["nombre"], callback_data=f"act_{act['id']}"))
 
     bot.edit_message_text(
-        f"🤖 Modelo seleccionado: *{nombre_display}*\n\nSelecciona la actividad a evaluar:",
-        chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown"
+        f"🤖 Modelo seleccionado: {nombre_display}\n\nSelecciona la actividad a evaluar:",
+        chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup
     )
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('act_'))
 def seleccionar_actividad(call):
+    responder_callback(call)
     chat_id = call.message.chat.id
     actividad_id = int(call.data.split('_')[1])
     act_obj = db.get_activity(actividad_id)
@@ -193,10 +264,12 @@ def seleccionar_actividad(call):
         )
 
 
-@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "nombre")
-def recibir_nombre(message):
-    chat_id = message.chat.id
-    sesiones[chat_id]["estudiante"] = message.text
+def iniciar_captura_estudiante(chat_id: int, estudiante: str):
+    sesiones[chat_id]["criterios"] = {}
+    sesiones[chat_id]["total_puntos"] = 0.0
+    sesiones[chat_id]["observaciones"] = ""
+    sesiones[chat_id]["es_error_formato"] = False
+    sesiones[chat_id]["estudiante"] = estudiante
     sesiones[chat_id]["paso"] = "cognitivo"
 
     bot.send_message(
@@ -205,8 +278,56 @@ def recibir_nombre(message):
     )
 
 
+@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "nombre")
+def recibir_nombre(message):
+    if message.text.startswith('/'):
+        return
+    chat_id = message.chat.id
+    iniciar_captura_estudiante(chat_id, message.text)
+
+
+@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "batch_siguiente_nombre")
+def recibir_nombre_batch_directo(message):
+    if message.text.startswith('/'):
+        return
+    chat_id = message.chat.id
+    iniciar_captura_estudiante(chat_id, message.text)
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "mostrar_modelos")
+def mostrar_modelos_callback(call):
+    responder_callback(call)
+    bot.edit_message_text(
+        construir_texto_modelos_disponibles(),
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        reply_markup=obtener_teclado_modelos_info()
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "volver_ayuda")
+def volver_ayuda_callback(call):
+    responder_callback(call)
+    bot.send_message(
+        call.message.chat.id,
+        construir_texto_ayuda(),
+        parse_mode="Markdown",
+        reply_markup=obtener_teclado_ayuda()
+    )
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "cerrar_panel")
+def cerrar_panel_callback(call):
+    responder_callback(call)
+    try:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+    except Exception:
+        pass
+
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith('cog_'))
 def recibir_cognitivo(call):
+    responder_callback(call)
     chat_id = call.message.chat.id
     nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
     nivel_nombre = NIVELES_NOMBRES[nivel_idx]
@@ -226,6 +347,7 @@ def recibir_cognitivo(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('actitud_'))
 def recibir_actitudinal(call):
+    responder_callback(call)
     chat_id = call.message.chat.id
     nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
     nivel_nombre = NIVELES_NOMBRES[nivel_idx]
@@ -245,6 +367,7 @@ def recibir_actitudinal(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('com_'))
 def recibir_comunicativo(call):
+    responder_callback(call)
     chat_id = call.message.chat.id
     nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
     nivel_nombre = NIVELES_NOMBRES[nivel_idx]
@@ -274,6 +397,7 @@ def recibir_comunicativo(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('col_'))
 def recibir_colaborativo(call):
+    responder_callback(call)
     chat_id = call.message.chat.id
     nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
     nivel_nombre = NIVELES_NOMBRES[nivel_idx]
@@ -293,6 +417,7 @@ def recibir_colaborativo(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('pen_'))
 def recibir_pensamiento(call):
+    responder_callback(call)
     chat_id = call.message.chat.id
     nivel_idx = NIVELES_CLAVES.index(call.data.split('_', 1)[1])
     nivel_nombre = NIVELES_NOMBRES[nivel_idx]
@@ -311,6 +436,7 @@ def recibir_pensamiento(call):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('obs_'))
 def recibir_opcion_observaciones(call):
+    responder_callback(call)
     chat_id = call.message.chat.id
     opcion = call.data.split('_')[1]
 
@@ -370,9 +496,10 @@ def evaluar_o_encolar(chat_id, message_id_to_edit):
         bot.edit_message_text(
             f"✅ *{datos['estudiante']}* guardado en la cola.\n"
             f"Estudiantes en espera: {len(datos['cola'])}\n\n"
-            f"¿Qué deseas hacer?",
+            f"Escribe el nombre del siguiente estudiante o elige una opción:",
             chat_id=chat_id, message_id=message_id_to_edit, reply_markup=markup, parse_mode="Markdown"
         )
+        datos["paso"] = "batch_siguiente_nombre"
     else:
         procesar_generacion_individual(
             chat_id, message_id_to_edit,
@@ -382,15 +509,19 @@ def evaluar_o_encolar(chat_id, message_id_to_edit):
 
 @bot.callback_query_handler(func=lambda call: call.data == 'batch_add')
 def batch_add(call):
+    responder_callback(call)
     chat_id = call.message.chat.id
     sesiones[chat_id]["criterios"] = {}
     sesiones[chat_id]["total_puntos"] = 0.0
-    sesiones[chat_id]["paso"] = "nombre"
+    sesiones[chat_id]["observaciones"] = ""
+    sesiones[chat_id]["es_error_formato"] = False
+    sesiones[chat_id]["paso"] = "batch_siguiente_nombre"
     bot.edit_message_text("✍️ Escribe el nombre del siguiente estudiante:", chat_id=chat_id, message_id=call.message.message_id)
 
 
 @bot.callback_query_handler(func=lambda call: call.data == 'batch_run')
 def batch_run(call):
+    responder_callback(call)
     chat_id = call.message.chat.id
     cola = sesiones[chat_id].get("cola", [])
     bot_log("INFO", f"Iniciando procesamiento de lote para {len(cola)} estudiantes.")
@@ -558,6 +689,7 @@ if __name__ == '__main__':
     comandos = [
         BotCommand("evaluar", "👤 Iniciar evaluación individual"),
         BotCommand("lote", "📦 Iniciar evaluación masiva en lote"),
+        BotCommand("modelos", "🤖 Ver modelos disponibles"),
         BotCommand("cancelar", "🚫 Cancelar la sesión actual"),
         BotCommand("ayuda", "❓ Ver instrucciones del bot")
     ]
