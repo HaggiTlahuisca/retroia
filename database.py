@@ -32,7 +32,6 @@ def safe_actividad(id_val, nombre, proposito, instrucciones, grupo, orden):
         return obj
     except Exception:
         pass
-    # Inyección forzada si falla el orden normal
     obj = Actividad.__new__(Actividad)
     obj.id = id_val
     obj.nombre = nombre
@@ -267,6 +266,7 @@ class DatabaseManager:
                     observaciones TEXT,
                     prompt_usado TEXT,
                     temperatura REAL,
+                    razonamiento TEXT DEFAULT '',
                     FOREIGN KEY(actividad_id) REFERENCES actividades(id) ON DELETE SET NULL
                 )
             """)
@@ -303,7 +303,8 @@ class DatabaseManager:
                 "ALTER TABLE historial ADD COLUMN observaciones TEXT",
                 "ALTER TABLE historial ADD COLUMN prompt_usado TEXT",
                 "ALTER TABLE historial ADD COLUMN temperatura REAL",
-                "ALTER TABLE historial ADD COLUMN modelo_usado TEXT DEFAULT 'IA'"
+                "ALTER TABLE historial ADD COLUMN modelo_usado TEXT DEFAULT 'IA'",
+                "ALTER TABLE historial ADD COLUMN razonamiento TEXT DEFAULT ''"
             ]
             for alt in alterations:
                 try:
@@ -350,8 +351,6 @@ class DatabaseManager:
             with self.connect() as conn:
                 allowed_api_ids = [api_id for _, api_id, _ in defaults]
                 placeholders = ", ".join(["?"] * len(allowed_api_ids))
-                # Sincronización intencionalmente destructiva: elimina modelos personalizados/no permitidos
-                # para que la tabla conserve únicamente el catálogo oficial solicitado al inicializar.
                 conn.execute(
                     f"DELETE FROM modelos WHERE api_id NOT IN ({placeholders})",
                     allowed_api_ids,
@@ -370,9 +369,6 @@ class DatabaseManager:
         except Exception:
             pass
 
-    # ==========================================
-    # GESTIÓN DE MODELOS DE IA
-    # ==========================================
     def get_modelos(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM modelos ORDER BY categoria, nombre")
@@ -389,9 +385,6 @@ class DatabaseManager:
         with self.connect() as conn:
             conn.execute("DELETE FROM modelos WHERE id = ?", (modelo_id,))
 
-    # ==========================================
-    # GESTIÓN DE ACTIVIDADES Y RÚBRICAS
-    # ==========================================
     def create_rubric(self, rubrica: Any) -> int:
         with self.connect() as conn:
             nombre = getattr(rubrica, "nombre", "Rúbrica")
@@ -437,7 +430,6 @@ class DatabaseManager:
             grupo = row.get("grupo") or "M11C1G78-050"
             orden = row.get("orden") or 0
             
-            # Usar función blindada
             act = safe_actividad(row["id"], row["nombre"], row["proposito"], row["instrucciones"], grupo, orden)
             
             if row.get("rubrica_id"):
@@ -492,9 +484,6 @@ class DatabaseManager:
         with self.connect() as conn:
             conn.execute("DELETE FROM actividades WHERE id = ?", (actividad_id,))
 
-    # ==========================================
-    # GESTIÓN DE RECURSOS
-    # ==========================================
     def create_recurso(self, recurso: Any) -> int:
         with self.connect() as conn:
             tipo = getattr(recurso, "tipo", "Enlace")
@@ -527,9 +516,6 @@ class DatabaseManager:
         with self.connect() as conn:
             conn.execute("DELETE FROM recursos WHERE id = ?", (recurso_id,))
 
-    # ==========================================
-    # DIRECTRICES PEDAGÓGICAS
-    # ==========================================
     def get_all_directrices(self) -> dict[str, str]:
         with self.connect() as conn:
             cur = conn.execute("SELECT nombre, contenido FROM directrices")
@@ -542,9 +528,6 @@ class DatabaseManager:
                 (nombre, contenido)
             )
 
-    # ==========================================
-    # FRASES MOTIVACIONALES
-    # ==========================================
     def list_frases(self) -> list[Any]:
         with self.connect() as conn:
             cur = conn.execute("SELECT * FROM frases ORDER BY id DESC")
@@ -563,9 +546,6 @@ class DatabaseManager:
         with self.connect() as conn:
             conn.execute("DELETE FROM frases WHERE id = ?", (frase_id,))
 
-    # ==========================================
-    # HISTORIAL DE EVALUACIONES
-    # ==========================================
     def create_history(self, item: Any, actividad_id: Optional[int] = None) -> int:
         with self.connect() as conn:
             criterios_dict = getattr(item, "criterios_evaluados", None) or getattr(item, "criterios", {})
@@ -585,17 +565,18 @@ class DatabaseManager:
             observaciones = getattr(item, "observaciones", "")
             calificacion = getattr(item, "calificacion", 0.0)
             estudiante = getattr(item, "estudiante", "Estudiante")
+            razonamiento = getattr(item, "razonamiento", "") or ""
 
             cur = conn.execute("""
                 INSERT INTO historial (
                     actividad_id, estudiante, actividad_nombre, fecha, calificacion,
                     modelo_usado, retroalimentacion, criterios_evaluados, observaciones,
-                    prompt_usado, temperatura
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    prompt_usado, temperatura, razonamiento
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 actividad_id, estudiante, actividad_nombre, fecha_str,
                 calificacion, modelo_usado, texto_generado, crit_json,
-                observaciones, prompt_usado, temperatura
+                observaciones, prompt_usado, temperatura, razonamiento
             ))
             return cur.lastrowid or 0
 
@@ -630,9 +611,6 @@ class DatabaseManager:
             cur = conn.execute(sql, tuple(params))
             return [dict(r) for r in cur.fetchall()]
 
-    # ==========================================
-    # LOGS (BITÁCORA DE BOT PARA STREAMLIT)
-    # ==========================================
     def add_log(self, nivel: str, mensaje: str) -> None:
         with self.connect() as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS bot_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, nivel TEXT, mensaje TEXT)")
@@ -650,9 +628,6 @@ class DatabaseManager:
             conn.execute("CREATE TABLE IF NOT EXISTS bot_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, nivel TEXT, mensaje TEXT)")
             conn.execute("DELETE FROM bot_logs")
 
-    # ==========================================
-    # UTILIDADES DE RESPALDO Y EXPORTACIÓN
-    # ==========================================
     def export_all_json(self) -> dict[str, Any]:
         with self.connect() as conn:
             tables = ["actividades", "criterios", "niveles", "recursos", "directrices", "frases", "historial", "rubricas", "bot_logs", "modelos"]
@@ -672,3 +647,4 @@ class DatabaseManager:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return filepath
+        
