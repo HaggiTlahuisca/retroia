@@ -8,7 +8,7 @@ from validators import ValidationResult
 
 
 class PromptBuilder:
-    def __init__(self, directrices: dict[str, str], actividad: Actividad | None, estudiante: str, calificacion: float, criterios_evaluados: dict[str, dict[str, Any]], observaciones: str, es_error_formato: bool = False) -> None:
+    def __init__(self, directrices: dict[str, str], actividad: Actividad | None, estudiante: str, calificacion: float, criterios_evaluados: dict[str, Any], observaciones: str, es_error_formato: bool = False) -> None:
         self.dirs = directrices
         self.actividad = actividad
         self.estudiante = estudiante.strip()
@@ -92,7 +92,24 @@ class PromptBuilder:
             texto_frase = "Siempre parece imposible hasta que se hace"
             autor_frase = "Nelson Mandela"
         
-        crit_str = "".join([f"{i+1}. Criterio {k}: Nivel **{v['nivel']}**.\n" for i, (k, v) in enumerate(self.criterios_evaluados.items())])
+        # PROCESAMIENTO ESTÁNDAR Y TOLERANTE A DICCIONARIOS O TUPLAS
+        crit_items = []
+        for i, (k, v) in enumerate(self.criterios_evaluados.items()):
+            if isinstance(v, dict):
+                nivel_nombre = v.get('nivel', '')
+            elif isinstance(v, (list, tuple)) and len(v) > 0:
+                nivel_nombre = str(v[0])
+            else:
+                nivel_nombre = str(v)
+            
+            # Normalización del nombre del criterio
+            nombre_criterio = str(k).strip().capitalize()
+            if nombre_criterio.lower() in ["pensamiento", "pensamiento critico", "pensamiento crítico"]:
+                nombre_criterio = "Pensamiento crítico"
+
+            crit_items.append(f"{i+1}. Criterio {nombre_criterio}: Nivel **{nivel_nombre}**.\n")
+        
+        crit_str = "".join(crit_items)
         
         rec_str = "".join([f"- {r.tipo}: {r.url} (Propósito: {r.descripcion})\n" for r in act.recursos]) if act and act.recursos else ""
         bloque_recursos = ""
@@ -125,7 +142,7 @@ class PromptBuilder:
 ### DATOS DEL ALUMNO Y ACTIVIDAD:
 - Estudiante: {self.estudiante}
 - Actividad: {n_act}
-- Evaluaciones (EN ORDEN ESTRICTO):
+- Evaluaciones (EN ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Colaborativo, Pensamiento crítico):
 {crit_str}
 - Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles."}
 
@@ -142,7 +159,7 @@ class PromptBuilder:
    En el siguiente párrafo, escribe exactamente: "Agradezco tu participación en este foro de integración."
 
 2. **DESARROLLO CONDENSADO (ORDEN ESTRICTO):**
-   Redacta uno o dos párrafos fluidos y conversacionales integrando el desempeño del estudiante en los aspectos evaluados EXACTAMENTE EN EL MISMO ORDEN en el que se listaron arriba (Cognitivo, Actitudinal, Comunicativo, Colaborativo, Pensamiento). ¡No los revuelvas!
+   Redacta uno o dos párrafos fluidos y conversacionales integrando el desempeño del estudiante en los aspectos evaluados EXACTAMENTE EN EL MISMO ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Colaborativo y Pensamiento crítico. ¡No los revuelvas ni omitas ninguno!
    Convierte los resultados de las evaluaciones en un texto cualitativo destacando sus aportaciones al foro. Utiliza tus directrices: {self.dirs.get('fortalezas', '')}
 
 3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS:**
@@ -168,7 +185,7 @@ class PromptBuilder:
 - Estudiante: {self.estudiante}
 - Actividad: "{n_act}"
 - Propósito de la actividad: {prop_act}
-- Evaluaciones (EN ORDEN ESTRICTO):
+- Evaluaciones (EN ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Pensamiento crítico):
 {crit_str}
 - Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles."}
 
@@ -187,16 +204,27 @@ class PromptBuilder:
    IMPORTANTE: Al referirte al trabajo del estudiante, usa siempre el nombre de la actividad entre comillas ("{n_act}").
    ¡REGLA ESTRICTA DE APERTURA!: Tienes PROHIBIDO usar las frases "He revisado detalladamente", "He revisado con atención", o variaciones similares. 
 
-2. **EVALUACIÓN POR CRITERIOS (ORDEN OBLIGATORIO):**
-   - ORDEN ESTRICTO: Debes redactar los párrafos EXACTAMENTE en el orden en que se listaron los criterios arriba (1, 2, 3, 4). ¡Bajo ninguna circunstancia alteres la secuencia de los criterios!
-   - Escribe el nombre de cada criterio en negritas EN SU PROPIO RENGLÓN AISLADO (Ejemplo:
-     **Criterio cognitivo**
-     [Texto del párrafo aquí abajo...]). NO uses dos puntos (:) después del título del criterio.
-   - Cambia el orden en el que mencionas el nivel en los párrafos (al inicio, en medio o al final).
-   - Escribe el nombre del nivel alcanzado en minúsculas y entre asteriscos dobles (ej. **experto**, **capacitado**).
+2. **EVALUACIÓN POR CRITERIOS (ESTRUCTURA Y TÍTULOS OBLIGATORIOS):**
+   Debes presentar la evaluación dividida exactamente en los cuatro criterios de desempeño en este orden riguroso:
+   
+   **Criterio cognitivo**
+   [Párrafo evaluando el aspecto cognitivo...]
+
+   **Criterio actitudinal**
+   [Párrafo evaluando el aspecto actitudinal...]
+
+   **Criterio comunicativo**
+   [Párrafo evaluando el aspecto comunicativo...]
+
+   **Criterio pensamiento crítico**
+   [Párrafo evaluando el pensamiento crítico...]
+
+   REGLAS DE FORMATO PARA ESTOS ENCABEZADOS:
+   - Escribe el nombre del criterio en negritas EN SU PROPIO RENGLÓN AISLADO (Tal cual se muestra arriba). NO pongas dos puntos (:) después del título.
+   - Debes mencionar el nombre del nivel alcanzado en minúsculas y entre asteriscos dobles (ejemplo: **experto**, **capacitado**, **aceptable**). Puedes variar la posición del nivel en la frase (al inicio, en medio o al final del párrafo).
 
 3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS:**
-   Redacta en prosa fluida. RECUERDA: NO PONGAS TÍTULO A ESTA SECCIÓN.
+   Redacta en prosa fluida inmediatamente después de los criterios. RECUERDA: NO PONGAS TÍTULO A ESTA SECCIÓN.
    ¡REGLA ESTRICTA!: Tienes ESTRICTAMENTE PROHIBIDO usar frases de transición robóticas o de machote como "En cuanto a las áreas de oportunidad", "Respecto a tus áreas de mejora" o "A continuación presento las sugerencias". Pasa directamente al análisis constructivo de forma natural.
    {self.dirs.get('areas_oportunidad', '')} {self.dirs.get('sugerencias', '')}{bloque_recursos}
 
@@ -215,3 +243,4 @@ Recuerda que siempre estoy para ti al otro lado de la pantalla. Me puedes contac
 {r_ase}
 {id_ase}
 {grupo_asignado}"""
+        
