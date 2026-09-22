@@ -341,17 +341,32 @@ class DatabaseManager:
     def _init_default_models(self) -> None:
         defaults = [
             ("⚡ Claude Haiku 4.5", "anthropic/claude-haiku-4.5", "De pago"),
-            ("🚀 Cohere-gratis", "cohere/north-mini-code:free", "Gratis"),
-            ("🟢 GPT Luna", "openai/gpt-5.6-luna", "De pago"),
-            ("🟣 GPT Luna Pro", "openai/gpt-5.6-luna-pro", "De pago")
+            ("🌜 GPT Luna", "openai/gpt-5.6-luna", "De pago"),
+            ("🌙 GPT Luna Pro", "openai/gpt-5.6-luna-pro", "De pago"),
+            ("🌈 Ling 3.0-gratis", "inclusionai/ling-3.0-flash-vl:free", "Gratis"),
+            ("💭 GLM 5.3 Flash", "z-ai/glm-5.3-flash", "De pago"),
         ]
         try:
             with self.connect() as conn:
-                cur = conn.execute("SELECT COUNT(*) as c FROM modelos")
-                row = cur.fetchone()
-                if row and row["c"] == 0:
-                    for n, a, c in defaults:
-                        conn.execute("INSERT INTO modelos (nombre, api_id, categoria) VALUES (?, ?, ?)", (n, a, c))
+                allowed_api_ids = [api_id for _, api_id, _ in defaults]
+                placeholders = ", ".join(["?"] * len(allowed_api_ids))
+                # Sincronización intencionalmente destructiva: elimina modelos personalizados/no permitidos
+                # para que la tabla conserve únicamente el catálogo oficial solicitado al inicializar.
+                conn.execute(
+                    f"DELETE FROM modelos WHERE api_id NOT IN ({placeholders})",
+                    allowed_api_ids,
+                )
+                for nombre, api_id, categoria in defaults:
+                    conn.execute(
+                        """
+                        INSERT INTO modelos (nombre, api_id, categoria)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(api_id) DO UPDATE SET
+                            nombre = excluded.nombre,
+                            categoria = excluded.categoria
+                        """,
+                        (nombre, api_id, categoria),
+                    )
         except Exception:
             pass
 
