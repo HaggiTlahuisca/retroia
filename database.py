@@ -10,9 +10,11 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 from datetime import datetime, timezone, timedelta
 
-from config import DB_PATH, EXPORTS_DIR
+from config import DB_PATH, EXPORTS_DIR, BASE_DIR
 from models import Actividad, Criterio, Frase, Nivel, Recurso, Retroalimentacion, Rubrica
 from utils import now_slug
+
+MODELOS_FILE = BASE_DIR / "modelos.json"
 
 try:
     import libsql
@@ -176,7 +178,6 @@ class DatabaseManager:
         self._create_tables()
         self._add_missing_columns()
         self._init_default_directrices()
-        self._init_default_models()
 
     def _create_tables(self) -> None:
         with self.connect() as conn:
@@ -269,14 +270,6 @@ class DatabaseManager:
                     mensaje TEXT NOT NULL
                 )
             """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS modelos (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nombre TEXT NOT NULL,
-                    api_id TEXT NOT NULL UNIQUE,
-                    categoria TEXT NOT NULL
-                )
-            """)
 
     def _add_missing_columns(self, conn: Any = None) -> None:
         if conn is not None:
@@ -330,38 +323,53 @@ class DatabaseManager:
             except Exception:
                 pass
 
-    def _init_default_models(self) -> None:
-        from config import MODELOS_GRATIS, MODELOS_PAGO
-        try:
-            with self.connect() as conn:
-                for categoria_nombre, modelos_dict in [("Gratis", MODELOS_GRATIS), ("De pago", MODELOS_PAGO)]:
-                    for nombre, api_id in modelos_dict.items():
-                        conn.execute(
-                            """
-                            INSERT INTO modelos (nombre, api_id, categoria)
-                            VALUES (?, ?, ?)
-                            ON CONFLICT(api_id) DO NOTHING
-                            """,
-                            (nombre, api_id, categoria_nombre),
-                        )
-        except Exception:
-            pass
+    # ==========================================
+    # GESTIÓN DE MODELOS (VÍA JSON INDEPENDIENTE)
+    # ==========================================
+    
+    def _crear_json_modelos_si_no_existe(self) -> None:
+        if not MODELOS_FILE.exists():
+            defaults = [
+                {"id": 1, "nombre": "GPT 5.6 Luna Pro", "api_id": "openai/gpt-5.6-luna-pro", "categoria": "De pago"},
+                {"id": 2, "nombre": "Claude 3 Haiku", "api_id": "anthropic/claude-3-haiku", "categoria": "De pago"},
+                {"id": 3, "nombre": "Cohere North Mini Code (Gratis)", "api_id": "cohere/north-mini-code:free", "categoria": "Gratis"}
+            ]
+            with open(MODELOS_FILE, "w", encoding="utf-8") as f:
+                json.dump(defaults, f, indent=4, ensure_ascii=False)
 
     def get_modelos(self) -> list[dict[str, Any]]:
-        with self.connect() as conn:
-            cur = conn.execute("SELECT * FROM modelos ORDER BY categoria, nombre")
-            return [dict(r) for r in cur.fetchall()]
+        self._crear_json_modelos_si_no_existe()
+        try:
+            with open(MODELOS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
 
     def create_modelo(self, nombre: str, api_id: str, categoria: str) -> None:
-        with self.connect() as conn:
-            conn.execute(
-                "INSERT INTO modelos (nombre, api_id, categoria) VALUES (?, ?, ?)",
-                (nombre, api_id, categoria)
-            )
+        modelos = self.get_modelos()
+        if any(m["api_id"] == api_id for m in modelos):
+            raise ValueError(f"El modelo con ID {api_id} ya existe en tu archivo.")
+            
+        nuevo_id = max([m.get("id", 0) for m in modelos], default=0) + 1
+        modelos.append({
+            "id": nuevo_id,
+            "nombre": nombre,
+            "api_id": api_id,
+            "categoria": categoria
+        })
+        with open(MODELOS_FILE, "w", encoding="utf-8") as f:
+            json.dump(modelos, f, indent=4, ensure_ascii=False)
 
     def delete_modelo(self, modelo_id: int) -> None:
-        with self.connect() as conn:
-            conn.execute("DELETE FROM modelos WHERE id = ?", (modelo_id,))
+        modelos = self.get_modelos()
+        modelos_filtrados = [m for m in modelos if m.get("id") != modelo_id]
+        with open(MODELOS_FILE, "w", encoding="utf-8") as f:
+            json.dump(modelos_filtrados, f, indent=4, ensure_ascii=False)
+
+
+    # ==========================================
+    # GESTIÓN DEL RESTO DE LA BASE DE DATOS
+    # ==========================================
 
     def create_rubric(self, rubrica: Any) -> int:
         with self.connect() as conn:
@@ -608,7 +616,7 @@ class DatabaseManager:
 
     def export_all_json(self) -> dict[str, Any]:
         with self.connect() as conn:
-            tables = ["actividades", "criterios", "niveles", "recursos", "directrices", "frases", "historial", "rubricas", "bot_logs", "modelos"]
+            tables = ["actividades", "criterios", "niveles", "recursos", "directrices", "frases", "historial", "rubricas", "bot_logs"]
             data = {}
             for t in tables:
                 try:
@@ -616,6 +624,10 @@ class DatabaseManager:
                     data[t] = [dict(r) for r in cur.fetchall()]
                 except Exception:
                     data[t] = []
+            
+            # Sumamos los modelos desde el JSON independiente
+            data["modelos"] = self.get_modelos()
+            
             return data
 
     def backup(self) -> Path:
