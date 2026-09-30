@@ -20,10 +20,6 @@ try:
 except ImportError:
     HAS_LIBSQL = False
 
-
-# ==========================================
-# FUNCIONES BLINDADAS PARA CREAR OBJETOS
-# ==========================================
 def safe_actividad(id_val, nombre, proposito, instrucciones, grupo, orden):
     try:
         obj = Actividad(id=id_val, nombre=nombre, proposito=proposito, instrucciones=instrucciones)
@@ -80,15 +76,12 @@ def safe_recurso(id_val, tipo, titulo, url, descripcion):
     obj.descripcion = descripcion
     return obj
 
-
 class CustomRow(dict):
-    """Fila personalizada que permite acceso por clave o por atributo."""
     def __getattr__(self, name: str) -> Any:
         try:
             return self[name]
         except KeyError:
             raise AttributeError(f"Fila no tiene la columna '{name}'")
-
 
 class LibSQLCursorWrapper:
     def __init__(self, cursor: Any) -> None:
@@ -119,7 +112,6 @@ class LibSQLCursorWrapper:
     @property
     def lastrowid(self) -> Any:
         return getattr(self._cursor, "lastrowid", None)
-
 
 class LibSQLConnectionWrapper:
     def __init__(self, conn: Any) -> None:
@@ -162,7 +154,6 @@ class LibSQLConnectionWrapper:
             self.rollback()
         else:
             self.commit()
-
 
 class DatabaseManager:
     def __init__(self, db_path: Path = DB_PATH) -> None:
@@ -340,32 +331,19 @@ class DatabaseManager:
                 pass
 
     def _init_default_models(self) -> None:
-        defaults = [
-            ("⚡ Claude Haiku 4.5", "anthropic/claude-haiku-4.5", "De pago"),
-            ("🌜 GPT Luna", "openai/gpt-5.6-luna", "De pago"),
-            ("🌙 GPT Luna Pro", "openai/gpt-5.6-luna-pro", "De pago"),
-            ("🌈 Ling Sante 3.0-gratis", "inclusionai/ling-3.0-flash-sante:free", "Gratis"),
-            ("💭 GLM 5.3 Flash", "z-ai/glm-5.3-flash", "De pago"),
-        ]
+        from config import MODELOS_GRATIS, MODELOS_PAGO
         try:
             with self.connect() as conn:
-                allowed_api_ids = [api_id for _, api_id, _ in defaults]
-                placeholders = ", ".join(["?"] * len(allowed_api_ids))
-                conn.execute(
-                    f"DELETE FROM modelos WHERE api_id NOT IN ({placeholders})",
-                    allowed_api_ids,
-                )
-                for nombre, api_id, categoria in defaults:
-                    conn.execute(
-                        """
-                        INSERT INTO modelos (nombre, api_id, categoria)
-                        VALUES (?, ?, ?)
-                        ON CONFLICT(api_id) DO UPDATE SET
-                            nombre = excluded.nombre,
-                            categoria = excluded.categoria
-                        """,
-                        (nombre, api_id, categoria),
-                    )
+                for categoria_nombre, modelos_dict in [("Gratis", MODELOS_GRATIS), ("De pago", MODELOS_PAGO)]:
+                    for nombre, api_id in modelos_dict.items():
+                        conn.execute(
+                            """
+                            INSERT INTO modelos (nombre, api_id, categoria)
+                            VALUES (?, ?, ?)
+                            ON CONFLICT(api_id) DO NOTHING
+                            """,
+                            (nombre, api_id, categoria_nombre),
+                        )
         except Exception:
             pass
 
@@ -647,4 +625,3 @@ class DatabaseManager:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return filepath
-        
