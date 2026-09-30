@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "nombre": "GPT Luna Pro",
+    "api_id": "openai/gpt-5.6-luna-pro",
+    "categoria": "de pago"
+  },
+  {
+    "id": 2,
+    "nombre": "Claude 4.5 Haiku",
+    "api_id": "anthropic/claude-haiku-4.5",
+    "categoria": "de pago"
+  },
+  {
+    "id": 3,
+    "nombre": "GPT Luna",
+    "api_id": "openai/gpt-5.6-luna",
+    "categoria": "de pago"
+  },
+  {
+    "id": 4,
+    "nombre": "GLM 5.3 Flash",
+    "api_id": "z-ai/glm-5.3-flash",
+    "categoria": "de pago"
+  },
+  {
+    "id": 5,
+    "nombre": "Ling Sante Gratis",
+    "api_id": "inclusionai/ling-3.0-flash-sante:free",
+    "categoria": "gratis"
+  },
+  {
+    "id": 6,
+    "nombre": "Nemotron 3 Ultra",
+    "api_id": "Nvidia/nemotron-3-ultra-550b-a55b:free",
+    "categoria": "gratis"
+  }
+]
