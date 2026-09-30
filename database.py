@@ -344,7 +344,7 @@ class DatabaseManager:
             ("⚡ Claude Haiku 4.5", "anthropic/claude-haiku-4.5", "De pago"),
             ("🌜 GPT Luna", "openai/gpt-5.6-luna", "De pago"),
             ("🌙 GPT Luna Pro", "openai/gpt-5.6-luna-pro", "De pago"),
-            ("🌈 Ling 3.0-gratis", "inclusionai/ling-3.0-flash-vl:free", "Gratis"),
+            ("🌈 Ling Sante 3.0-gratis", "inclusionai/ling-3.0-flash-sante:free", "Gratis"),
             ("💭 GLM 5.3 Flash", "z-ai/glm-5.3-flash", "De pago"),
         ]
         try:
