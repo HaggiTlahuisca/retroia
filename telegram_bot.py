@@ -61,7 +61,7 @@ def obtener_criterios_actividad(actividad) -> list[str]:
 
 def obtener_teclado_modelos() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=1)
-    markup.add(InlineKeyboardButton("🎲 Rotación Aleatoria", callback_data="mod_auto"))
+    markup.add(InlineKeyboardButton("🎲 Rotación aleatoria", callback_data="mod_auto"))
     modelos = db.get_modelos()
     botones_reales = [
         InlineKeyboardButton(m["nombre"], callback_data=f"mod_{m['id']}")
@@ -86,7 +86,7 @@ def obtener_teclado_modelos_info() -> InlineKeyboardMarkup:
 
 def construir_texto_ayuda() -> str:
     return (
-        "🤖 *Bienvenido al Asistente de Retroalimentación IA*\n\n"
+        "🤖 *Bienvenido al asistente*\n\n"
         "Comandos disponibles:\n\n"
         "🔹 /evaluar - Inicia una evaluación individual.\n"
         "🔹 /lote - Inicia el modo de captura masiva en lote.\n"
@@ -100,7 +100,7 @@ def construir_texto_modelos_disponibles() -> str:
     lineas = [
         "🤖 Modelos disponibles actualmente:",
         "",
-        "🎲 Rotación Aleatoria: selección automática entre los modelos listados.",
+        "🎲 Rotación aleatoria: selección automática entre los modelos listados.",
     ]
     if not modelos:
         lineas.extend(["", "⚠️ No hay modelos configurados en la base de datos."])
@@ -130,10 +130,10 @@ def obtener_teclado_obs() -> InlineKeyboardMarkup:
         InlineKeyboardButton("📝 Escribir nota", callback_data="obs_escribir")
     )
     markup.add(
-        InlineKeyboardButton("📝 Escribir Nota (Textual)", callback_data="obs_textual")
+        InlineKeyboardButton("📝 Escribir nota (se inserta en la retro)", callback_data="obs_textual")
     )
     markup.add(
-        InlineKeyboardButton("⚠️ Error de Formato", callback_data="obs_formato")
+        InlineKeyboardButton("⚠️ Error de formato", callback_data="obs_formato")
     )
     return markup
 
@@ -180,7 +180,7 @@ def iniciar_evaluacion(message):
         "total_puntos": 0.0,
         "cola": [],
         "modelo_id": "auto",
-        "modelo_nombre": "🎲 Rotación Aleatoria",
+        "modelo_nombre": "🎲 Rotación aleatoria",
         "cola_modelos": []
     }
 
@@ -189,10 +189,10 @@ def iniciar_evaluacion(message):
     dirs = db.get_all_directrices()
     n_ase = dirs.get("asesor_nombre", "Asesor").split()[0] if dirs.get("asesor_nombre") else "Asesor"
 
-    encabezado = "📦 *Modo Lote activado*\n" if modo == "batch" else f"👋 ¡Hola, {n_ase}!\n"
+    encabezado = "📦 *Modo lote activado*\n" if modo == "batch" else f"👋 ¡Hola, {n_ase}!\n"
     bot.send_message(
         message.chat.id,
-        f"{encabezado}Selecciona el **modelo de IA** para evaluar:",
+        f"{encabezado}Selecciona el **modelo de IA** para retroalimentar:",
         reply_markup=obtener_teclado_modelos(),
         parse_mode="Markdown"
     )
@@ -215,8 +215,8 @@ def seleccionar_modelo(call):
     
     if mod_id_str == "auto":
         sesiones[chat_id]["modelo_id"] = "auto"
-        sesiones[chat_id]["modelo_nombre"] = "🎲 Rotación Aleatoria"
-        nombre_display = "🎲 Rotación Aleatoria"
+        sesiones[chat_id]["modelo_nombre"] = "🎲 Rotación aleatoria"
+        nombre_display = "🎲 Rotación aleatoria"
     else:
         modelos = db.get_modelos()
         mod = next((m for m in modelos if str(m['id']) == mod_id_str), None)
@@ -226,8 +226,8 @@ def seleccionar_modelo(call):
             nombre_display = mod["nombre"]
         else:
             sesiones[chat_id]["modelo_id"] = "auto"
-            sesiones[chat_id]["modelo_nombre"] = "🎲 Rotación Aleatoria"
-            nombre_display = "🎲 Rotación Aleatoria"
+            sesiones[chat_id]["modelo_nombre"] = "🎲 Rotación aleatoria"
+            nombre_display = "🎲 Rotación aleatoria"
 
     sesiones[chat_id]["paso"] = "actividad"
 
@@ -272,7 +272,7 @@ def auto_max_criterios(message):
     sesiones[chat_id]["paso"] = "observaciones"
     bot.send_message(
         chat_id, 
-        f"💯 Todos los criterios evaluados automáticamente con **Nivel Experto**.\n\n¿Hay observaciones?",
+        f"💯 Todos los criterios evaluados automáticamente con **Nivel experto**.\n\n¿Hay observaciones?",
         reply_markup=obtener_teclado_obs(),
         parse_mode="Markdown"
     )
@@ -363,12 +363,23 @@ def procesar_observaciones(call):
     elif obs_tipo == "textual":
         sesiones[chat_id]["paso"] = "obs_texto"
         sesiones[chat_id]["observaciones_textuales"] = True
-        bot.edit_message_text("✍️ Escribe la nota que pasará de manera textual (Sin modificación IA):", chat_id=chat_id, message_id=call.message.message_id)
+        bot.edit_message_text("✍️ Escribe la nota que pasará de manera textual (sin modificación IA):", chat_id=chat_id, message_id=call.message.message_id)
     elif obs_tipo == "formato":
-        sesiones[chat_id]["observaciones"] = "Error de formato detectado"
+        sesiones[chat_id]["paso"] = "obs_formato_texto"
         sesiones[chat_id]["es_error_formato"] = True
         sesiones[chat_id]["observaciones_textuales"] = False
-        procesar_finalizacion(chat_id, call.message.message_id)
+        bot.edit_message_text(
+            "⚠️ Describe brevemente el error de formato.\n\nEjemplo: envió un archivo .docx en lugar de un .pptx o un enlace sin permisos.",
+            chat_id=chat_id, message_id=call.message.message_id
+        )
+
+@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "obs_formato_texto")
+def procesar_detalle_error_formato(message):
+    chat_id = message.chat.id
+    sesiones[chat_id]["observaciones"] = message.text.strip()
+    sesiones[chat_id]["es_error_formato"] = True
+    sesiones[chat_id]["observaciones_textuales"] = False
+    procesar_finalizacion(chat_id, None)
 
 @bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "obs_texto")
 def procesar_obs_texto(message):
@@ -410,7 +421,7 @@ def procesar_finalizacion(chat_id, message_id_to_edit):
         markup.add(
             InlineKeyboardButton("➕ Otro", callback_data="batch_add"),
             InlineKeyboardButton("🚀 Ejecutar", callback_data="batch_run"),
-            InlineKeyboardButton("📝 Modificar Nota", callback_data="batch_mod_obs")
+            InlineKeyboardButton("📝 Modificar nota", callback_data="batch_mod_obs")
         )
 
         mensaje_texto = f"✨ *{datos['estudiante']}* guardado en lote ({len(datos['cola'])} evaluaciones acumuladas).\n\n¿Deseas agregar a otro estudiante, ejecutar el lote o modificar la nota anterior? También puedes simplemente escribir el nombre del siguiente alumno."
@@ -422,7 +433,7 @@ def procesar_finalizacion(chat_id, message_id_to_edit):
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
             InlineKeyboardButton("🚀 Generar ahora", callback_data="indiv_run"),
-            InlineKeyboardButton("📝 Modificar Nota", callback_data="batch_mod_obs")
+            InlineKeyboardButton("📝 Modificar nota", callback_data="batch_mod_obs")
         )
         if message_id_to_edit:
             bot.edit_message_text(f"Evaluación para {datos['estudiante']} lista. ¿Deseas modificar la nota o proceder a generarla?", chat_id, message_id_to_edit, reply_markup=markup)
@@ -461,7 +472,7 @@ def batch_run(call):
     modelos_db = db.get_modelos()
     has_free = any(m["categoria"].lower() == "gratis" for m in modelos_db)
     if not has_free:
-        bot.send_message(chat_id, "⚠️ No hay modelos gratuitos disponibles en tu sistema. El lote se ha pausado por seguridad. Configura un modelo gratis en la web y presiona Ejecutar nuevamente.")
+        bot.send_message(chat_id, "⚠️️ No hay modelos gratuitos disponibles en tu sistema. El lote se ha pausado por seguridad. Configura un modelo gratis en la web y presiona ejecutar nuevamente.")
         return
         
     bot_log("INFO", f"Iniciando procesamiento de lote para {len(cola)} estudiantes.")
