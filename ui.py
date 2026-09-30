@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Any
 
 import streamlit as st
@@ -46,20 +46,20 @@ class RetroalimentacionApp:
         with st.sidebar:
             st.markdown(f"### {nombre_asesor}")
             if st.button("Cerrar sesión", width="stretch"):
-                st.info("Sesión cerrada (Simulación)")
+                st.info("Sesión cerrada (simulación)")
             
             st.markdown("---")
-            st.info("Sin documento activo", icon="📄")
+            st.info("Bienvenido", icon="📄")
             st.markdown("---")
             st.caption("Flujo de trabajo")
             
             opciones_navegacion = [
                 "🏠 1. Generar retroalimentación",
-                "📜 2. Historial y Lotes",
+                "📜 2. Historial y lotes",
                 "📋 3. Configuración de actividades",
-                "🤖 4. Configuración IA y Perfil",
-                "⚙️ 5. Configuración del Sistema",
-                "💬 6. Generador de Foros"
+                "🤖 4. Configuración IA y perfil",
+                "⚙️ 5. Configuración del sistema",
+#                "💬 6. Generador de oros"
             ]
             
             pagina_actual = st.radio(label="Navegación", options=opciones_navegacion, label_visibility="collapsed")
@@ -87,30 +87,34 @@ class RetroalimentacionApp:
             "last_reasoning": "",
             "batch_queue": [],
             "zip_ready_bytes": None,
-            "zip_ready_name": "Retroalimentaciones.zip"
+            "zip_ready_name": "Retroalimentaciones.zip",
+            "procesando_lote": False,
+            "lote_idx": 0,
+            "lote_exitosos": 0,
+            "lote_total": 0
         }
         for key, value in defaults.items(): st.session_state.setdefault(key, value)
 
     def tab_generate(self) -> None:
         activities = self.db.list_activities()
         if not activities:
-            st.warning("Primero registra una actividad en la Configuración de Actividades.")
+            st.warning("Primero registra una actividad en la configuración de actividades.")
             return
             
         labels = {f"{r['nombre']}": r["id"] for r in activities}
-        modo = st.radio("Modo de Evaluación", ["👤 Individual", "📦 Lote (Batch)"], horizontal=True)
+        modo = st.radio("Modo de evaluación", ["👤 Individual", "📦 Lote (Batch)"], horizontal=True)
         st.markdown("---")
         
-        selected = st.selectbox("Selecciona la Actividad a evaluar", list(labels.keys()))
+        selected = st.selectbox("Selecciona la actividad a evaluar", list(labels.keys()))
         activity = self.db.get_activity(labels[selected])
         if not activity: return
 
         modelos = self.db.get_modelos()
         if not modelos:
-            st.error("No hay modelos de IA configurados. Ve a 'Configuración del Sistema' para agregar uno.")
+            st.error("No hay modelos de IA configurados. Ve a 'Configuración del sistema' para agregar uno.")
             return
 
-        with st.expander("🤖 Configuración del Modelo de IA (Despliega para cambiar)", expanded=False):
+        with st.expander("🤖 Configuración del modelo de IA (Despliega para cambiar)", expanded=False):
             col_m1, col_m2, col_m3 = st.columns([2, 1, 1])
             
             opciones_modelos = {f"{m['nombre']} ({m['categoria']})": m for m in modelos}
@@ -132,18 +136,18 @@ class RetroalimentacionApp:
             st.session_state.max_tokens = col_m3.slider("Tokens (Max)", 200, 8000, int(st.session_state.max_tokens), 100)
 
         with st.form("evaluacion_form"):
-            st.markdown("### 📝 Datos de la Evaluación")
-            estudiante = st.text_input("Nombre del Estudiante", placeholder="Ej. Argelia")
+            st.markdown("### 📝 Datos de la evaluación")
+            estudiante = st.text_input("Nombre del estudiante", placeholder="Ej. Argelia")
 
             criterios_evaluados, calificacion_total = evaluation_inputs(activity.nombre)
             
             tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir nota al estudiante"], horizontal=True)
             formato_incorrecto = st.checkbox("⚠️ Evaluar por formato incorrecto", help="Genera una retroalimentación ultracorta informando el error de formato, sin desglose de rúbrica.")
-            observaciones_textuales = st.checkbox("📌 Pasar comentario TEXTUALMENTE (Sin modificación IA)")
+            observaciones_textuales = st.checkbox("📌 Pasar comentario (Sin modificación IA)")
             observaciones_usuario = st.text_area("Escribe tus observaciones (O especifica el error de formato si aplica):", height=100)
 
             st.markdown("---")
-            if modo == "👤 Individual": submit_eval = st.form_submit_button("✨ Generar Retroalimentación", type="primary", use_container_width=True)
+            if modo == "👤 Individual": submit_eval = st.form_submit_button("✨ Generar retroalimentación", type="primary", use_container_width=True)
             else: submit_eval = st.form_submit_button("➕ Agregar a la cola de procesamiento", type="primary", use_container_width=True)
 
         if submit_eval:
@@ -192,7 +196,7 @@ class RetroalimentacionApp:
                     st.text_area("Código HTML", value=html_feedback, height=220, key="html_feedback_moodle")
                 
                 if st.session_state.get("last_reasoning"):
-                    with st.expander("🧠 Razonamiento pedagógico interno de la IA (Oculto)", expanded=False):
+                    with st.expander("🧠 Razonamiento pedagógico interno de la IA (oculto)", expanded=False):
                         st.info("Proceso de pensamiento que siguió el modelo antes de redactar:")
                         st.text_area("Cadena de pensamiento:", value=st.session_state.last_reasoning, height=220, key="reasoning_preview")
 
@@ -204,8 +208,8 @@ class RetroalimentacionApp:
                 download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback, n_ase, id_ase), pdf_bytes("", st.session_state.last_feedback), payload)
                 
         else:
-            if st.session_state.batch_queue:
-                st.markdown(f"### 📋 Cola de Procesamiento ({len(st.session_state.batch_queue)} evaluaciones)")
+            if st.session_state.batch_queue and not st.session_state.procesando_lote:
+                st.markdown(f"### 📋 Cola de procesamiento ({len(st.session_state.batch_queue)} evaluaciones)")
                 for i, item in enumerate(st.session_state.batch_queue): st.write(f"{i+1}. **{item['estudiante']}** ({item['calificacion_total']} pts)")
                 
                 c_btn1, c_btn2 = st.columns([3, 1])
@@ -223,59 +227,69 @@ class RetroalimentacionApp:
                         st.error("⚠️ No hay modelos gratuitos configurados en el sistema. El lote se ha pausado y tus evaluaciones están guardadas. Configura un modelo gratuito en 'Configuración del Sistema' para continuar procesándolas.")
                         return
 
-                    progress_bar = st.progress(0)
-                    status_info = st.empty()
-                    total_q = len(st.session_state.batch_queue)
-                    exitosos = 0
+                    st.session_state.procesando_lote = True
+                    st.session_state.lote_idx = 0
+                    st.session_state.lote_exitosos = 0
+                    st.session_state.lote_total = len(st.session_state.batch_queue)
+                    st.rerun()
+
+            if st.session_state.procesando_lote:
+                idx = st.session_state.lote_idx
+                total_q = st.session_state.lote_total
+
+                if idx < total_q:
+                    item = st.session_state.batch_queue[idx]
+                    est_nom = item["estudiante"]
+                    st.info(f"⏳ Evaluando a **{est_nom}** ({idx + 1} de {total_q})... Por favor no cierres la ventana.")
+                    progress_bar = st.progress(idx / total_q)
                     
-                    for idx, item in enumerate(st.session_state.batch_queue):
-                        est_nom = item["estudiante"]
-                        status_info.info(f"⏳ Evaluando a **{est_nom}** ({idx + 1} de {total_q})... Por favor no cierres la ventana.")
-                        
-                        b = PromptBuilder(
-                            self.db.get_all_directrices(), activity, est_nom,
-                            item["calificacion_total"], item["criterios_evaluados"],
-                            item["observaciones"], item.get("es_error_formato", False),
-                            item.get("observaciones_textuales", False)
+                    b = PromptBuilder(
+                        self.db.get_all_directrices(), activity, est_nom,
+                        item["calificacion_total"], item["criterios_evaluados"],
+                        item["observaciones"], item.get("es_error_formato", False),
+                        item.get("observaciones_textuales", False)
+                    )
+                    prompt = b.build()
+                    
+                    modelos_db = self.db.get_modelos()
+                    modelos_candidatos = [m for m in modelos_db if not (item.get("es_error_formato", False) and "haiku" in m["api_id"].lower())]
+                    modelo_fav = next((m for m in modelos_candidatos if m["api_id"] == st.session_state.model_id), modelos_candidatos[0] if modelos_candidatos else None)
+                    
+                    intentos = [modelo_fav] if modelo_fav else []
+                    intentos += [m for m in modelos_candidatos if modelo_fav and m["api_id"] != modelo_fav["api_id"]]
+
+                    texto_generado = None
+                    modelo_usado_nombre = st.session_state.model_name
+                    razonamiento = ""
+
+                    for mod in intentos:
+                        try:
+                            texto_generado = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 6500, timeout=45)
+                            razonamiento = getattr(self.ia_client, "ultimo_razonamiento", "")
+                            modelo_usado_nombre = mod["nombre"]
+                            break
+                        except Exception as e:
+                            self.db.add_log("ERROR", f"[{est_nom}] Falló {mod['nombre']}: {e}")
+                            continue
+
+                    if texto_generado:
+                        retro = Retroalimentacion(
+                            b.estudiante, activity.nombre, texto_generado,
+                            modelo_usado_nombre, b.calificacion, b.criterios_evaluados,
+                            b.observaciones, prompt, st.session_state.temperature, razonamiento
                         )
-                        prompt = b.build()
-                        
-                        modelos_candidatos = [m for m in modelos_db if not (item.get("es_error_formato", False) and "haiku" in m["api_id"].lower())]
-                        modelo_fav = next((m for m in modelos_candidatos if m["api_id"] == st.session_state.model_id), modelos_candidatos[0] if modelos_candidatos else None)
-                        
-                        intentos = [modelo_fav] if modelo_fav else []
-                        intentos += [m for m in modelos_candidatos if modelo_fav and m["api_id"] != modelo_fav["api_id"]]
+                        self.db.create_history(retro, activity.id)
+                        st.session_state.lote_exitosos += 1
+                    else:
+                        st.error(f"❌ No se pudo generar la retroalimentación para {est_nom}. Se omitió.")
 
-                        texto_generado = None
-                        modelo_usado_nombre = st.session_state.model_name
-                        razonamiento = ""
-
-                        for mod in intentos:
-                            try:
-                                texto_generado = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 6500, timeout=45)
-                                razonamiento = getattr(self.ia_client, "ultimo_razonamiento", "")
-                                modelo_usado_nombre = mod["nombre"]
-                                break
-                            except Exception as e:
-                                self.db.add_log("ERROR", f"[{est_nom}] Falló {mod['nombre']}: {e}")
-                                continue
-
-                        if texto_generado:
-                            retro = Retroalimentacion(
-                                b.estudiante, activity.nombre, texto_generado,
-                                modelo_usado_nombre, b.calificacion, b.criterios_evaluados,
-                                b.observaciones, prompt, st.session_state.temperature, razonamiento
-                            )
-                            self.db.create_history(retro, activity.id)
-                            exitosos += 1
-                        else:
-                            st.error(f"❌ No se pudo generar la retroalimentación para {est_nom}. Se omitió.")
-
-                        progress_bar.progress((idx + 1) / total_q)
-                    
+                    st.session_state.lote_idx += 1
+                    st.rerun()
+                else:
+                    progress_bar = st.progress(1.0)
+                    st.session_state.procesando_lote = False
                     st.session_state.batch_queue.clear()
-                    status_info.empty()
-                    st.success(f"✨ ¡Lote completado! Se generaron {exitosos} de {total_q} retroalimentaciones. Ve a la pestaña 'Historial' para descargarlas en ZIP.")
+                    st.success(f"✨ ¡Lote completado! Se generaron {st.session_state.lote_exitosos} de {total_q} retroalimentaciones. Ve a la pestaña 'Historial' para descargarlas en ZIP.")
 
     def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None, es_error_formato: bool = False) -> None:
         validation = builder.validate()
@@ -327,7 +341,7 @@ class RetroalimentacionApp:
             st.error(f"Error: {exc}")
 
     def tab_history(self) -> None:
-        st.subheader("📦 Descarga y Gestión de Evaluaciones por Lote")
+        st.subheader("📦 Descarga y gestión de evaluaciones por lote")
         lista_actividades = self.db.list_activities()
         activities = {"Todas": None} | {r["nombre"]: r["id"] for r in lista_actividades}
         act_map = {r["id"]: r["nombre"] for r in lista_actividades}
@@ -336,71 +350,81 @@ class RetroalimentacionApp:
         query = col1.text_input("🔍 Buscar en historial (Estudiante):")
         selected_act_name = col2.selectbox("Filtrar por actividad", list(activities.keys()))
         col3, col4 = st.columns(2)
-        fecha_desde = col3.date_input("Fecha desde:", value=date(2026, 8, 1))
-        fecha_hasta = col4.date_input("Fecha hasta:", value=date.today())
+        
+        # Calendario dinámico: Hoy - 7 días
+        hoy = date.today()
+        hace_7_dias = hoy - timedelta(days=7)
+        
+        fecha_desde = col3.date_input("Fecha desde:", value=hace_7_dias)
+        fecha_hasta = col4.date_input("Fecha hasta:", value=hoy)
         
         rows = self.db.list_history(estudiante=query, actividad_id=activities[selected_act_name], limit=500, fecha_inicio=fecha_desde.strftime("%Y-%m-%d"), fecha_fin=fecha_hasta.strftime("%Y-%m-%d"))
         if not rows: st.info("No hay registros en esas fechas."); return
         st.caption(f"Registros encontrados: {len(rows)}")
         
-        with st.expander("📦 Herramienta de Descarga en Lote (ZIP)", expanded=True):
-            st.markdown("Selecciona las retroalimentaciones que deseas incluir en el archivo ZIP.")
-            if "select_all" not in st.session_state: st.session_state.select_all = False
-            col_btn1, col_btn2 = st.columns(2)
-            if col_btn1.button("✅ Seleccionar todos", width="stretch"): st.session_state.select_all = True; st.rerun()
-            if col_btn2.button("⬜ Deseleccionar todos", width="stretch"): st.session_state.select_all = False; st.rerun()
-            
-            df_data = [{"Seleccionar": st.session_state.select_all, "Fecha": r.get("fecha", ""), "Estudiante": r.get("estudiante", ""), "Calificación": r.get("calificacion", 0.0), "ID": r.get("id", 0)} for r in rows]
-            edited_df = st.data_editor(pd.DataFrame(df_data), hide_index=True, disabled=["Fecha", "Estudiante", "Calificación", "ID"], width="stretch")
-            
-            dirs = self.db.get_all_directrices()
-            n_ase = dirs.get("asesor_nombre", "")
-            id_ase = dirs.get("asesor_id", "")
-            grupo_actual = dirs.get("grupo", "M00C0G00-000")
-            grupo_zip = st.text_input("Grupo (para nombrar el archivo ZIP)", value=grupo_actual)
-            
-            selected_ids = edited_df[edited_df["Seleccionar"]]["ID"].tolist()
-            selected_rows = [r for r in rows if r.get("id", 0) in selected_ids]
-            
-            col_z1, col_z2 = st.columns(2)
-            
-            if col_z1.button(f"📦 Preparar ZIP ({len(selected_rows)} alumnos)", type="primary", disabled=len(selected_rows)==0, width="stretch"):
-                with st.spinner("Empaquetando documentos Word y HTML..."):
-                    archivos = []
-                    for r in selected_rows:
-                        est_val = r.get("estudiante", "")
-                        act_val = act_map[r["actividad_id"]] if r.get("actividad_id") in act_map else r.get("actividad_nombre") or "General"
-                        nombre_base = generar_nombre_archivo(est_val, act_val)
-                        docx_data = docx_bytes("", r.get("retroalimentacion", ""), n_ase, id_ase)
-                        html_text = feedback_to_moodle_html(r.get("retroalimentacion", ""), n_ase, id_ase)
-                        archivos.append((f"{nombre_base}.docx", docx_data))
-                        archivos.append((f"{nombre_base}.html", html_text.encode('utf-8')))
-                    
-                    st.session_state.zip_ready_bytes = create_zip(archivos)
-                    act_str = get_activity_code(selected_act_name) if selected_act_name != "Todas" else "Varias"
-                    st.session_state.zip_ready_name = f"Retros_{grupo_zip}_{act_str}.zip"
-                    st.success("✅ ¡Paquete ZIP generado y listo!")
+        dirs = self.db.get_all_directrices()
+        n_ase = dirs.get("asesor_nombre", "")
+        id_ase = dirs.get("asesor_id", "")
+        grupo_actual = dirs.get("grupo", "M00C0G00-000")
 
-            if st.session_state.get("zip_ready_bytes"):
-                col_z2.download_button(
-                    "💾 Guardar archivo ZIP en mi equipo",
-                    data=st.session_state.zip_ready_bytes,
-                    file_name=st.session_state.get("zip_ready_name", "Retroalimentaciones.zip"),
-                    mime="application/zip",
-                    width="stretch"
-                )
+        @st.fragment
+        def fragmento_herramienta_zip():
+            with st.expander("📦 Herramienta de descarga en lote (ZIP)", expanded=True):
+                st.markdown("Selecciona las retroalimentaciones que deseas incluir en el archivo ZIP.")
+                if "select_all" not in st.session_state: st.session_state.select_all = False
+                col_btn1, col_btn2 = st.columns(2)
+                if col_btn1.button("✅ Seleccionar todos", width="stretch"): st.session_state.select_all = True; st.rerun()
+                if col_btn2.button("⬜ Deseleccionar todos", width="stretch"): st.session_state.select_all = False; st.rerun()
+                
+                df_data = [{"Seleccionar": st.session_state.select_all, "Fecha": r.get("fecha", ""), "Estudiante": r.get("estudiante", ""), "Calificación": r.get("calificacion", 0.0), "ID": r.get("id", 0)} for r in rows]
+                edited_df = st.data_editor(pd.DataFrame(df_data), hide_index=True, disabled=["Fecha", "Estudiante", "Calificación", "ID"], width="stretch")
+                
+                grupo_zip = st.text_input("Grupo (para nombrar el archivo ZIP)", value=grupo_actual)
+                
+                selected_ids = edited_df[edited_df["Seleccionar"]]["ID"].tolist()
+                selected_rows = [r for r in rows if r.get("id", 0) in selected_ids]
+                
+                col_z1, col_z2 = st.columns(2)
+                
+                if col_z1.button(f"📦 Preparar ZIP ({len(selected_rows)} alumnos)", type="primary", disabled=len(selected_rows)==0, width="stretch"):
+                    with st.spinner("Empaquetando documentos Word y HTML..."):
+                        archivos = []
+                        for r in selected_rows:
+                            est_val = r.get("estudiante", "")
+                            act_val = act_map[r["actividad_id"]] if r.get("actividad_id") in act_map else r.get("actividad_nombre") or "General"
+                            nombre_base = generar_nombre_archivo(est_val, act_val)
+                            docx_data = docx_bytes("", r.get("retroalimentacion", ""), n_ase, id_ase)
+                            html_text = feedback_to_moodle_html(r.get("retroalimentacion", ""), n_ase, id_ase)
+                            archivos.append((f"{nombre_base}.docx", docx_data))
+                            archivos.append((f"{nombre_base}.html", html_text.encode('utf-8')))
+                        
+                        st.session_state.zip_ready_bytes = create_zip(archivos)
+                        act_str = get_activity_code(selected_act_name) if selected_act_name != "Todas" else "Varias"
+                        st.session_state.zip_ready_name = f"Retros_{grupo_zip}_{act_str}.zip"
+                        st.success("✅ ¡Paquete ZIP generado y listo!")
+
+                if st.session_state.get("zip_ready_bytes"):
+                    col_z2.download_button(
+                        "💾 Guardar archivo ZIP en mi equipo",
+                        data=st.session_state.zip_ready_bytes,
+                        file_name=st.session_state.get("zip_ready_name", "Retroalimentaciones.zip"),
+                        mime="application/zip",
+                        width="stretch"
+                    )
+
+        fragmento_herramienta_zip()
 
         st.markdown("---")
         for row in rows: history_card(row, act_map)
 
     def tab_activities(self) -> None:
-        t1, t2, t3, t4 = st.tabs(["📚 Banco de Recursos", "✍️ Banco de Frases", "📐 Rúbricas", "🔗 Ensamblar Actividad"])
+        t1, t2, t3, t4 = st.tabs(["📚 Banco de recursos", "✍️ Banco de frases", "📐 Rúbricas", "🔗 Ensamblar actividades"])
         with t1:
-            st.subheader("Catálogo Global de Recursos")
+            st.subheader("Catálogo global de recursos")
             rec, sub_rec = recurso_global_form()
             if sub_rec and getattr(rec, "titulo", ""): self.db.create_recurso(rec); st.success("Recurso guardado."); st.rerun()
             st.markdown("---")
-            st.markdown("#### Recursos Guardados (Editar o Eliminar)")
+            st.markdown("#### Recursos guardados (editar o eliminar)")
             for r in self.db.list_recursos_globales():
                 r_tit = getattr(r, "titulo", "")
                 r_tip = getattr(r, "tipo", "Video")
@@ -411,17 +435,17 @@ class RetroalimentacionApp:
                         e_url = st.text_input("URL", getattr(r, "url", ""))
                         e_des = st.text_area("Descripción", getattr(r, "descripcion", ""), height=60)
                         c1, c2 = st.columns(2)
-                        if c1.form_submit_button("Actualizar Recurso"):
+                        if c1.form_submit_button("Actualizar recurso"):
                             d = _Dummy(); d.tipo, d.titulo, d.url, d.descripcion = e_tip, e_tit, e_url, e_des
                             self.db.update_recurso(r.id, d); st.success("Recurso actualizado."); st.rerun()
                         if c2.form_submit_button("Eliminar Recurso"): self.db.delete_recurso(r.id); st.rerun()
                     
         with t2:
-            st.subheader("Catálogo Global de Frases Célebres")
+            st.subheader("Catálogo global de frases célebres")
             frase, sub_fra = frase_global_form()
             if sub_fra and getattr(frase, "texto", ""): self.db.create_frase(frase.texto, frase.autor); st.success("Frase guardada."); st.rerun()
             st.markdown("---")
-            st.markdown("#### Frases Guardadas (Editar o Eliminar)")
+            st.markdown("#### Frases guardadas (editar o eliminar)")
             for f in self.db.list_frases():
                 f_txt, f_aut = str(getattr(f, "texto", "")), str(getattr(f, "autor", ""))
                 with st.expander(f"💬 {f_aut} - {f_txt[:30]}..."):
@@ -429,18 +453,18 @@ class RetroalimentacionApp:
                         e_txt = st.text_area("Frase", f_txt, height=60)
                         e_aut = st.text_input("Autor", f_aut)
                         c1, c2 = st.columns(2)
-                        if c1.form_submit_button("Actualizar Frase"): self.db.update_frase(f.id, e_txt, e_aut); st.success("Frase actualizada."); st.rerun()
-                        if c2.form_submit_button("Eliminar Frase"): self.db.delete_frase(f.id); st.rerun()
+                        if c1.form_submit_button("Actualizar frase"): self.db.update_frase(f.id, e_txt, e_aut); st.success("Frase actualizada."); st.rerun()
+                        if c2.form_submit_button("Eliminar frase"): self.db.delete_frase(f.id); st.rerun()
 
         with t3:
-            st.subheader("Rúbricas Institucionales")
+            st.subheader("Rúbricas institucionales")
             mode = st.radio("Modo", ["Manual", "Importar tabla"], horizontal=True)
             rubrica, sub_rub = rubric_manual_form() if mode == "Manual" else rubric_import_form()
             if sub_rub and getattr(rubrica, "nombre", ""):
                 try: self.db.create_rubric(rubrica); st.success("Rúbrica guardada."); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
             st.markdown("---")
-            st.markdown("#### Rúbricas Guardadas (Editar o Eliminar)")
+            st.markdown("#### Rúbricas guardadas (editar o eliminar)")
             for r in self.db.list_rubrics():
                 with st.expander(r["nombre"]):
                     rub_obj = self.db.get_rubric(r["id"])
@@ -455,13 +479,13 @@ class RetroalimentacionApp:
                         if c2.form_submit_button("Eliminar"): self.db.delete_rubric(r["id"]); st.rerun()
 
         with t4:
-            st.subheader("Configurar Nueva Actividad")
+            st.subheader("Configurar nueva actividad")
             act, r_id, f_id, rec_ids, sub_act = activity_form(self.db.list_rubrics(), self.db.list_frases(), self.db.list_recursos_globales())
             if sub_act and getattr(act, "nombre", ""):
-                try: self.db.create_activity(act, r_id, f_id, rec_ids); st.success("Actividad Ensamblada."); st.rerun()
+                try: self.db.create_activity(act, r_id, f_id, rec_ids); st.success("Actividad ensamblada."); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
             st.markdown("---")
-            st.markdown("#### Actividades Configuradas (Editar Ensamblado o Eliminar)")
+            st.markdown("#### Actividades configuradas (editar o eliminar ensamblado)")
             all_rubrics, all_frases, all_recursos = self.db.list_rubrics(), self.db.list_frases(), self.db.list_recursos_globales()
             for a_raw in self.db.list_activities():
                 act_obj = self.db.get_activity(a_raw["id"])
@@ -487,32 +511,32 @@ class RetroalimentacionApp:
                         e_recs = st.multiselect("Recursos asociados", list(recurso_opts.keys()), default=curr_recs_nombres)
                         
                         col1, col2 = st.columns(2)
-                        if col1.form_submit_button("Actualizar Ensamblado"):
+                        if col1.form_submit_button("Actualizar ensamblado"):
                             self.db.update_activity(act_obj.id, e_nom, e_pro, e_ins, getattr(act_obj, "grupo", "M00C0G00-000"), getattr(act_obj, "orden", 0), rubric_opts[e_rub], frase_opts[e_fra], [recurso_opts[n] for n in e_recs if n in recurso_opts])
                             st.success("Actividad actualizada correctamente."); st.rerun()
-                        if col2.form_submit_button("Eliminar Actividad"): self.db.delete_activity(act_obj.id); st.rerun()
+                        if col2.form_submit_button("Eliminar actividad"): self.db.delete_activity(act_obj.id); st.rerun()
 
     def tab_ai_config(self) -> None:
-        st.subheader("👤 Perfil del Asesor")
+        st.subheader("👤 Perfil del asesor")
         dirs = self.db.get_all_directrices()
         
         with st.form("form_perfil_y_prompts"):
             c1, c2 = st.columns(2)
             d_nombre = c1.text_input("Nombre Completo (Firma)", dirs.get("asesor_nombre", ""))
-            d_rol = c2.text_input("Puesto / Rol", dirs.get("asesor_rol", ""))
+            d_rol = c2.text_input("Puesto / rol", dirs.get("asesor_rol", ""))
             c3, c4 = st.columns(2)
-            d_id = c3.text_input("ID / Matrícula", dirs.get("asesor_id", ""))
+            d_id = c3.text_input("ID / matrícula", dirs.get("asesor_id", ""))
             d_grupo = c4.text_input("Grupo asignado actual", dirs.get("grupo", ""))
             
             st.markdown("---")
-            st.subheader("🧠 Instrucciones del Sistema (Prompt Builder)")
+            st.subheader("🧠 Instrucciones del sistema (Prompt Builder)")
             st.caption("Configura el comportamiento base de la Inteligencia Artificial. Las etiquetas {asesor_nombre} y {asesor_rol} se reemplazarán automáticamente.")
             d_sistema = st.text_area("Rol de la IA (System Prompt)", dirs.get("prompt_sistema", ""), height=70)
-            d_formato = st.text_area("Reglas de Formato Estrictas", dirs.get("reglas_formato", ""), height=70)
-            d_formato_err = st.text_area("Instrucción para Error de Formato (Cuando entreguen el archivo equivocado)", dirs.get("error_formato", "La actividad se evalúa con calificación mínima porque no cumple con el formato solicitado. Redacta un mensaje breve invitando a revisar las instrucciones, SIN desglosar la rúbrica."), height=70)
+            d_formato = st.text_area("Reglas de formato estrictas", dirs.get("reglas_formato", ""), height=70)
+            d_formato_err = st.text_area("Instrucción para error de formato (Cuando entreguen el archivo equivocado)", dirs.get("error_formato", "La actividad se evalúa con calificación mínima porque no cumple con el formato solicitado. Redacta un mensaje breve invitando a revisar las instrucciones, SIN desglosar la rúbrica."), height=70)
             
             st.markdown("---")
-            st.subheader("📏 Directrices Pedagógicas por Sección")
+            st.subheader("📏 Directrices pedagógicas por sección")
             st.caption("Controla la redacción específica de cada bloque en las retroalimentaciones.")
             d_saludo = st.text_area("1. Saludo", dirs.get("saludo", ""), height=70)
             d_fortalezas = st.text_area("2. Fortalezas", dirs.get("fortalezas", ""), height=70)
@@ -522,7 +546,7 @@ class RetroalimentacionApp:
             d_despedida = st.text_area("6. Despedida", dirs.get("despedida", ""), height=70)
             d_firma = st.text_input("7. Frase de cortesía final (Ej. Cordialmente.)", dirs.get("firma", "Cordialmente."))
             
-            if st.form_submit_button("Guardar Perfil e Instrucciones", type="primary", use_container_width=True):
+            if st.form_submit_button("Guardar Perfil e instrucciones", type="primary", use_container_width=True):
                 self.db.update_directriz("asesor_nombre", d_nombre)
                 self.db.update_directriz("asesor_rol", d_rol)
                 self.db.update_directriz("asesor_id", d_id)
@@ -541,7 +565,7 @@ class RetroalimentacionApp:
                 st.rerun()
 
     def tab_settings(self) -> None:
-        st.subheader("🔑 Clave de API Global")
+        st.subheader("🔑 Clave de API global")
         st.session_state.api_key = st.text_input("Clave de API OpenRouter", st.session_state.api_key, type="password")
         
         if st.button("Probar conexión de TODOS los modelos", width="stretch"):
@@ -555,17 +579,17 @@ class RetroalimentacionApp:
                         self.db.add_log("ERROR", f"Test de conexión fallido para {m['nombre']}: {msg}")
             
         st.markdown("---")
-        st.subheader("🤖 Catálogo de Modelos de IA")
-        st.caption("Administra tu propio portafolio de modelos. Los modelos marcados como 'Gratis' se usarán como salvavidas automáticos si el principal falla.")
+        st.subheader("🤖 Catálogo de modelos de IA")
+        st.caption("Administra tu propio portafolio de modelos. Los modelos marcados como 'gratis' se usarán como salvavidas automáticos si el principal falla.")
         
         with st.form("form_add_modelo"):
-            st.markdown("**Agregar Nuevo Modelo**")
+            st.markdown("**Agregar nuevo modelo**")
             col1, col2, col3 = st.columns(3)
             m_nom = col1.text_input("Nombre a mostrar (Ej. GPT-4o)")
             m_api = col2.text_input("ID en OpenRouter (Ej. openai/gpt-4o)")
-            m_cat = col3.selectbox("Categoría", ["Gratis", "De pago"])
+            m_cat = col3.selectbox("Categoría", ["gratis", "de pago"])
             
-            if st.form_submit_button("Guardar Modelo"):
+            if st.form_submit_button("Guardar modelo"):
                 if m_nom and m_api:
                     try:
                         self.db.create_modelo(m_nom, m_api, m_cat)
@@ -574,7 +598,7 @@ class RetroalimentacionApp:
                     except Exception as e: st.error(f"Error (¿El ID ya existe?): {e}")
                 else: st.error("El nombre y el ID de OpenRouter son obligatorios.")
 
-        st.markdown("#### Modelos Configurados")
+        st.markdown("#### Modelos configurados")
         for m in self.db.get_modelos():
             with st.expander(f"{m['nombre']} ({m['categoria']}) — {m['api_id']}"):
                 if st.button("🗑️ Eliminar modelo", key=f"del_mod_{m['id']}"):
@@ -587,15 +611,15 @@ class RetroalimentacionApp:
         c2.download_button("Exportar BD JSON", json.dumps(self.db.export_all_json(), ensure_ascii=False, indent=2), "retro_export.json", "application/json", width="stretch")
 
         st.markdown("---")
-        st.subheader("📝 Registro de Eventos (Caja Negra del Sistema)")
-        logs = self.db.get_logs(limit=100)
+        st.subheader("📝 Registro de eventos (xaja negra del sistema)")
+        logs = self.db.get_logs(limit=1000)
         if logs:
-            st.text_area("Últimos 100 eventos (Alertas, desconexiones, tiempos altos):", value="\n".join([f"[{l['fecha']}] {l['nivel']}: {l['mensaje']}" for l in reversed(logs)]), height=250)
+            st.text_area("Últimos 1000 eventos (Alertas, desconexiones, tiempos altos):", value="\n".join([f"[{l['fecha']}] {l['nivel']}: {l['mensaje']}" for l in reversed(logs)]), height=250)
             if st.button("🗑️ Limpiar Logs", width="stretch"): self.db.clear_logs(); st.rerun()
         else: st.info("No hay eventos registrados todavía.")
 
     def tab_forums(self) -> None:
-        st.header("💬 Generador de Aportaciones: Foro Aprendiendo")
+        st.header("💬 Generador de aportaciones: foro aprendiendo")
         st.markdown("Automatiza tus participaciones diarias manteniendo tu estilo y cumpliendo con los lineamientos de Prepa en Línea-SEP.")
         
         col1, col2 = st.columns(2)
