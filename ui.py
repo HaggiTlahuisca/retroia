@@ -139,6 +139,7 @@ class RetroalimentacionApp:
             
             tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir nota al estudiante"], horizontal=True)
             formato_incorrecto = st.checkbox("⚠️ Evaluar por formato incorrecto", help="Genera una retroalimentación ultracorta informando el error de formato, sin desglose de rúbrica.")
+            observaciones_textuales = st.checkbox("📌 Pasar comentario TEXTUALMENTE (Sin modificación IA)")
             observaciones_usuario = st.text_area("Escribe tus observaciones (O especifica el error de formato si aplica):", height=100)
 
             st.markdown("---")
@@ -155,7 +156,8 @@ class RetroalimentacionApp:
                 calificacion=calificacion_total,
                 criterios_evaluados=criterios_evaluados,
                 observaciones=texto_base,
-                es_error_formato=formato_incorrecto
+                es_error_formato=formato_incorrecto,
+                observaciones_textuales=observaciones_textuales
             )
 
             if modo == "👤 Individual":
@@ -168,7 +170,8 @@ class RetroalimentacionApp:
                         "calificacion_total": calificacion_total,
                         "criterios_evaluados": criterios_evaluados,
                         "observaciones": texto_base,
-                        "es_error_formato": formato_incorrecto
+                        "es_error_formato": formato_incorrecto,
+                        "observaciones_textuales": observaciones_textuales
                     })
                     st.success(f"✅ {estudiante} agregado a la cola de procesamiento ({len(st.session_state.batch_queue)} acumulados).")
                 else:
@@ -212,12 +215,18 @@ class RetroalimentacionApp:
                     st.rerun()
 
                 if ejecutar_lote:
+                    modelos_db = self.db.get_modelos()
+                    has_free = any(m["categoria"].lower() == "gratis" for m in modelos_db)
+                    
+                    if not has_free:
+                        self.db.add_log("ERROR", "Lote pausado por ausencia de modelos gratuitos en configuración.")
+                        st.error("⚠️ No hay modelos gratuitos configurados en el sistema. El lote se ha pausado y tus evaluaciones están guardadas. Configura un modelo gratuito en 'Configuración del Sistema' para continuar procesándolas.")
+                        return
+
                     progress_bar = st.progress(0)
                     status_info = st.empty()
                     total_q = len(st.session_state.batch_queue)
                     exitosos = 0
-                    
-                    modelos_db = self.db.get_modelos()
                     
                     for idx, item in enumerate(st.session_state.batch_queue):
                         est_nom = item["estudiante"]
@@ -226,7 +235,8 @@ class RetroalimentacionApp:
                         b = PromptBuilder(
                             self.db.get_all_directrices(), activity, est_nom,
                             item["calificacion_total"], item["criterios_evaluados"],
-                            item["observaciones"], item.get("es_error_formato", False)
+                            item["observaciones"], item.get("es_error_formato", False),
+                            item.get("observaciones_textuales", False)
                         )
                         prompt = b.build()
                         
@@ -243,10 +253,11 @@ class RetroalimentacionApp:
                         for mod in intentos:
                             try:
                                 texto_generado = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 6500, timeout=45)
-                                razonamiento = self.ia_client.ultimo_razonamiento
+                                razonamiento = getattr(self.ia_client, "ultimo_razonamiento", "")
                                 modelo_usado_nombre = mod["nombre"]
                                 break
-                            except Exception:
+                            except Exception as e:
+                                self.db.add_log("ERROR", f"[{est_nom}] Falló {mod['nombre']}: {e}")
                                 continue
 
                         if texto_generado:
@@ -287,14 +298,16 @@ class RetroalimentacionApp:
                 for mod in intentos:
                     try:
                         texto = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 6500, timeout=45)
-                        razonamiento = self.ia_client.ultimo_razonamiento
+                        razonamiento = getattr(self.ia_client, "ultimo_razonamiento", "")
                         modelo_final_nombre = mod["nombre"]
                         break
-                    except Exception:
+                    except Exception as e:
+                        self.db.add_log("ERROR", f"[Individual - {builder.estudiante}] Falló {mod['nombre']}: {e}")
                         continue
 
                 if not texto:
-                    st.error("Todos los modelos fallaron o tardaron más de 45 segundos.")
+                    self.db.add_log("ERROR", f"Todos los modelos fallaron para {builder.estudiante} en modo individual.")
+                    st.error("Todos los modelos fallaron o tardaron más de 45 segundos. Revisa el log de errores.")
                     return
 
             st.session_state.last_feedback = texto
@@ -309,7 +322,9 @@ class RetroalimentacionApp:
             )
             self.db.create_history(item, activity_id)
             st.success("Guardado en el historial.")
-        except Exception as exc: st.error(f"Error: {exc}")
+        except Exception as exc: 
+            self.db.add_log("ERROR", f"Error general individual: {exc}")
+            st.error(f"Error: {exc}")
 
     def tab_history(self) -> None:
         st.subheader("📦 Descarga y Gestión de Evaluaciones por Lote")
@@ -347,7 +362,6 @@ class RetroalimentacionApp:
             selected_ids = edited_df[edited_df["Seleccionar"]]["ID"].tolist()
             selected_rows = [r for r in rows if r.get("id", 0) in selected_ids]
             
-            # --- PROCESO EN DOS PASOS PERSISTENTES (EVITA RECARGAS Y CAÍDAS) ---
             col_z1, col_z2 = st.columns(2)
             
             if col_z1.button(f"📦 Preparar ZIP ({len(selected_rows)} alumnos)", type="primary", disabled=len(selected_rows)==0, width="stretch"):
@@ -530,9 +544,15 @@ class RetroalimentacionApp:
         st.subheader("🔑 Clave de API Global")
         st.session_state.api_key = st.text_input("Clave de API OpenRouter", st.session_state.api_key, type="password")
         
-        if st.button("Probar conexión con API", width="stretch"):
-            ok, msg = self.ia_client.probar_conexion(st.session_state.api_key, "cohere/north-mini-code:free")
-            st.success(msg) if ok else st.error(msg)
+        if st.button("Probar conexión de TODOS los modelos", width="stretch"):
+            with st.spinner("Probando conexión por cada modelo configurado..."):
+                for m in self.db.get_modelos():
+                    ok, msg = self.ia_client.probar_conexion(st.session_state.api_key, m["api_id"])
+                    if ok:
+                        st.success(f"✅ **{m['nombre']}**: Conexión exitosa. ({msg})")
+                    else:
+                        st.error(f"❌ **{m['nombre']}**: Falló. {msg}")
+                        self.db.add_log("ERROR", f"Test de conexión fallido para {m['nombre']}: {msg}")
             
         st.markdown("---")
         st.subheader("🤖 Catálogo de Modelos de IA")
@@ -567,15 +587,14 @@ class RetroalimentacionApp:
         c2.download_button("Exportar BD JSON", json.dumps(self.db.export_all_json(), ensure_ascii=False, indent=2), "retro_export.json", "application/json", width="stretch")
 
         st.markdown("---")
-        st.subheader("📝 Registro de Eventos (Caja Negra del Bot)")
+        st.subheader("📝 Registro de Eventos (Caja Negra del Sistema)")
         logs = self.db.get_logs(limit=100)
         if logs:
-            st.text_area("Últimos 100 eventos:", value="\n".join([f"[{l['fecha']}] {l['nivel']}: {l['mensaje']}" for l in reversed(logs)]), height=250)
+            st.text_area("Últimos 100 eventos (Alertas, desconexiones, tiempos altos):", value="\n".join([f"[{l['fecha']}] {l['nivel']}: {l['mensaje']}" for l in reversed(logs)]), height=250)
             if st.button("🗑️ Limpiar Logs", width="stretch"): self.db.clear_logs(); st.rerun()
         else: st.info("No hay eventos registrados todavía.")
 
     def tab_forums(self) -> None:
-        """Pestaña para la generación automatizada de aportaciones a Foros Aprendiendo."""
         st.header("💬 Generador de Aportaciones: Foro Aprendiendo")
         st.markdown("Automatiza tus participaciones diarias manteniendo tu estilo y cumpliendo con los lineamientos de Prepa en Línea-SEP.")
         
@@ -645,5 +664,5 @@ class RetroalimentacionApp:
                     st.success("¡Aportación generada con éxito!")
                     st.text_area("Copia y pega este texto directamente en Moodle:", value=respuesta, height=400)
                 except Exception as e:
+                    self.db.add_log("ERROR", f"Fallo al generar aportación de foro: {e}")
                     st.error(f"Error al generar la aportación: {e}")
-                    
