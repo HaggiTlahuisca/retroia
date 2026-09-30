@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 from config import (
     APP_ICON, APP_LAYOUT, APP_TITLE, DEFAULT_MAX_TOKENS, DEFAULT_MODEL_ID,
-    DEFAULT_MODEL_NAME, DEFAULT_TEMPERATURE, MODELOS_GRATIS, MODELOS_OPENROUTER, MODELOS_PAGO
+    DEFAULT_MODEL_NAME, DEFAULT_TEMPERATURE
 )
 from database import DatabaseManager
 from ia_client import IAClient
