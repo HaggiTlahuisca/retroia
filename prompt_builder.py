@@ -8,7 +8,7 @@ from validators import ValidationResult
 
 
 class PromptBuilder:
-    def __init__(self, directrices: dict[str, str], actividad: Actividad | None, estudiante: str, calificacion: float, criterios_evaluados: dict[str, Any], observaciones: str, es_error_formato: bool = False) -> None:
+    def __init__(self, directrices: dict[str, str], actividad: Actividad | None, estudiante: str, calificacion: float, criterios_evaluados: dict[str, Any], observaciones: str, es_error_formato: bool = False, observaciones_textuales: bool = False) -> None:
         self.dirs = directrices
         self.actividad = actividad
         self.estudiante = estudiante.strip()
@@ -16,6 +16,7 @@ class PromptBuilder:
         self.criterios_evaluados = criterios_evaluados
         self.observaciones = observaciones.strip()
         self.es_error_formato = es_error_formato
+        self.observaciones_textuales = observaciones_textuales
 
     def count_tokens(self) -> int:
         return len(self.build()) // 4
@@ -34,28 +35,30 @@ class PromptBuilder:
         n_act = act.nombre if act else "Actividad"
         prop_act = act.proposito if act else ""
         
-        # DATOS DINÁMICOS DEL ASESOR
         n_ase = self.dirs.get('asesor_nombre', 'Asesor').strip()
         r_ase = self.dirs.get('asesor_rol', 'Asesor virtual').strip()
         id_ase = self.dirs.get('asesor_id', '000000').strip()
         grupo_asignado = self.dirs.get('grupo', 'M00C0G00-000').strip()
         
-        # PROMPTS DINÁMICOS DEL SISTEMA
         prompt_sistema = self.dirs.get('prompt_sistema', f'Eres un {r_ase} empático y profesional llamado {n_ase}. Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO repetir estructuras sintácticas entre un estudiante y otro.')
         prompt_sistema = prompt_sistema.replace('{asesor_nombre}', n_ase).replace('{asesor_rol}', r_ase)
         
         reglas_formato = self.dirs.get('reglas_formato', 'ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "## Áreas de Oportunidad"). Todo debe fluir como una carta natural, separada únicamente por saltos de párrafo.')
         
-        # DESPEDIDA ALEATORIA
         firmas_base = ["Cordialmente.", "Atentamente.", "Con afecto.", "Saludos cordiales."]
         firma_personalizada = self.dirs.get('firma', '').strip()
         if firma_personalizada and firma_personalizada not in firmas_base:
             firmas_base.append(firma_personalizada)
         firma_corta = random.choice(firmas_base)
         
-        # =================================================================
-        # CORTOCIRCUITO: PROMPT EXCLUSIVO PARA ERROR DE FORMATO
-        # =================================================================
+        # Inyección de notas textuales
+        nota_textual_prompt = ""
+        nota_observacion_normal = self.observaciones if self.observaciones else "Todo correcto según los niveles."
+        
+        if self.observaciones_textuales and self.observaciones:
+            nota_observacion_normal = "Se han proporcionado notas específicas textuales del asesor."
+            nota_textual_prompt = f"\n### ¡REGLA CRÍTICA DE COPIA TEXTUAL!\nEl Asesor ha proporcionado el siguiente comentario exacto: '{self.observaciones}'.\nTIENES ESTRICTAMENTE PROHIBIDO modificar, resumir o parafrasear este comentario. Debes insertarlo EXACTAMENTE COMO ESTÁ ESCRITO en la sección de sugerencias o áreas de oportunidad de la retroalimentación.\n"
+
         if self.es_error_formato:
             instruccion_error = self.dirs.get('error_formato', 'La actividad se evalúa con calificación mínima porque no cumple con el formato solicitado.')
             return f"""{prompt_sistema}
@@ -67,6 +70,7 @@ class PromptBuilder:
 
 ### INSTRUCCIÓN CRÍTICA DE FORMATO INCORRECTO:
 {instruccion_error}
+{nota_textual_prompt}
 
 ¡REGLA DE ORO!: TIENES ESTRICTAMENTE PROHIBIDO desglosar los criterios de la rúbrica (Cognitivo, Actitudinal, Comunicativo, etc.). No los menciones. Solo debes redactar un mensaje breve, directo y unificado (1 o 2 párrafos máximo) informando al estudiante sobre el error de formato, basándote en el "Detalle del error" proporcionado arriba.
 
@@ -80,9 +84,6 @@ class PromptBuilder:
 {id_ase}
 {grupo_asignado}"""
 
-        # =================================================================
-        # FLUJO NORMAL DE ACTIVIDADES
-        # =================================================================
         is_foro = "foro de integración" in n_act.lower()
         
         if act and act.frase:
@@ -92,7 +93,6 @@ class PromptBuilder:
             texto_frase = "Siempre parece imposible hasta que se hace"
             autor_frase = "Nelson Mandela"
         
-        # PROCESAMIENTO ESTÁNDAR Y TOLERANTE A DICCIONARIOS O TUPLAS
         crit_items = []
         for i, (k, v) in enumerate(self.criterios_evaluados.items()):
             if isinstance(v, dict):
@@ -102,7 +102,6 @@ class PromptBuilder:
             else:
                 nivel_nombre = str(v)
             
-            # Normalización del nombre del criterio
             nombre_criterio = str(k).strip().capitalize()
             if nombre_criterio.lower() in ["pensamiento", "pensamiento critico", "pensamiento crítico"]:
                 nombre_criterio = "Pensamiento crítico"
@@ -144,13 +143,14 @@ class PromptBuilder:
 - Actividad: {n_act}
 - Evaluaciones (EN ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Colaborativo, Pensamiento crítico):
 {crit_str}
-- Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles."}
+- Notas específicas del Asesor: {nota_observacion_normal}
 
 ### REGLAS DE ORO DE FORMATO PARA EL FORO (¡MUY IMPORTANTE!):
 - {reglas_formato}
 - ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos, negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.). Todo debe fluir como párrafos naturales.
 - ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo cualitativamente.
 - DISTRIBUCIÓN DE NOTAS: Si el Asesor incluyó "Notas específicas", intégralas de forma natural a lo largo de tu redacción para justificar las áreas correspondientes, no las aísles al final.
+{nota_textual_prompt}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
@@ -187,12 +187,13 @@ class PromptBuilder:
 - Propósito de la actividad: {prop_act}
 - Evaluaciones (EN ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Pensamiento crítico):
 {crit_str}
-- Notas específicas del Asesor: {self.observaciones if self.observaciones else "Todo correcto según los niveles."}
+- Notas específicas del Asesor: {nota_observacion_normal}
 
 ### REGLAS DE ORO CONTRA ALUCINACIONES Y FORMATO (¡MUY IMPORTANTE!):
 1. {reglas_formato}
 2. ¡PROHIBIDO INVENTAR CONTEXTO!: Esta actividad pertenece estrictamente a un módulo de MATEMÁTICAS. Está ESTRICTAMENTE PROHIBIDO inventar conceptos de física, mecánica, diseño, historia u otras materias guiándote solo por el nombre de la actividad ("{n_act}"). Limítate a evaluar el procedimiento matemático y los datos proporcionados.
 3. DISTRIBUCIÓN DE NOTAS: Las "Notas específicas del Asesor" deben ser integradas y distribuidas a lo largo de los párrafos de los criterios para justificar los niveles obtenidos. Tienes PROHIBIDO agrupar las notas del asesor en un solo párrafo aislado al final o dejarlas fuera de la carta.
+{nota_textual_prompt}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
@@ -243,4 +244,3 @@ Recuerda que siempre estoy para ti al otro lado de la pantalla. Me puedes contac
 {r_ase}
 {id_ase}
 {grupo_asignado}"""
-        
