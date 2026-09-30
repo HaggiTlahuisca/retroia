@@ -35,29 +35,8 @@ AI_PROVIDERS = {
     "LM Studio": "lmstudio",
 }
 
-# Modelos separados por categoría (Gratis)
-MODELOS_GRATIS = {
-    "Nvidia Nemotron 3 Ultra 550B (Gratis)": "Nvidia/nemotron-3-ultra-550b-a55b:free",
-    "Cohere: North Mini Code (Gratis)": "cohere/north-mini-code:free",
-    "Google Gemma 4 31B IT (Gratis)": "google/gemma-4-31b-it:free",
-    "Qwen 3 Next (Gratis)": "qwen/qwen-3-235b-a22b",
-}
-
-# Modelos separados por categoría (De pago)
-MODELOS_PAGO = {
-				"GPT 5.6 Luna Pro": "openai/gpt-5.6-luna-pro", 
-    "Mistral Nemo": "mistralai/mistral-nemo",
-    "Claude 3 Haiku": "anthropic/claude-3-haiku",
-    "GPT 4o Mini": "openai/gpt-4o-mini",
-    "GPT 5.6 Luna": "openai/gpt-5.6-luna",
-    "Claude 5 Sonnet": "anthropic/claude-5-sonnet",
-}
-
-# Combinación global para mantener compatibilidad con el resto del sistema
-MODELOS_OPENROUTER = {**MODELOS_GRATIS, **MODELOS_PAGO}
-
-DEFAULT_MODEL_NAME = "GPT 5.6 Luna"
-DEFAULT_MODEL_ID = MODELOS_OPENROUTER[DEFAULT_MODEL_NAME]
+DEFAULT_MODEL_NAME = "GPT 5.6 Luna Pro"
+DEFAULT_MODEL_ID = "openai/gpt-5.6-luna-pro"
 
 TIPOS_RECURSO = [
     "Video", "PDF", "Artículo", "Enlace", "Documento", "Archivo", "Libro", "Otro"
