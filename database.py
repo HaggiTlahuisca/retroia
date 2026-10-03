@@ -270,6 +270,23 @@ class DatabaseManager:
                     mensaje TEXT NOT NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS evaluaciones_borrador (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id TEXT NOT NULL,
+                    actividad_id INTEGER NOT NULL,
+                    estudiante TEXT NOT NULL,
+                    criterios_evaluados TEXT NOT NULL,
+                    total_puntos REAL NOT NULL DEFAULT 0,
+                    observaciones TEXT DEFAULT '',
+                    es_error_formato INTEGER NOT NULL DEFAULT 0,
+                    es_plagio INTEGER NOT NULL DEFAULT 0,
+                    observaciones_textuales INTEGER NOT NULL DEFAULT 0,
+                    estado TEXT NOT NULL DEFAULT 'pendiente',
+                    fecha_creacion TEXT NOT NULL,
+                    fecha_actualizacion TEXT NOT NULL
+                )
+            """)
 
     def _add_missing_columns(self, conn: Any = None) -> None:
         if conn is not None:
@@ -314,7 +331,15 @@ class DatabaseManager:
             "sugerencias": "Brinda consejos prácticos y amigables para mejorar en futuras entregas.",
             "recursos_apoyo": "Si existen recursos registrados, compártelos en párrafos independientes.",
             "despedida": "Para finalizar con tu retroalimentación nuevamente te felicito y agradezco tu entrega. Me despido con una frase motivadora.",
-            "firma": "Cordialmente."
+            "firma": "Cordialmente.",
+            "error_formato": "La actividad se evalúa con calificación mínima porque no cumple con el formato solicitado.",
+            "plagio_total": (
+                "La actividad se evalúa como no evaluable en todos los criterios debido a que "
+                "se detectó plagio total. Redacta un mensaje breve y directo, sin desglosar la "
+                "rúbrica, sin recomendaciones, sin recursos educativos y sin una despedida extensa. "
+                "Incluye únicamente un saludo, una explicación breve de que la actividad no es "
+                "evaluable por plagio y una firma corta como 'Atentamente.' o 'Saludos cordiales.'"
+            )
         }
         for name, content in defaults.items():
             try:
@@ -322,6 +347,55 @@ class DatabaseManager:
                     conn.execute("INSERT OR IGNORE INTO directrices(nombre, contenido) VALUES (?, ?)", (name, content))
             except Exception:
                 pass
+
+    # ==========================================
+    # GESTIÓN DE BORRADORES
+    # ==========================================
+
+    def guardar_borrador(self, datos: dict) -> int:
+        ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO evaluaciones_borrador (
+                    chat_id, actividad_id, estudiante, criterios_evaluados, total_puntos,
+                    observaciones, es_error_formato, es_plagio, observaciones_textuales,
+                    estado, fecha_creacion, fecha_actualizacion
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(datos["chat_id"]),
+                    datos["actividad_id"],
+                    datos["estudiante"],
+                    json.dumps(datos["criterios"], ensure_ascii=False),
+                    datos["total_puntos"],
+                    datos.get("observaciones", ""),
+                    int(datos.get("es_error_formato", False)),
+                    int(datos.get("es_plagio", False)),
+                    int(datos.get("observaciones_textuales", False)),
+                    "pendiente",
+                    ahora,
+                    ahora,
+                )
+            )
+            return cur.lastrowid or 0
+
+    def listar_borradores(self, chat_id: int) -> list[dict]:
+        with self.connect() as conn:
+            cur = conn.execute(
+                """
+                SELECT *
+                FROM evaluaciones_borrador
+                WHERE chat_id = ? AND estado = 'pendiente'
+                ORDER BY id ASC
+                """,
+                (str(chat_id),)
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def eliminar_borrador(self, borrador_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM evaluaciones_borrador WHERE id = ?", (borrador_id,))
 
     # ==========================================
     # GESTIÓN DE MODELOS (VÍA JSON INDEPENDIENTE)
