@@ -8,7 +8,7 @@ from validators import ValidationResult
 
 
 class PromptBuilder:
-    def __init__(self, directrices: dict[str, str], actividad: Actividad | None, estudiante: str, calificacion: float, criterios_evaluados: dict[str, Any], observaciones: str, es_error_formato: bool = False, observaciones_textuales: bool = False) -> None:
+    def __init__(self, directrices: dict[str, str], actividad: Actividad | None, estudiante: str, calificacion: float, criterios_evaluados: dict[str, Any], observaciones: str, es_error_formato: bool = False, es_plagio: bool = False, observaciones_textuales: bool = False) -> None:
         self.dirs = directrices
         self.actividad = actividad
         self.estudiante = estudiante.strip()
@@ -16,6 +16,7 @@ class PromptBuilder:
         self.criterios_evaluados = criterios_evaluados
         self.observaciones = observaciones.strip()
         self.es_error_formato = es_error_formato
+        self.es_plagio = es_plagio
         self.observaciones_textuales = observaciones_textuales
 
     def count_tokens(self) -> int:
@@ -59,6 +60,55 @@ class PromptBuilder:
             nota_observacion_normal = "Se han proporcionado notas específicas textuales del asesor."
             nota_textual_prompt = f"\n### ¡REGLA CRÍTICA DE COPIA TEXTUAL!\nEl Asesor ha proporcionado el siguiente comentario exacto: '{self.observaciones}'.\nTIENES ESTRICTAMENTE PROHIBIDO modificar, resumir o parafrasear este comentario. Debes insertarlo EXACTAMENTE COMO ESTÁ ESCRITO en la sección de sugerencias o áreas de oportunidad de la retroalimentación.\n"
 
+        if self.es_plagio:
+            instruccion_plagio = self.dirs.get(
+                "plagio_total",
+                (
+                    "La actividad se evalúa como no evaluable en todos los criterios "
+                    "debido a que se detectó plagio total."
+                )
+            )
+
+            firma_corta_plagio = random.choice([
+                "Atentamente.",
+                "Saludos cordiales."
+            ])
+
+            return f"""{prompt_sistema}
+
+### DATOS DEL ALUMNO Y ACTIVIDAD:
+- Estudiante: {self.estudiante}
+- Actividad: "{n_act}"
+- Observaciones del asesor: {self.observaciones if self.observaciones else "Se detectó plagio total en la actividad."}
+
+### INSTRUCCIÓN PARA PLAGIO TOTAL:
+{instruccion_plagio}
+
+### REGLAS OBLIGATORIAS:
+- Indica que todos los criterios se registran como no evaluables debido al plagio.
+- Redacta un mensaje corto y directo.
+- No describas ni desgloses los criterios de la rúbrica.
+- No menciones niveles de desempeño individuales.
+- No incluyas recomendaciones.
+- No incluyas recursos educativos.
+- No incluyas frases motivacionales.
+- No incluyas una despedida extensa.
+- No incluyas frases adicionales posteriores a la firma.
+- Termina únicamente con una firma corta: "Atentamente." o "Saludos cordiales."
+
+Comienza exactamente con:
+Apreciable, {self.estudiante}.
+
+Después explica brevemente que la actividad se considera no evaluable en todos los criterios debido al plagio detectado basándote en las observaciones del asesor si las hay.
+
+Firma:
+{firma_corta_plagio}
+
+{n_ase}
+{r_ase}
+{id_ase}
+{grupo_asignado}"""
+
         if self.es_error_formato:
             instruccion_error = self.dirs.get('error_formato', 'La actividad se evalúa con calificación mínima porque no cumple con el formato solicitado.')
             return f"""{prompt_sistema}
@@ -93,14 +143,18 @@ class PromptBuilder:
             texto_frase = "Siempre parece imposible hasta que se hace"
             autor_frase = "Nelson Mandela"
         
+        es_experto_total = True
         crit_items = []
         for i, (k, v) in enumerate(self.criterios_evaluados.items()):
             if isinstance(v, dict):
-                nivel_nombre = v.get('nivel', '')
+                nivel_nombre = str(v.get('nivel', ''))
             elif isinstance(v, (list, tuple)) and len(v) > 0:
                 nivel_nombre = str(v[0])
             else:
                 nivel_nombre = str(v)
+            
+            if "experto" not in nivel_nombre.lower():
+                es_experto_total = False
             
             nombre_criterio = str(k).strip().capitalize()
             if nombre_criterio.lower() in ["pensamiento", "pensamiento critico", "pensamiento crítico"]:
@@ -110,14 +164,20 @@ class PromptBuilder:
         
         crit_str = "".join(crit_items)
         
-        rec_str = "".join([f"- {r.tipo}: {r.url} (Propósito: {r.descripcion})\n" for r in act.recursos]) if act and act.recursos else ""
+        regla_experto = ""
+        if es_experto_total:
+            regla_experto = "\n- ¡ATENCIÓN! CALIFICACIÓN PERFECTA: El estudiante obtuvo nivel 'experto' en TODOS los criterios. Tu redacción en cada criterio DEBE SER EXTREMADAMENTE CORTA, CLARA Y CONCRETA. Limítate a señalar que la actividad cumple satisfactoriamente con la rúbrica. NO inventes halagos exagerados ni agregues justificaciones largas e innecesarias (no pongas 'choros')."
+
+        rec_str = "".join([f"- URL: {r.url} (Tipo: {r.tipo}. Propósito: {r.descripcion})\n" for r in act.recursos]) if act and act.recursos else ""
         bloque_recursos = ""
         if rec_str:
             bloque_recursos = f"""
 4. **RECURSOS:**
    RECUERDA: NO uses la palabra "Recursos" ni la frase "Recursos adicionales" como título. NO uses viñetas.
    {self.dirs.get('recursos_apoyo', '')}
-   Redacta cada recurso en un PÁRRAFO INDEPENDIENTE usando prosa natural.
+   Redacta cada recurso en un PÁRRAFO INDEPENDIENTE usando prosa fluida y natural.
+   TIENES ESTRICTAMENTE PROHIBIDO usar formatos robóticos y de lista como "Video: [URL]. Propósito: [Texto]". 
+   DEBES integrarlo conversacionalmente en tu texto. Por ejemplo: "Para reforzar los conceptos clave, te recomiendo explorar este [tipo] disponible en [URL], el cual está diseñado para [descripción]."
    Recursos a incluir:
 {rec_str}"""
 
@@ -149,7 +209,8 @@ class PromptBuilder:
 - {reglas_formato}
 - ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos, negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.). Todo debe fluir como párrafos naturales.
 - ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo cualitativamente.
-- DISTRIBUCIÓN DE NOTAS: Si el Asesor incluyó "Notas específicas", intégralas de forma natural a lo largo de tu redacción para justificar las áreas correspondientes, no las aísles al final.
+- RESPETO ABSOLUTO A LAS NOTAS DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de las observaciones. Si el asesor señala explícitamente el uso de "Inteligencia Artificial", "IA", "fuga de formato" o copias, DEBES mantener la acusación firme y usar exactamente esas palabras clave. ¡No alteres la intención original del mensaje del asesor!
+- DISTRIBUCIÓN DE NOTAS: Si el Asesor incluyó "Notas específicas", intégralas de forma natural a lo largo de tu redacción para justificar las áreas correspondientes, no las aísles al final. {regla_experto}
 {nota_textual_prompt}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
@@ -191,8 +252,9 @@ class PromptBuilder:
 
 ### REGLAS DE ORO CONTRA ALUCINACIONES Y FORMATO (¡MUY IMPORTANTE!):
 1. {reglas_formato}
-2. ¡PROHIBIDO INVENTAR CONTEXTO!: Esta actividad pertenece estrictamente a un módulo de MATEMÁTICAS. Está ESTRICTAMENTE PROHIBIDO inventar conceptos de física, mecánica, diseño, historia u otras materias guiándote solo por el nombre de la actividad ("{n_act}"). Limítate a evaluar el procedimiento matemático y los datos proporcionados.
-3. DISTRIBUCIÓN DE NOTAS: Las "Notas específicas del Asesor" deben ser integradas y distribuidas a lo largo de los párrafos de los criterios para justificar los niveles obtenidos. Tienes PROHIBIDO agrupar las notas del asesor en un solo párrafo aislado al final o dejarlas fuera de la carta.
+2. ¡PROHIBIDO INVENTAR CONTEXTO O ACCIONES!: Esta actividad pertenece estrictamente a un módulo de MATEMÁTICAS. NO inventes conceptos de física, mecánica, diseño, historia u otras materias. Además, NO felicites al estudiante por "aclarar dudas", "entregar a tiempo", "buena disposición", ni menciones que incluyó "gráficas" o "tablas", a menos que las "Notas específicas del Asesor" lo digan expresamente. ¡Limítate a evaluar el procedimiento matemático!
+3. RESPETO ABSOLUTO A LAS NOTAS DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de las observaciones. Si el asesor señala explícitamente el uso de "Inteligencia Artificial", "IA", "fuga de formato" o plagio, DEBES mantener la acusación firme y usar exactamente esas palabras clave. ¡No alteres la intención original del mensaje del asesor!
+4. DISTRIBUCIÓN DE NOTAS: Las "Notas específicas del Asesor" deben ser integradas y distribuidas a lo largo de los párrafos de los criterios para justificar los niveles obtenidos. Tienes PROHIBIDO agrupar las notas del asesor en un solo párrafo aislado al final o dejarlas fuera de la carta.{regla_experto}
 {nota_textual_prompt}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
