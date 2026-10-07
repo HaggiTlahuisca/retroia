@@ -256,7 +256,7 @@ Firma:
 3. RESPETO ABSOLUTO A LAS NOTAS DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de las observaciones. Si el asesor señala explícitamente el uso de "Inteligencia Artificial", "IA", "fuga de formato" o plagio, DEBES mantener la acusación firme y usar exactamente esas palabras clave. ¡No alteres la intención original del mensaje del asesor!
 4. DISTRIBUCIÓN DE NOTAS: Las "Notas específicas del Asesor" deben ser integradas y distribuidas a lo largo de los párrafos de los criterios para justificar los niveles obtenidos. Tienes PROHIBIDO agrupar las notas del asesor en un solo párrafo aislado al final o dejarlas fuera de la carta.{regla_experto}
 {nota_textual_prompt}
-5. Está tajantemente prohibido iniciar las retroalimentaciones con la siguiente frase: "Me resulta muy interesante la manera en que abordaste los temas matemáticos" o frases similares. 
+5. Está tajantemente prohibido iniciar las retroalimentaciones con la siguiente frase: "Me resulta muy interesante la manera en que abordaste los temas matemáticos" o frases similares. Además de estar prohibido mencionar más de tres veces el nombre de la actividad integradora a lo largo de toda la retroalimentacion. 
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
