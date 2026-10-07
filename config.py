@@ -21,9 +21,11 @@ OPENROUTER_MODELS_URL = f"{OPENROUTER_BASE_URL}/models"
 APP_REFERER = "https://retroalimentaciones.local"
 APP_X_TITLE = "Retroalimentaciones formativas IA"
 
-DEFAULT_TEMPERATURE = 0.5
-DEFAULT_MAX_TOKENS = 4000
+DEFAULT_TEMPERATURE = 0.9          # antes 0.5 — más variedad en cada generación
+DEFAULT_MAX_TOKENS = 9000
 DEFAULT_PROMPT_TOKEN_LIMIT = 240000
+DEFAULT_FREQUENCY_PENALTY = 0.5    # ← nueva: penaliza repetir palabras ya usadas
+DEFAULT_PRESENCE_PENALTY = 0.4     # ← nueva: penaliza repetir temas ya tocados
 REQUEST_TIMEOUT_SECONDS = 900
 
 AI_PROVIDERS = {
@@ -66,3 +68,5 @@ class RuntimeConfig:
     model_id: str = DEFAULT_MODEL_ID
     temperature: float = DEFAULT_TEMPERATURE
     max_tokens: int = DEFAULT_MAX_TOKENS
+    frequency_penalty: float = DEFAULT_FREQUENCY_PENALTY # ← nueva
+    presence_penalty: float = DEFAULT_PRESENCE_PENALTY      # ← nueva
