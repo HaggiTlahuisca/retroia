@@ -522,7 +522,8 @@ def indiv_run(call):
             chat_id, call.message.message_id,
             datos["estudiante"], datos["criterios"], datos["total_puntos"], 
             datos.get("observaciones", ""), datos.get("es_error_formato", False), 
-            datos.get("es_plagio", False), datos.get("observaciones_textuales", False)
+            datos.get("es_plagio", False), datos.get("observaciones_textuales", False),
+            indice_estudiante=1
         )
 
 @bot.callback_query_handler(func=lambda call: call.data == 'batch_add')
@@ -675,7 +676,8 @@ def batch_run(call):
             chat_id, None, 
             item["estudiante"], item["criterios"], item["total_puntos"], 
             item["observaciones"], item.get("es_error_formato", False), 
-            item.get("es_plagio", False), item.get("observaciones_textuales", False)
+            item.get("es_plagio", False), item.get("observaciones_textuales", False),
+            indice_estudiante=idx+1
         )
         if "borrador_id" in item:
             db.eliminar_borrador(item["borrador_id"])
@@ -685,7 +687,7 @@ def batch_run(call):
     bot_log("INFO", "Lote completado exitosamente.")
     bot.send_message(chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /lote para iniciar de nuevo.")
 
-def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs, es_error_formato=False, es_plagio=False, observaciones_textuales=False):
+def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs, es_error_formato=False, es_plagio=False, observaciones_textuales=False, indice_estudiante=0):
     datos = sesiones.get(chat_id)
     if not datos: return
     actividad = datos["actividad"]
@@ -733,7 +735,8 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             observaciones=obs,
             es_error_formato=es_error_formato,
             es_plagio=es_plagio,
-            observaciones_textuales=observaciones_textuales
+            observaciones_textuales=observaciones_textuales,
+            indice_estudiante=indice_estudiante
         )
         prompt = builder.build()
         api_key = os.getenv("OPENROUTER_API_KEY")
