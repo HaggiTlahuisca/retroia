@@ -438,13 +438,24 @@ def procesar_observaciones(call):
         sesiones[chat_id]["observaciones_textuales"] = False
         procesar_finalizacion(chat_id, call.message.message_id)
     elif obs_tipo == "escribir":
-        sesiones[chat_id]["paso"] = "obs_texto"
-        sesiones[chat_id]["observaciones_textuales"] = False
-        bot.edit_message_text("✍️ Escribe la observación:", chat_id=chat_id, message_id=call.message.message_id)
-    elif obs_tipo == "textual":
-        sesiones[chat_id]["paso"] = "obs_texto"
-        sesiones[chat_id]["observaciones_textuales"] = True
-        bot.edit_message_text("✍️ Escribe la nota que pasará de manera textual (sin modificación IA):", chat_id=chat_id, message_id=call.message.message_id)
+    sesiones[chat_id]["paso"] = "obs_texto"
+    sesiones[chat_id]["es_error_formato"] = False
+    sesiones[chat_id]["observaciones_textuales"] = False
+    bot.edit_message_text(
+        "✍️ Escribe las observaciones:",
+        chat_id=chat_id,
+        message_id=call.message.message_id
+    )
+
+elif obs_tipo == "textual":
+    sesiones[chat_id]["paso"] = "obs_texto"
+    sesiones[chat_id]["es_error_formato"] = False
+    sesiones[chat_id]["observaciones_textuales"] = True
+    bot.edit_message_text(
+        "✍️ Escribe las observaciones textuales (sin modificación IA):",
+        chat_id=chat_id,
+        message_id=call.message.message_id
+    )
     elif obs_tipo == "formato":
         sesiones[chat_id]["paso"] = "obs_formato_texto"
         sesiones[chat_id]["es_error_formato"] = True
