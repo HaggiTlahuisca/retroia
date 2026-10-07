@@ -53,7 +53,7 @@ class PromptBuilder:
         
         reglas_formato = self.dirs.get('reglas_formato', 'ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "## Áreas de Oportunidad"). Todo debe fluir como una carta natural, separada únicamente por saltos de párrafo.')
         
-        firmas_base = ["Cordialmente.", "Atentamente.", "Con afecto.", "Saludos cordiales."]
+        firmas_base = ["Cordialmente.", "Atentamente.", "Con afecto.", "Saludos cordiales.", "Saludos."]
         firma_personalizada = self.dirs.get('firma', '').strip()
         if firma_personalizada and firma_personalizada not in firmas_base:
             firmas_base.append(firma_personalizada)
@@ -78,7 +78,7 @@ class PromptBuilder:
 
             firma_corta_plagio = random.choice([
                 "Atentamente.",
-                "Saludos cordiales."
+                "Saludos."
             ])
 
             return f"""{prompt_sistema}
@@ -188,7 +188,6 @@ Firma:
    Recursos a incluir:
 {rec_str}"""
 
-        ]
         aperturas_variadas = [
             "Como siempre, te felicito por entregar una actividad más de este módulo once; espero que tú y tus seres queridos se encuentren muy bien.",
             "Antes que nada, me da mucho gusto recibir tu entrega; te felicito por tu constancia y espero que tanto tú como las personas que te rodean estén muy bien.",
@@ -201,7 +200,7 @@ Firma:
             "Antes de comenzar, quiero felicitarte por entregar esta actividad y desearte bienestar, así como a tus seres queridos.",
             "Gracias por compartir tu trabajo en esta semana; te felicito por tu esfuerzo y espero que tú y quienes te rodean se encuentren muy bien."
         ]
-         apertura_aleatoria = random.choice(aperturas_variadas)
+        apertura_aleatoria = random.choice(aperturas_variadas)
 
         if is_foro:
             return f"""{prompt_sistema}
