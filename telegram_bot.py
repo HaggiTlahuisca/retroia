@@ -138,10 +138,10 @@ def obtener_teclado_obs() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
         InlineKeyboardButton("❌ Ninguna", callback_data="obs_ninguna"),
-        InlineKeyboardButton("📝 Escribir nota", callback_data="obs_escribir")
+        InlineKeyboardButton("📝 Escribir observación", callback_data="obs_escribir")
     )
     markup.add(
-        InlineKeyboardButton("📝 Escribir nota (se inserta en la retro)", callback_data="obs_textual")
+        InlineKeyboardButton("📝 Escribir observación textual (se inserta en la retro)", callback_data="obs_textual")
     )
     markup.add(
         InlineKeyboardButton("⚠️ Error de formato", callback_data="obs_formato")
@@ -516,12 +516,12 @@ def procesar_finalizacion(chat_id, message_id_to_edit):
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
             InlineKeyboardButton("🚀 Generar ahora", callback_data="indiv_run"),
-            InlineKeyboardButton("📝 Modificar nota", callback_data="indiv_mod_obs")
+            InlineKeyboardButton("📝 Modificar observaciones", callback_data="indiv_mod_obs")
         )
         if message_id_to_edit:
-            bot.edit_message_text(f"Evaluación para {datos['estudiante']} lista. ¿Deseas modificar la nota o proceder a generarla?", chat_id, message_id_to_edit, reply_markup=markup)
+            bot.edit_message_text(f"Evaluación para {datos['estudiante']} lista. ¿Deseas modificar la observación o proceder a generarla?", chat_id, message_id_to_edit, reply_markup=markup)
         else:
-            bot.send_message(chat_id, f"Evaluación para {datos['estudiante']} lista. ¿Deseas modificar la nota o proceder a generarla?", reply_markup=markup)
+            bot.send_message(chat_id, f"Evaluación para {datos['estudiante']} lista. ¿Deseas modificar la observación o proceder a generarla?", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == 'indiv_run')
 def indiv_run(call):
