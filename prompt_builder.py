@@ -8,7 +8,7 @@ from validators import ValidationResult
 
 
 class PromptBuilder:
-    def __init__(self, directrices: dict[str, str], actividad: Actividad | None, estudiante: str, calificacion: float, criterios_evaluados: dict[str, Any], observaciones: str, es_error_formato: bool = False, es_plagio: bool = False, observaciones_textuales: bool = False) -> None:
+    def __init__(self, directrices: dict[str, str], actividad: Actividad | None, estudiante: str, calificacion: float, criterios_evaluados: dict[str, Any], observaciones: str, es_error_formato: bool = False, es_plagio: bool = False, observaciones_textuales: bool = False, indice_estudiante=0) -> None:
         self.dirs = directrices
         self.actividad = actividad
         self.estudiante = estudiante.strip()
@@ -18,6 +18,7 @@ class PromptBuilder:
         self.es_error_formato = es_error_formato
         self.es_plagio = es_plagio
         self.observaciones_textuales = observaciones_textuales
+        self.indice_estudiante = indice_estudiante
 
     def count_tokens(self) -> int:
         return len(self.build()) // 4
@@ -43,6 +44,12 @@ class PromptBuilder:
         
         prompt_sistema = self.dirs.get('prompt_sistema', f'Eres un {r_ase} empático y profesional llamado {n_ase}. Debes redactar una retroalimentación ÚNICA y PERSONALIZADA. Tienes PROHIBIDO repetir estructuras sintácticas entre un estudiante y otro.')
         prompt_sistema = prompt_sistema.replace('{asesor_nombre}', n_ase).replace('{asesor_rol}', r_ase)
+        prompt_sistema += (
+              f"\n\n[INSTRUCCIÓN INTERNA — NO REPRODUCIR EN EL TEXTO]: "
+              f"Esta es la retroalimentación número {self.indice_estudiante} del lote actual. "
+              f"Tu redación DEBE ser léxica y estructuralmente distinta a cualquier texto anterior. "
+              f"Varía el orden de las ideas, el vocabulario y la longitud de los párrafos."
+        )
         
         reglas_formato = self.dirs.get('reglas_formato', 'ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown (Ejemplo: NO escribas "## Áreas de Oportunidad"). Todo debe fluir como una carta natural, separada únicamente por saltos de párrafo.')
         
