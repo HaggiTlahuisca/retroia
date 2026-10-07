@@ -31,24 +31,18 @@
   },
   {
     "id": 6,
-    "nombre": "💬 GPT OSS-20b",
-    "api_id": "openai/gpt-oss-20b",
-    "categoria": "de pago"
-  },
-  {
-    "id": 7,
    "nombre": "👓 GLM 5.3 Flash",
     "api_id": "z-ai/glm-5.3-flash",
     "categoria": "de pago"
   },
    {
-    "id": 8,
+    "id": 7,
     "nombre": "💠 Apodex 1.1 Mini",
     "api_id": "apodex/apodex-1.1-mini:free",
     "categoria": "gratis"
   },
   {
-    "id": 9,
+    "id": 8,
     "nombre": "👑 Qwen 3.7 Flash",
     "api_id": "qwen/qwen3.7-flash",
     "categoria": "de pago"
