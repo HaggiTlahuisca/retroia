@@ -140,9 +140,9 @@ class RetroalimentacionApp:
 
             criterios_evaluados, calificacion_total = evaluation_inputs(activity.nombre)
               
-            tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir nota al estudiante"], horizontal=True)
+            tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir observación al estudiante"], horizontal=True)
             formato_incorrecto = st.checkbox("⚠️ Evaluar por formato incorrecto", help="Genera una retroalimentación ultracorta informando el error de formato, sin desglose de rúbrica.")
-            observaciones_textuales = st.checkbox("📌 Pasar nota textual (La IA no la modifica)")
+            observaciones_textuales = st.checkbox("📌 Pasar observación textual (La IA no la modifica)")
             observaciones_usuario = st.text_area("Escribe tus observaciones (O especifica el error de formato si aplica):", height=100)
 
             st.markdown("---")
