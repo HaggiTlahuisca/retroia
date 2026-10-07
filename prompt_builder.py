@@ -64,7 +64,7 @@ class PromptBuilder:
             instruccion_plagio = self.dirs.get(
                 "plagio_total",
                 (
-                    "La actividad se evalúa como no evaluable en todos los criterios "
+                    "La actividad se sitúa como no evaluable en todos los criterios "
                     "debido a que se detectó plagio total."
                 )
             )
@@ -261,28 +261,35 @@ Firma:
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
-1. **SALUDO Y FORTALEZAS (VARIEDAD OBLIGATORIA):**
+1. **SALUDO, FELICITACIÓN Y APERTURA (VARIEDAD OBLIGATORIA):**
    Inicia EXACTAMENTE con: **Apreciable, {self.estudiante}.**
-   ¡DEBES DAR UN SALTO DE LÍNEA DESPUÉS DEL SALUDO! (El saludo debe quedar solo en su propio renglón).
-   En un NUEVO PÁRRAFO, inicia adaptando obligatoriamente esta idea: "{apertura_aleatoria}"
-   Sigue esta directriz: {self.dirs.get('saludo', '')} {self.dirs.get('fortalezas', '')}
-   IMPORTANTE: Al referirte al trabajo del estudiante, usa siempre el nombre de la actividad entre comillas ("{n_act}").
-   ¡REGLA ESTRICTA DE APERTURA!: Tienes PROHIBIDO usar las frases "He revisado detalladamente", "He revisado con atención", o variaciones similares. 
+   ¡DEBES DAR UN SALTO DE LÍNEA DESPUÉS DEL SALUDO! (El saludo debe quedar solo en su propio renglón.)
 
-2. **EVALUACIÓN POR CRITERIOS (ESTRUCTURA Y TÍTULOS OBLIGATORIOS):**
-   Debes presentar la evaluación dividida exactamente en los cuatro criterios de desempeño en este orden riguroso:
+   En un NUEVO PÁRRAFO, construye la apertura a partir de esta idea: "{apertura_aleatoria}"
+   Extiéndela naturalmente con una o dos oraciones que expliquen, en términos generales, el propósito de las actividades semanales del módulo: que sirven para que el estudiante ponga en práctica lo aprendido, ya sea con el material de la plataforma o con el que consulte de forma independiente. NO menciones el nombre del módulo ni la materia.
+
+   En el MISMO PÁRRAFO o en uno nuevo, describe de forma concreta y natural los aciertos observados en la actividad "{n_act}", señalando únicamente los elementos que estén respaldados por la o las notas del asesor (por ejemplo: formato correcto, procedimientos adecuados, orden lógico, operaciones incluidas, etc.). TIENES PROHIBIDO inventar logros que no estén indicados. Si no hay notas del asesor se omite esto.
+
+   Cierra este bloque introductorio con un recordatorio breve, positivo y constructivo sobre la importancia de la precisión en matemáticas (por ejemplo: que un número o un signo mal colocados u omitidos puede generar resultados incorrectos). Redáctalo de forma natural y sin anunciarlo como "área de oportunidad".
+
+   Sigue también estas directrices generales: {self.dirs.get('saludo', '')} {self.dirs.get('fortalezas', '')}
+   IMPORTANTE: Al referirte al trabajo del estudiante, usa siempre el nombre de la actividad entre comillas ("{n_act}").
+   ¡REGLA ESTRICTA!: Tienes PROHIBIDO usar las frases "He revisado detalladamente", "He revisado con atención", "Me resulta muy interesante la manera en que abordaste los temas matemáticos", o variaciones similares.
+
+2. **RETROALIMENTACIÓN POR CRITERIOS (ESTRUCTURA Y TÍTULOS OBLIGATORIOS):**
+   Debes presentar la retroalimentación dividida exactamente en los cuatro criterios de desempeño en este orden riguroso:
    
    **Criterio cognitivo**
-   [Párrafo evaluando el aspecto cognitivo...]
+   [Párrafo retroalimentando el aspecto cognitivo...]
 
    **Criterio actitudinal**
-   [Párrafo evaluando el aspecto actitudinal...]
+   [Párrafo retroalimentando el aspecto actitudinal...]
 
    **Criterio comunicativo**
-   [Párrafo evaluando el aspecto comunicativo...]
+   [Párrafo retroalimentando el aspecto comunicativo...]
 
    **Criterio pensamiento crítico**
-   [Párrafo evaluando el pensamiento crítico...]
+   [Párrafo retroalimentando el pensamiento crítico...]
 
    REGLAS DE FORMATO PARA ESTOS ENCABEZADOS:
    - Escribe el nombre del criterio en negritas EN SU PROPIO RENGLÓN AISLADO (Tal cual se muestra arriba). NO pongas dos puntos (:) después del título.
