@@ -181,19 +181,20 @@ Firma:
    Recursos a incluir:
 {rec_str}"""
 
-        aperturas_variadas = [
-            "Es un gusto observar en tu trabajo el esfuerzo reflejado...",
-            "El desarrollo de tu documento refleja un compromiso notable...",
-            "Me complace revisar tu entrega, donde se aprecia un análisis...",
-            "Al analizar tu actividad, es evidente la dedicación que has puesto...",
-            "Quiero comenzar destacando la claridad y empeño en tu documento...",
-            "Es muy grato reconocer el esfuerzo plasmado en tu entrega...",
-            "Tras leer tu documento, destaco de inmediato la solidez...",
-            "Tu envío demuestra un claro compromiso con tu aprendizaje...",
-            "Me resulta muy interesante la manera en que abordaste los temas...",
-            "Aprecio mucho el tiempo y el detalle que invertiste en esta entrega..."
         ]
-        apertura_aleatoria = random.choice(aperturas_variadas)
+        aperturas_variadas = [
+            "Como siempre, te felicito por entregar una actividad más de este módulo once; espero que tú y tus seres queridos se encuentren muy bien.",
+            "Antes que nada, me da mucho gusto recibir tu entrega; te felicito por tu constancia y espero que tanto tú como las personas que te rodean estén muy bien.",
+            "Es un gusto recibir tu trabajo en esta semana del módulo; te felicito sinceramente y deseo que tú y tus seres queridos gocen de buena salud.",
+            "Quiero comenzar felicitándote por haber enviado tu actividad; espero que te encuentres muy bien, al igual que quienes te rodean.",
+            "Felicitaciones por completar una actividad más en el módulo once; me complace saber que sigues adelante y espero que tú y los tuyos estén muy bien.",
+            "Recibe mis felicitaciones por esta entrega; espero que todo marche favorablemente tanto para ti como para tus seres queridos.",
+            "Me da mucho gusto que hayas enviado tu actividad en esta semana; te felicito por tu dedicación y espero que te encuentres muy bien.",
+            "Qué gusto es recibir tu entrega en esta semana del módulo; te felicito por seguir adelante y espero que tú y tu familia estén muy bien.",
+            "Antes de comenzar, quiero felicitarte por entregar esta actividad y desearte bienestar, así como a tus seres queridos.",
+            "Gracias por compartir tu trabajo en esta semana; te felicito por tu esfuerzo y espero que tú y quienes te rodean se encuentren muy bien."
+        ]
+         apertura_aleatoria = random.choice(aperturas_variadas)
 
         if is_foro:
             return f"""{prompt_sistema}
