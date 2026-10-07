@@ -42,8 +42,10 @@ class IAClient:
         prompt: str,
         api_key: str,
         model_id: str,
-        temperature: float = 0.55,
-        max_tokens: int = 8500
+        temperature: float = 0.9,
+        max_tokens: int = 8500,
+        frequency_penalty: float = 0.5,
+        presence_penalty: float = 0.4,
     ) -> str:
         """Envía el prompt a OpenRouter, captura el razonamiento interno y retorna el texto limpio."""
         if not api_key:
@@ -60,7 +62,9 @@ class IAClient:
             "model": model_id,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens,
+            "frequency_penalty": frequency_penalty,
+            "presence_penalty": presence_penalty,
         }
 
         self.ultimo_razonamiento = ""
