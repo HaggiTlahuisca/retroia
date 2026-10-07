@@ -462,6 +462,7 @@ class DatabaseManager:
             cur = conn.execute("SELECT * FROM rubricas WHERE id = ?", (rubric_id,))
             row = cur.fetchone()
             if row:
+                row = dict(row) # Conversión a diccionario
                 return safe_rubrica(row["id"], row["nombre"], row["contenido"])
             return None
 
@@ -486,6 +487,8 @@ class DatabaseManager:
             row = cur.fetchone()
             if not row:
                 return None
+            
+            row = dict(row) # Conversión a diccionario para evitar errores con .get() en SQLite local
             
             grupo = row.get("grupo") or "M11C1G78-050"
             orden = row.get("orden") or 0
