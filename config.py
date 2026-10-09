@@ -11,7 +11,7 @@ EXPORTS_DIR = BASE_DIR / "exports"
 LOGS_DIR = BASE_DIR / "logs"
 DB_PATH = BASE_DIR / "retroalimentaciones.db"
 
-APP_TITLE = "Generador inteligente de retroalimentaciones formativas con ayuda de la IA"
+APP_TITLE = "Generador inteligente de retroalimentaciones"
 APP_ICON = "📝"
 APP_LAYOUT = "wide"
 
@@ -22,11 +22,11 @@ APP_REFERER = "https://retroalimentaciones.local"
 APP_X_TITLE = "Retroalimentaciones formativas IA"
 
 DEFAULT_TEMPERATURE = 0.9          # antes 0.5 — más variedad en cada generación
-DEFAULT_MAX_TOKENS = 9000
+DEFAULT_MAX_TOKENS = 10000
 DEFAULT_PROMPT_TOKEN_LIMIT = 240000
 DEFAULT_FREQUENCY_PENALTY = 0.5    # ← nueva: penaliza repetir palabras ya usadas
 DEFAULT_PRESENCE_PENALTY = 0.4     # ← nueva: penaliza repetir temas ya tocados
-REQUEST_TIMEOUT_SECONDS = 900
+REQUEST_TIMEOUT_SECONDS = 1200
 
 AI_PROVIDERS = {
     "OpenRouter": "openrouter",
