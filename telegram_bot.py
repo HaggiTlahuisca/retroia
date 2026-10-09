@@ -776,14 +776,12 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
                 if not texto_candidato or not texto_candidato.strip():
                     raise ValueError(f"El modelo {modelo_actual['nombre']} entregó una respuesta vacía.")
 
-                terminaciones_truncadas = (" y", " con", " el", " la", " los", " las", " de", " un", " una", " proced", " funcion", " cual", " que")
+                terminaciones_truncadas = (" y", " con", " el", " la", " los", " las", " de", " un", " una", " proced", " funcion", " cual", " que", ",")
                 texto_limpio_fin = texto_candidato.strip().lower()
                 es_truncado = any(texto_limpio_fin.endswith(t) for t in terminaciones_truncadas)
 
-                dirs = db.get_all_directrices()
-                n_ase_check = dirs.get("asesor_nombre", "").strip().lower()
-                if n_ase_check and n_ase_check not in texto_limpio_fin:
-                    es_truncado = True
+                # Eliminamos la validación del nombre del asesor (n_ase_check) 
+                # porque ya no se le pide a la IA que lo genere.
 
                 if es_truncado:
                     raise ValueError(f"El modelo {modelo_actual['nombre']} truncó la respuesta a la mitad.")
@@ -907,3 +905,4 @@ if __name__ == '__main__':
     
     bot_log("INFO", "Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    
