@@ -187,8 +187,10 @@ class RetroalimentacionApp:
                 dirs = self.db.get_all_directrices()
                 n_ase = dirs.get("asesor_nombre", "")
                 id_ase = dirs.get("asesor_id", "")
+                grupo_actual = dirs.get("grupo", "M00C0G00-000")
+                
                 title = generar_nombre_archivo(estudiante, activity.nombre)
-                html_feedback = feedback_to_moodle_html(st.session_state.last_feedback, n_ase, id_ase)
+                html_feedback = feedback_to_moodle_html(st.session_state.last_feedback, n_ase, id_ase, grupo_actual)
                   
                 st.subheader("Resultado")
                 if "foro de integración" in activity.nombre.lower(): st.info(f"🔢 **Calificación para moodle:** `{calificacion_total:.1f} / 100`")
@@ -206,7 +208,7 @@ class RetroalimentacionApp:
                     "prompt": st.session_state.last_prompt,
                     "razonamiento": st.session_state.get("last_reasoning", "")
                 }, ensure_ascii=False, indent=2)
-                download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback, n_ase, id_ase), pdf_bytes("", st.session_state.last_feedback), payload)
+                download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback, n_ase, id_ase, grupo_actual), pdf_bytes("", st.session_state.last_feedback), payload)
                   
         else:
             if st.session_state.batch_queue and not st.session_state.procesando_lote:
@@ -400,8 +402,8 @@ class RetroalimentacionApp:
                             est_val = r.get("estudiante", "")
                             act_val = act_map[r["actividad_id"]] if r.get("actividad_id") in act_map else r.get("actividad_nombre") or "General"
                             nombre_base = generar_nombre_archivo(est_val, act_val)
-                            docx_data = docx_bytes("", r.get("retroalimentacion", ""), n_ase, id_ase)
-                            html_text = feedback_to_moodle_html(r.get("retroalimentacion", ""), n_ase, id_ase)
+                            docx_data = docx_bytes("", r.get("retroalimentacion", ""), n_ase, id_ase, grupo_actual)
+                            html_text = feedback_to_moodle_html(r.get("retroalimentacion", ""), n_ase, id_ase, grupo_actual)
                             archivos.append((f"{nombre_base}.docx", docx_data))
                             archivos.append((f"{nombre_base}.html", html_text.encode('utf-8')))
                           
@@ -626,7 +628,7 @@ class RetroalimentacionApp:
         else: st.info("No hay eventos registrados todavía.")
 
     def tab_forums(self) -> None:
-        st.header("💬 Generador de Aportaciones: Foro Aprendiendo")
+        st.header("💬 Generador de aportaciones: foro Aprendiendo")
         st.markdown("Automatiza tus participaciones diarias manteniendo tu estilo y cumpliendo con los lineamientos de Prepa en Línea-SEP.")
           
         col1, col2 = st.columns(2)
@@ -697,4 +699,3 @@ class RetroalimentacionApp:
                 except Exception as e:
                     self.db.add_log("ERROR", f"Fallo al generar aportación de foro: {e}")
                     st.error(f"Error al generar la aportación: {e}")
-                    
