@@ -780,9 +780,6 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
                 texto_limpio_fin = texto_candidato.strip().lower()
                 es_truncado = any(texto_limpio_fin.endswith(t) for t in terminaciones_truncadas)
 
-                # Eliminamos la validación del nombre del asesor (n_ase_check) 
-                # porque ya no se le pide a la IA que lo genere.
-
                 if es_truncado:
                     raise ValueError(f"El modelo {modelo_actual['nombre']} truncó la respuesta a la mitad.")
 
@@ -827,9 +824,10 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         dirs = db.get_all_directrices()
         n_ase = dirs.get("asesor_nombre", "")
         id_ase = dirs.get("asesor_id", "")
+        g_ase = dirs.get("grupo", "M00C0G00-000")
 
-        word_bytes = docx_bytes("", texto_generado, n_ase, id_ase)
-        html_text = feedback_to_moodle_html(texto_generado, n_ase, id_ase)
+        word_bytes = docx_bytes("", texto_generado, n_ase, id_ase, g_ase)
+        html_text = feedback_to_moodle_html(texto_generado, n_ase, id_ase, g_ase)
         nombre_base = generar_nombre_archivo(estudiante, actividad.nombre)
 
         if message_id_to_edit:
@@ -905,4 +903,3 @@ if __name__ == '__main__':
     
     bot_log("INFO", "Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    
