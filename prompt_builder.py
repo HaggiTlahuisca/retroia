@@ -55,8 +55,6 @@ class PromptBuilder:
 
         n_ase = self.dirs.get("asesor_nombre", "Asesor").strip()
         r_ase = self.dirs.get("asesor_rol", "Asesor virtual").strip()
-        id_ase = self.dirs.get("asesor_id", "000000").strip()
-        grupo_asignado = self.dirs.get("grupo", "M00C0G00-000").strip()
 
         prompt_sistema = self.dirs.get(
             "prompt_sistema",
@@ -81,27 +79,34 @@ class PromptBuilder:
             firmas_base.append(firma_personalizada)
         firma_corta = random.choice(firmas_base)
 
-        observacion_textual_prompt = ""
-        observacion_contexto = "No se registraron observaciones del asesor."
+        # --- NUEVA LÓGICA DE OBSERVACIONES ---
+        instruccion_criterios_dinamica = "Redacta un párrafo en cada criterio justificando el nivel asignado de forma congruente según la rúbrica y las instrucciones."
+        instruccion_areas_dinamica = f"Redacta en prosa fluida las áreas de mejora de forma constructiva.\n   {self.dirs.get('areas_oportunidad', '')} {self.dirs.get('sugerencias', '')}"
 
         if self.observaciones:
             if self.observaciones_textuales:
-                observacion_contexto = (
-                    "Se han proporcionado observaciones textuales del asesor como contenido exacto que debe conservarse sin modificación."
+                observacion_contexto = "Se han proporcionado observaciones TEXTUALES del asesor que sustituyen la redacción normal de áreas de oportunidad."
+                instruccion_criterios_dinamica = (
+                    "¡REGLA ESTRICTA!: Como hay observaciones textuales, EN LOS CRITERIOS ÚNICAMENTE DEBES INDICAR EL NIVEL OBTENIDO "
+                    "con una frase extremadamente breve. Ejemplos permitidos:\n"
+                    "- Tu desempeño alcanza un nivel aceptable.\n"
+                    "- El nivel obtenido es experto.\n"
+                    "- En este criterio te ubicas en el nivel capacitado.\n"
+                    "- Aquí el nivel obtenido es requiere apoyo.\n"
+                    "TIENES ESTRICTAMENTE PROHIBIDO justificar el nivel o agregar explicaciones adicionales dentro de cada criterio."
                 )
-                observacion_textual_prompt = (
-                    "\n### ¡REGLA CRÍTICA DE COPIA TEXTUAL!\n"
-                    f"El Asesor ha proporcionado la siguiente observación exacta: '{self.observaciones}'.\n"
-                    "TIENES ESTRICTAMENTE PROHIBIDO modificar, resumir, parafrasear o reordenar este texto. "
-                    "Debes insertarlo EXACTAMENTE COMO ESTÁ ESCRITO en la sección correspondiente de la retroalimentación.\n"
+                instruccion_areas_dinamica = (
+                    "¡REGLA ESTRICTA!: NO redactes sugerencias propias ni uses frases de transición de machote. "
+                    "DEBES escribir EXACTAMENTE la siguiente frase introductoria:\n"
+                    "'Lo anterior se debe a que tu actividad tiene las siguientes áreas de oportunidad:'\n"
+                    f"Y justo debajo, pegar EXACTAMENTE y SIN ALTERAR NI UNA COMA el siguiente texto del asesor:\n{self.observaciones}"
                 )
             else:
                 observacion_contexto = (
-                    "Se han proporcionado observaciones del asesor como evidencia contextual para interpretar el desempeño del estudiante. "
-                    "Estas observaciones pueden incluir cálculos, resultados, operaciones, errores concretos o fragmentos del documento entregado. "
-                    "Úsalas para identificar fortalezas, dificultades y áreas de oportunidad, pero NUNCA las copies, cites, quotes ni reproduzcas literalmente. "
-                    "Interprétalas, parafrásalas y conviértelas en una redacción natural, clara y pedagógica. "
-                    f"Contexto del asesor: {self.observaciones}"
+                    "Se han proporcionado observaciones generales del asesor como evidencia contextual. "
+                    "Úsalas como BASE para la redacción de los párrafos en cada uno de los criterios a fin de justificar "
+                    "los niveles asignados con la congruencia necesaria. No es necesario que el estudiante las lea exactamente como se escribieron. "
+                    f"\nContexto del asesor: {self.observaciones}"
                 )
         else:
             observacion_contexto = "Todo correcto según los niveles y la evidencia disponible."
@@ -145,12 +150,7 @@ Apreciable, {self.estudiante}.
 Después explica brevemente que la actividad se considera no evaluable en todos los criterios debido al plagio detectado basándote en las observaciones del asesor si las hay.
 
 Firma:
-{firma_corta_plagio}
-
-{n_ase}
-{r_ase}
-{id_ase}
-{grupo_asignado}"""
+{firma_corta_plagio}"""
 
         if self.es_error_formato:
             instruccion_error = self.dirs.get(
@@ -166,19 +166,13 @@ Firma:
 
 ### INSTRUCCIÓN CRÍTICA DE FORMATO INCORRECTO:
 {instruccion_error}
-{observacion_textual_prompt}
 
 ¡REGLA DE ORO!: TIENES ESTRICTAMENTE PROHIBIDO desglosar los criterios de la rúbrica (Cognitivo, Actitudinal, Comunicativo, etc.). No los menciones. Solo debes redactar un mensaje breve, directo y útil para corregir el formato.
 
 1. **SALUDO:** Inicia EXACTAMENTE con: **Apreciable, {self.estudiante}.** (Dando un salto de línea después).
 2. **CUERPO DEL MENSAJE:** Redacta la observación del error de formato con empatía pero firmeza, invitándolo a revisar las instrucciones para futuras entregas.
 3. **DESPEDIDA:** Usa exactamente esta firma:
-{firma_corta}
-
-{n_ase}
-{r_ase}
-{id_ase}
-{grupo_asignado}"""
+{firma_corta}"""
 
         is_foro = "foro de integración" in n_act.lower()
 
@@ -210,9 +204,14 @@ Firma:
 
         crit_str = "".join(crit_items)
 
+        # --- NUEVA REGLA 100 Y APERTURA BASE ---
         regla_experto = ""
         if es_experto_total:
-            regla_experto = "\n- ¡ATENCIÓN! CALIFICACIÓN PERFECTA: El estudiante obtuvo nivel 'experto' en TODOS los criterios. Tu redacción en cada criterio DEBE SER EXTREMADAMENTE CORTA, CLARA Y DIRECTA."
+            regla_experto = (
+                "\n- ¡ATENCIÓN! CALIFICACIÓN PERFECTA (100): El estudiante obtuvo nivel 'experto' en TODOS los criterios. "
+                "La explicación de los criterios DEBE SER breve y sencilla, y estar ÚNICAMENTE relacionada con lo que cada uno indica en la rúbrica "
+                "de la mano de las instrucciones de la actividad. No inventes áreas de oportunidad falsas ni justificaciones innecesarias."
+            )
 
         rec_str = "".join([f"- URL: {r.url} (Tipo: {r.tipo}. Propósito: {r.descripcion})\n" for r in act.recursos]) if act and act.recursos else ""
         bloque_recursos = ""
@@ -222,24 +221,23 @@ Firma:
    RECUERDA: NO uses la palabra "Recursos" ni la frase "Recursos adicionales" como título. NO uses viñetas.
    {self.dirs.get('recursos_apoyo', '')}
    Redacta cada recurso en un PÁRRAFO INDEPENDIENTE usando prosa fluida y natural.
-   TIENES ESTRICTAMENTE PROHIBIDO usar formatos robóticos y de lista como "Video: [URL]. Propósito: [Texto]". 
    DEBES integrarlo conversacionalmente en tu texto. Por ejemplo: "Para reforzar los conceptos clave, te recomiendo explorar este [tipo] disponible en [URL], el cual está diseñado para [descripción]".
    Recursos a incluir:
 {rec_str}"""
 
-        aperturas_variadas = [
-            "Como siempre, te felicito por entregar una actividad más de este módulo; espero que tú y tus seres queridos se encuentren muy bien.",
-            "Antes que nada, me da mucho gusto recibir tu entrega; te felicito por tu constancia y espero que tanto tú como las personas que te rodean estén muy bien.",
-            "Es un gusto recibir tu trabajo en esta semana del módulo; te felicito sinceramente y deseo que tú y tus seres queridos gocen de buena salud.",
-            "Quiero comenzar felicitándote por haber enviado tu actividad; espero que te encuentres muy bien, al igual que quienes te rodean.",
-            "Felicitaciones por completar una actividad más en el módulo; me complace saber que sigues adelante y espero que tú y los tuyos estén muy bien.",
-            "Recibe mis felicitaciones por esta entrega; espero que todo marche favorablemente tanto para ti como para tus seres queridos.",
-            "Me da mucho gusto que hayas enviado tu actividad en esta semana; te felicito por tu dedicación y espero que te encuentres muy bien.",
-            "Qué gusto es recibir tu entrega en esta semana del módulo; te felicito por seguir adelante y espero que tú y tu familia estén muy bien.",
-            "Antes de comenzar, quiero felicitarte por entregar esta actividad y desearte bienestar, así como a tus seres queridos.",
-            "Gracias por compartir tu trabajo en esta semana; te felicito por tu esfuerzo y espero que tú y quienes te rodean se encuentren muy bien."
-        ]
-        apertura_aleatoria = random.choice(aperturas_variadas)
+        # Estructura de apertura dictada por el asesor
+        apertura_base = (
+            "Como siempre te felicito por entregar una actividad más de este módulo once, además de ello, "
+            "espero que te encuentres muy bien, así como tus seres queridos.\n"
+            "Tu actividad presenta numerosos aciertos como el hecho de que la entregas en el formato indicado [INSTRUCCIÓN IA: AGREGA AQUÍ 1 o 2 aciertos muy breves y sencillos basados en los criterios obtenidos].\n"
+            "Las actividades que se solicitan en cada semana son con la finalidad de que tú pongas en práctica "
+            "todo lo que has aprendido en dicha semana, ya sea con el material que hay en la plataforma o con material "
+            "que consultes de manera independiente."
+        )
+        
+        # Conector para áreas de oportunidad (solo si NO sacó 100 y NO tiene observaciones textuales)
+        if not es_experto_total and not self.observaciones_textuales:
+            apertura_base += "\nSin embargo, tu actividad tiene áreas de oportunidad."
 
         if is_foro:
             return f"""{prompt_sistema}
@@ -256,8 +254,7 @@ Firma:
 - ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos, negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.). Todo debe fluir como párrafos naturales.
 - ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo sin citarlos como etiquetas.
 - RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de la observación general. Si el asesor indica un problema específico, debes mantener su intención y expresarlo con un lenguaje pedagógico y natural.
-- DISTRIBUCIÓN DE OBSERVACIONES: Si el Asesor incluyó observaciones, intégralas de forma natural a lo largo de tu redacción para justificar las áreas correspondientes, no las aísles al final.
-{observacion_textual_prompt}
+- DISTRIBUCIÓN DE OBSERVACIONES: Si el Asesor incluyó observaciones, intégralas de forma natural a lo largo de tu redacción para justificar las áreas correspondientes, no las aísles al final. {regla_experto}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
@@ -278,14 +275,10 @@ Firma:
 
 {self.dirs.get('despedida', 'Espero que todo lo aprendido en estas cuatro semanas te sea de mucha ayuda.')}
 
-{firma_corta}
+{firma_corta}"""
 
-{n_ase}
-{r_ase}
-{id_ase}
-{grupo_asignado}"""
-
-        return f"""{prompt_sistema}
+        else:
+            return f"""{prompt_sistema}
 
 ### DATOS DEL ALUMNO Y ACTIVIDAD:
 - Estudiante: {self.estudiante}
@@ -300,51 +293,37 @@ Firma:
 2. ¡PROHIBIDO INVENTAR CONTEXTO O ACCIONES!: Esta actividad pertenece estrictamente a un módulo llamado Representaciones Simbólicas y Algoritmos, mismo que es completamente de MATEMÁTICAS. NO inventes conceptos de física, mecánica, diseño, historia u otras materias. Además, NO felicites al estudiante por "aclarar dudas", "entregar a tiempo", "buena disposición", ni menciones que incluyó "gráficas" o "tablas", a menos que las observaciones del asesor lo indiquen explícitamente.
 3. RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de las observaciones generales. Si el asesor señala explícitamente el uso de "Inteligencia Artificial", "IA", "fuga de formato" o plagio, DEBES mantener la acusación firme y usar exactamente esas palabras clave. ¡No alteres la intención original del mensaje del asesor!
 4. DISTRIBUCIÓN DE OBSERVACIONES: Las observaciones del asesor deben ser integradas y distribuidas a lo largo de los párrafos de los criterios para justificar los niveles obtenidos. Tienes PROHIBIDO agruparlas en un solo párrafo aislado al final o dejarlas fuera de la carta. {regla_experto}
-{observacion_textual_prompt}
-5. Está tajantemente prohibido iniciar las retroalimentaciones con la siguiente frase: "Me resulta muy interesante la manera en que abordaste los temas matemáticos" o frases similares. Además de estar prohibido mencionar más de tres veces el nombre de la actividad integradora a lo largo de toda la retroalimentación.
+5. Está tajantemente prohibido iniciar las retroalimentaciones con la frase "Me resulta muy interesante la manera en que abordaste los temas" o similares. 
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
-1. **SALUDO, FELICITACIÓN Y APERTURA (VARIEDAD OBLIGATORIA):**
-   Inicia EXACTAMENTE con: **Apreciable, {self.estudiante}.**
-   ¡DEBES DAR UN SALTO DE LÍNEA DESPUÉS DEL SALUDO! (El saludo debe quedar solo en su propio renglón.)
+1. **SALUDO Y APERTURA (CÁLIDA Y SIN PALABRAS RIMBOMBANTES):**
+   Inicia EXACTAMENTE con: **Apreciable, {self.estudiante}.** (Dando un salto de línea después).
+   En los siguientes párrafos, redacta la apertura basándote esencialmente en esta estructura (mantén el tono sencillo y de nivel medio superior):
+   "{apertura_base}"
+   {self.dirs.get('saludo', '')} {self.dirs.get('fortalezas', '')}
+   ¡REGLA ESTRICTA!: Tienes PROHIBIDO usar las frases "He revisado detalladamente", "He revisado con atención", o "Me resulta muy interesante la manera en que abordaste los temas".
+   ¡LÍMITE DE NOMBRE DE ACTIVIDAD!: TIENES ESTRICTAMENTE PROHIBIDO usar el nombre de la actividad integradora más de 3 veces en todo tu texto. 
 
-   En un NUEVO PÁRRAFO, construye la apertura a partir de esta idea: "{apertura_aleatoria}"
-   Extiéndela naturalmente con una o dos oraciones que expliquen, en términos generales, el propósito de las actividades semanales del módulo: que sirven para que el estudiante ponga en práctica y refuerce sus habilidades.
-
-   En el MISMO PÁRRAFO o en uno nuevo, describe de forma concreta y natural los aciertos observados en la actividad "{n_act}", señalando únicamente los elementos que estén respaldados por la evidencia y las observaciones del asesor.
-
-   Cierra este bloque introductorio con un recordatorio breve, positivo y constructivo sobre la importancia de la precisión en matemáticas.
-
-   Sigue también estas directrices generales: {self.dirs.get('saludo', '')} {self.dirs.get('fortalezas', '')}
-   IMPORTANTE: Al referirte al trabajo del estudiante, usa siempre el nombre de la actividad entre comillas ("{n_act}").
-   ¡REGLA ESTRICTA!: Tienes PROHIBIDO usar las frases "He revisado detalladamente", "He revisado con atención", "Me resulta muy interesante la manera en que abordaste los temas matemáticos", o variaciones similares.
-
-2. **RETROALIMENTACIÓN POR CRITERIOS (ESTRUCTURA Y TÍTULOS OBLIGATORIOS):**
-   Debes presentar la retroalimentación dividida exactamente en los cuatro criterios de desempeño en este orden riguroso:
+2. **RETROALIMENTACIÓN POR CRITERIOS:**
+   Debes presentar la evaluación dividida en los cuatro criterios en este orden:
    
    **Criterio cognitivo**
-   [Párrafo retroalimentando el aspecto cognitivo...]
-
    **Criterio actitudinal**
-   [Párrafo retroalimentando el aspecto actitudinal...]
-
    **Criterio comunicativo**
-   [Párrafo retroalimentando el aspecto comunicativo...]
-
    **Criterio pensamiento crítico**
-   [Párrafo retroalimentando el pensamiento crítico...]
 
-   REGLAS DE FORMATO PARA ESTOS ENCABEZADOS:
-   - Escribe el nombre del criterio en negritas EN SU PROPIO RENGLÓN AISLADO (Tal cual se muestra arriba). NO pongas dos puntos (:) después del título.
-   - Debes mencionar el nombre del nivel alcanzado en minúsculas y entre asteriscos dobles (ejemplo: **experto**, **capacitado**, **aceptable**). Puedes variar la posición del nivel en la frase, pero debe ser explícito.
+   REGLAS PARA LOS CRITERIOS:
+   - Escribe el nombre del criterio en negritas EN SU PROPIO RENGLÓN AISLADO.
+   - Debes mencionar obligatoriamente el nombre del nivel alcanzado en minúsculas y entre asteriscos dobles (ejemplo: **experto**, **capacitado**).
+   - {instruccion_criterios_dinamica}
 
 3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS:**
-   Redacta en prosa fluida inmediatamente después de los criterios. RECUERDA: NO PONGAS TÍTULO A ESTA SECCIÓN.
-   ¡REGLA ESTRICTA!: Tienes ESTRICTAMENTE PROHIBIDO usar frases de transición robóticas o de machote como "En cuanto a las áreas de oportunidad", "Respecto a tus áreas de mejora" o "A continuación". 
-   {self.dirs.get('areas_oportunidad', '')} {self.dirs.get('sugerencias', '')}{bloque_recursos}
+   NO PONGAS NINGÚN TÍTULO A ESTA SECCIÓN (Ni "Áreas de oportunidad", ni "Sugerencias").
+   {instruccion_areas_dinamica}
+   {bloque_recursos}
 
-5. **CIERRE EXACTO Y DESPEDIDA:**
+4. **CIERRE EXACTO Y DESPEDIDA:**
    Usa EXACTAMENTE esta redacción final. Solo asegúrate de copiarla tal cual:
 
 {self.dirs.get('despedida', f'Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu "{n_act}".')}
@@ -353,12 +332,4 @@ Me despido con esta frase de {autor_frase}: **"{texto_frase}"**.
 
 Recuerda que siempre estoy para ti al otro lado de la pantalla. Me puedes contactar por medio de los canales institucionales.
 
-{firma_corta}
-
-{n_ase}
-{r_ase}
-{id_ase}
-{grupo_asignado}"""
-
-
-"""This file intentionally left blank."""
+{firma_corta}"""
