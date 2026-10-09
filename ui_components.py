@@ -11,8 +11,7 @@ from utils import docx_bytes, pdf_bytes, sanitize_filename, get_activity_code, f
 
 
 def header() -> None:
-    st.title("Generador Inteligente de Retroalimentaciones Formativas con IA")
-    st.caption("Diseñado para evaluación transparente, personalizada y asistida por IA para Asesores Virtuales.")
+    st.title("Generador inteligente de retroalimentaciones")
     st.markdown("---")
 
 
@@ -21,13 +20,13 @@ def info_card(title: str, text: str) -> None:
 
 
 def rubric_manual_form() -> tuple[Rubrica, bool]:
-    st.markdown("#### 📐 Matriz de Desempeño de la Rúbrica")
+    st.markdown("#### 📐 Matriz de desempeño de la rúbrica")
     
     # Interruptor dinámico para mostrar u ocultar la pestaña Colaborativo
-    es_foro = st.checkbox("Habilitar 5to criterio (Colaborativo) para Foro de Integración")
+    es_foro = st.checkbox("Habilitar 5to criterio (Colaborativo) para el foro de integración")
     
     with st.form("form_rubrica_manual_matriz"):
-        nombre = st.text_input("Nombre de la rúbrica", placeholder="Ej. Rúbrica Actividad 4")
+        nombre = st.text_input("Nombre de la rúbrica", placeholder="Ej. Rúbrica de la actividad 4")
         
         criterios_nombres = ["Cognitivo", "Actitudinal", "Comunicativo", "Pensamiento crítico"]
         if es_foro:
@@ -50,7 +49,7 @@ def rubric_manual_form() -> tuple[Rubrica, bool]:
                 criterios_objetos.append(Criterio(nombre=crit_nombre, niveles=niveles_objetos))
 
         contenido_completo = "\n".join(resumen_texto_lineas)
-        submitted = st.form_submit_button("💾 Guardar Rúbrica", type="primary")
+        submitted = st.form_submit_button("💾 Guardar rúbrica", type="primary")
 
     return Rubrica(nombre=nombre, contenido=contenido_completo, criterios=criterios_objetos), submitted
 
@@ -68,8 +67,8 @@ def recurso_global_form() -> tuple[Recurso, bool]:
         titulo = st.text_input("Nombre / Título del recurso")
         tipo = st.selectbox("Tipo de recurso", ["Video", "Artículo", "Enlace", "PDF", "Otro"])
         url = st.text_input("URL del recurso")
-        descripcion = st.text_area("Descripción / Propósito", height=60)
-        submitted = st.form_submit_button("Guardar en Catálogo")
+        descripcion = st.text_area("Propósito de la actividad", height=60)
+        submitted = st.form_submit_button("Guardar en el catálogo")
     return Recurso(titulo=titulo, tipo=tipo, url=url, descripcion=descripcion), submitted
 
 
@@ -98,7 +97,7 @@ def activity_form(rubricas: list[Any], frases: list[Frase], recursos: list[Recur
         selected_recursos_nombres = st.multiselect("Recursos asociados a esta actividad", list(recurso_opts.keys()))
         selected_recursos_ids = [recurso_opts[n] for n in selected_recursos_nombres if n in recurso_opts]
 
-        submitted = st.form_submit_button("Guardar Actividad Integrada", type="primary")
+        submitted = st.form_submit_button("Guardar actividad integrada", type="primary")
 
     return Actividad(nombre=nombre, proposito=proposito, instrucciones=instrucciones), rubric_opts[selected_rubric], frase_opts[selected_frase], selected_recursos_ids, submitted
 
