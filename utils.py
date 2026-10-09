@@ -70,7 +70,7 @@ def feedback_to_moodle_html(text: str, nombre_asesor: str = "", id_asesor: str =
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     html_lines: list[str] = []
     
-    signature_lines = ["con afecto.", "cordialmente.", "atentamente.", "saludos cordiales."]
+    signature_lines = ["con afecto.", "cordialmente.", "atentamente.", "saludos cordiales.", "saludos."]
 
     for i, line in enumerate(lines):
         clean_line = line.replace("##", "").strip()
@@ -171,7 +171,7 @@ def add_formatted_line_to_doc(doc: Document, line: str) -> Any:
         p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         return p
 
-    signature_lines = ["con afecto.", "cordialmente.", "atentamente.", "saludos cordiales."]
+    signature_lines = ["con afecto.", "cordialmente.", "atentamente.", "saludos cordiales.", "saludos."]
     lower_stripped = stripped.lower().replace("**", "").replace("*", "")
 
     if lower_stripped in signature_lines:
@@ -296,3 +296,4 @@ def export_json(data: dict[str, Any], filename_prefix: str = "export") -> Path:
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return filepath
+    
