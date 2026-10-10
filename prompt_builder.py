@@ -65,7 +65,8 @@ class PromptBuilder:
             f"\n\n[INSTRUCCIÓN INTERNA — NO REPRODUCIR EN EL TEXTO]: "
             f"Esta es la retroalimentación número {self.indice_estudiante} del lote actual. "
             f"Tu redacción DEBE ser léxica y estructuralmente distinta a cualquier texto anterior. "
-            f"Varía el orden de las ideas, el vocabulario y la longitud de los párrafos."
+            f"Varía el orden de las ideas, usa sinónimos y altera la longitud de los párrafos. "
+            f"Bajo ninguna circunstancia copies plantillas genéricas."
         )
 
         reglas_formato = self.dirs.get(
@@ -80,7 +81,11 @@ class PromptBuilder:
         firma_corta = random.choice(firmas_base)
 
         # --- NUEVA LÓGICA DE OBSERVACIONES ---
-        instruccion_criterios_dinamica = "Redacta un párrafo en cada criterio justificando el nivel asignado de forma congruente según la rúbrica y las instrucciones."
+        instruccion_criterios_dinamica = (
+            "Redacta un párrafo breve para cada criterio justificando el nivel asignado. "
+            "¡REGLA VITAL!: Tienes estrictamente PROHIBIDO copiar o transcribir el lenguaje técnico de las rúbricas institucionales. "
+            "Explica con tus propias palabras, de forma muy conversacional, sencilla y directa (acorde a nivel medio superior), por qué obtuvo ese nivel según su trabajo."
+        )
         instruccion_areas_dinamica = f"Redacta en prosa fluida las áreas de mejora de forma constructiva.\n   {self.dirs.get('areas_oportunidad', '')} {self.dirs.get('sugerencias', '')}"
 
         if self.observaciones:
@@ -93,7 +98,7 @@ class PromptBuilder:
                     "- El nivel obtenido es experto.\n"
                     "- En este criterio te ubicas en el nivel capacitado.\n"
                     "- Aquí el nivel obtenido es requiere apoyo.\n"
-                    "TIENES ESTRICTAMENTE PROHIBIDO justificar el nivel o agregar explicaciones adicionales dentro de cada criterio."
+                    "TIENES ESTRICTAMENTE PROHIBIDO justificar el nivel o agregar explicaciones adicionales dentro de los párrafos de cada criterio."
                 )
                 instruccion_areas_dinamica = (
                     "¡REGLA ESTRICTA!: NO redactes sugerencias propias ni uses frases de transición de machote. "
@@ -204,13 +209,14 @@ Firma:
 
         crit_str = "".join(crit_items)
 
-        # --- NUEVA REGLA 100 Y APERTURA BASE ---
+        # --- REGLA 100 E IDEAS DE APERTURA (ANTI-PLANTILLAS) ---
         regla_experto = ""
         if es_experto_total:
             regla_experto = (
                 "\n- ¡ATENCIÓN! CALIFICACIÓN PERFECTA (100): El estudiante obtuvo nivel 'experto' en TODOS los criterios. "
-                "La explicación de los criterios DEBE SER breve y sencilla, y estar ÚNICAMENTE relacionada con lo que cada uno indica en la rúbrica "
-                "de la mano de las instrucciones de la actividad. No inventes áreas de oportunidad falsas ni justificaciones innecesarias."
+                "La justificación de cada criterio DEBE SER conversacional, extremadamente breve y sencilla. "
+                "TIENES ESTRICTAMENTE PROHIBIDO copiar el texto de la rúbrica. Menciona de forma natural que cumplió "
+                "con las instrucciones. No inventes áreas de oportunidad falsas ni justificaciones excesivas."
             )
 
         rec_str = "".join([f"- URL: {r.url} (Tipo: {r.tipo}. Propósito: {r.descripcion})\n" for r in act.recursos]) if act and act.recursos else ""
@@ -225,19 +231,17 @@ Firma:
    Recursos a incluir:
 {rec_str}"""
 
-        # Estructura de apertura dictada por el asesor
-        apertura_base = (
-            "Como siempre te felicito por entregar una actividad más de este módulo once, además de ello, "
-            "espero que te encuentres muy bien, así como tus seres queridos.\n"
-            "Tu actividad presenta numerosos aciertos como el hecho de que la entregas en el formato indicado [INSTRUCCIÓN IA: AGREGA AQUÍ 1 o 2 aciertos muy breves y sencillos basados en los criterios obtenidos].\n"
-            "Las actividades que se solicitan en cada semana son con la finalidad de que tú pongas en práctica "
-            "todo lo que has aprendido en dicha semana, ya sea con el material que hay en la plataforma o con material "
-            "que consultes de manera independiente."
+        # En lugar de un texto fijo a copiar, le damos "viñetas conceptuales" para que la IA lo redacte con sus propias palabras.
+        ideas_apertura = (
+            "- Saluda cálidamente deseando bienestar al estudiante y a su familia.\n"
+            "- Felicítalo por la entrega de esta actividad (puedes mencionar que es del 'módulo once' o del módulo en curso).\n"
+            "- Destaca 1 o 2 aciertos muy breves y sencillos sobre su trabajo (ej. formato correcto, buen intento de planteamiento algebraico), basándote en sus niveles obtenidos.\n"
+            "- Recuerda de forma natural que el objetivo de las actividades semanales es practicar lo aprendido con los materiales del curso o externos."
         )
         
-        # Conector para áreas de oportunidad (solo si NO sacó 100 y NO tiene observaciones textuales)
+        # Conector para áreas de oportunidad
         if not es_experto_total and not self.observaciones_textuales:
-            apertura_base += "\nSin embargo, tu actividad tiene áreas de oportunidad."
+            ideas_apertura += "\n- Añade un conector sutil indicando que, para seguir avanzando, se identificaron áreas de oportunidad en su actividad."
 
         if is_foro:
             return f"""{prompt_sistema}
@@ -253,8 +257,8 @@ Firma:
 - {reglas_formato}
 - ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos, negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.). Todo debe fluir como párrafos naturales.
 - ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo sin citarlos como etiquetas.
-- RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de la observación general. Si el asesor indica un problema específico, debes mantener su intención y expresarlo con un lenguaje pedagógico y natural.
-- DISTRIBUCIÓN DE OBSERVACIONES: Si el Asesor incluyó observaciones, intégralas de forma natural a lo largo de tu redacción para justificar las áreas correspondientes, no las aísles al final. {regla_experto}
+- RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de la observación general.
+- DISTRIBUCIÓN DE OBSERVACIONES: Si el Asesor incluyó observaciones, intégralas de forma natural a lo largo de tu redacción para justificar las áreas correspondientes. {regla_experto}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
@@ -264,10 +268,10 @@ Firma:
 
 2. **DESARROLLO CONDENSADO (ORDEN ESTRICTO):**
    Redacta uno o dos párrafos fluidos y conversacionales integrando el desempeño del estudiante en los aspectos evaluados EXACTAMENTE EN EL MISMO ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Colaborativo, Pensamiento crítico.
-   Convierte los resultados de las evaluaciones en un texto cualitativo destacando sus aportaciones al foro. Utiliza tus directrices: {self.dirs.get('fortalezas', '')}
+   ¡REGLA VITAL!: Tienes estrictamente PROHIBIDO copiar el lenguaje técnico de la rúbrica. Utiliza tus directrices: {self.dirs.get('fortalezas', '')}
 
 3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS:**
-   En un nuevo párrafo, menciona las áreas de mejora de forma constructiva de acuerdo con las fallas indicadas en la evaluación (si las tuvo).
+   En un nuevo párrafo independiente, menciona las áreas de mejora de forma constructiva.
    {self.dirs.get('areas_oportunidad', '')} {self.dirs.get('sugerencias', '')}
 
 4. **CIERRE EXACTO Y DESPEDIDA:**
@@ -290,20 +294,19 @@ Firma:
 
 ### REGLAS DE ORO CONTRA ALUCINACIONES Y FORMATO (¡MUY IMPORTANTE!):
 1. {reglas_formato}
-2. ¡PROHIBIDO INVENTAR CONTEXTO O ACCIONES!: Esta actividad pertenece estrictamente a un módulo llamado Representaciones Simbólicas y Algoritmos, mismo que es completamente de MATEMÁTICAS. NO inventes conceptos de física, mecánica, diseño, historia u otras materias. Además, NO felicites al estudiante por "aclarar dudas", "entregar a tiempo", "buena disposición", ni menciones que incluyó "gráficas" o "tablas", a menos que las observaciones del asesor lo indiquen explícitamente.
-3. RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de las observaciones generales. Si el asesor señala explícitamente el uso de "Inteligencia Artificial", "IA", "fuga de formato" o plagio, DEBES mantener la acusación firme y usar exactamente esas palabras clave. ¡No alteres la intención original del mensaje del asesor!
-4. DISTRIBUCIÓN DE OBSERVACIONES: Las observaciones del asesor deben ser integradas y distribuidas a lo largo de los párrafos de los criterios para justificar los niveles obtenidos. Tienes PROHIBIDO agruparlas en un solo párrafo aislado al final o dejarlas fuera de la carta. {regla_experto}
-5. Está tajantemente prohibido iniciar las retroalimentaciones con la frase "Me resulta muy interesante la manera en que abordaste los temas" o similares. 
+2. ¡PROHIBIDO INVENTAR CONTEXTO O ACCIONES!: Esta actividad pertenece a matemáticas. NO inventes conceptos de otras materias. NO felicites por "aclarar dudas", "entregar a tiempo", o menciones que incluyó "gráficas" o "tablas", a menos que las observaciones del asesor lo indiquen explícitamente.
+3. RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de las observaciones generales. Si el asesor señala explícitamente "Inteligencia Artificial", "IA", "fuga de formato" o plagio, mantén la acusación firme y usa esas palabras clave.
+4. DISTRIBUCIÓN DE OBSERVACIONES: Las observaciones del asesor deben ser integradas y distribuidas a lo largo de los párrafos de los criterios para justificar los niveles. Tienes PROHIBIDO agruparlas en un solo párrafo aislado al final o dejarlas fuera de la carta. {regla_experto}
+5. LÍMITE DE NOMBRE DE ACTIVIDAD: Tienes ESTRICTAMENTE PROHIBIDO usar el nombre de la actividad integradora más de 3 veces en todo tu texto. NUNCA inicies con "Me resulta muy interesante la manera en que abordaste los temas".
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
-1. **SALUDO Y APERTURA (CÁLIDA Y SIN PALABRAS RIMBOMBANTES):**
-   Inicia EXACTAMENTE con: **Apreciable, {self.estudiante}.** (Dando un salto de línea después).
-   En los siguientes párrafos, redacta la apertura basándote esencialmente en esta estructura (mantén el tono sencillo y de nivel medio superior):
-   "{apertura_base}"
-   {self.dirs.get('saludo', '')} {self.dirs.get('fortalezas', '')}
-   ¡REGLA ESTRICTA!: Tienes PROHIBIDO usar las frases "He revisado detalladamente", "He revisado con atención", o "Me resulta muy interesante la manera en que abordaste los temas".
-   ¡LÍMITE DE NOMBRE DE ACTIVIDAD!: TIENES ESTRICTAMENTE PROHIBIDO usar el nombre de la actividad integradora más de 3 veces en todo tu texto. 
+1. **SALUDO Y APERTURA (CÁLIDA Y SIN PLANTILLAS REPETITIVAS):**
+   Inicia EXACTAMENTE con: **Apreciable, {self.estudiante}.** (Dando un doble salto de línea después).
+   A continuación, redacta la apertura desarrollando estas ideas con TUS PROPIAS PALABRAS (convierte estos puntos en prosa natural, sencilla y fluida; NUNCA copies o repitas la misma redacción exacta entre alumnos):
+   {ideas_apertura}
+   
+   ¡REGLA ESTRICTA!: Tienes PROHIBIDO usar las frases de cajón como "He revisado detalladamente" o "He revisado con atención".
 
 2. **RETROALIMENTACIÓN POR CRITERIOS:**
    Debes presentar la evaluación dividida en los cuatro criterios en este orden:
@@ -318,8 +321,8 @@ Firma:
    - Debes mencionar obligatoriamente el nombre del nivel alcanzado en minúsculas y entre asteriscos dobles (ejemplo: **experto**, **capacitado**).
    - {instruccion_criterios_dinamica}
 
-3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS:**
-   NO PONGAS NINGÚN TÍTULO A ESTA SECCIÓN (Ni "Áreas de oportunidad", ni "Sugerencias").
+3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS (PÁRRAFO NUEVO INDEPENDIENTE):**
+   ¡ATENCIÓN! Asegúrate de dar un doble salto de línea (Enter) después del último criterio para separar visualmente esta sección. NO PONGAS NINGÚN TÍTULO A ESTA SECCIÓN.
    {instruccion_areas_dinamica}
    {bloque_recursos}
 
