@@ -680,7 +680,7 @@ class DatabaseManager:
             fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("INSERT INTO bot_logs (fecha, nivel, mensaje) VALUES (?, ?, ?)", (fecha, nivel, mensaje))
 
-    def get_logs(self, limit: int = 100) -> list[dict]:
+    def get_logs(self, limit: int = 1000) -> list[dict]:
         with self.connect() as conn:
             conn.execute("CREATE TABLE IF NOT EXISTS bot_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, nivel TEXT, mensaje TEXT)")
             cur = conn.execute("SELECT * FROM bot_logs ORDER BY id DESC LIMIT ?", (limit,))
@@ -714,3 +714,4 @@ class DatabaseManager:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return filepath
+        
