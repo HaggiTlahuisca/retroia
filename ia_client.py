@@ -42,10 +42,10 @@ class IAClient:
         prompt: str,
         api_key: str,
         model_id: str,
-        temperature: float = 0.9,
-        max_tokens: int = 8500,
-        frequency_penalty: float = 0.5,
-        presence_penalty: float = 0.4,
+        temperature: float = 0.85,
+        max_tokens: int = 11500,
+        frequency_penalty: float = 0.05,
+        presence_penalty: float = 0.05,
         timeout: int = 95,
     ) -> str:
         """Envía el prompt a OpenRouter, captura el razonamiento interno y retorna el texto limpio."""
@@ -61,7 +61,19 @@ class IAClient:
 
         payload = {
             "model": model_id,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Eres un asesor virtual mexicano de nivel medio superior. "
+                        "Debes redactar única y exclusivamente en español de México, "
+                        "con ortografía, gramática, puntuación y espacios correctos entre cada palabra. "
+                        "Tienes estrictamente prohibido utilizar caracteres chinos, asiáticos, "
+                        "palabras en inglés o cambiar de idioma en cualquier parte del texto."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
             "temperature": temperature,
             "max_tokens": max_tokens,
             "frequency_penalty": frequency_penalty,
@@ -96,10 +108,22 @@ class IAClient:
                 texto_crudo = ""
 
         self.ultimo_razonamiento = razonamiento.strip()
+        texto_limpio = texto_crudo.strip()
 
         # Validación estricta: No permitir respuestas vacías como éxitos
-        if not texto_crudo.strip():
+        if not texto_limpio:
             raise RuntimeError(f"El modelo {model_id} no generó texto de retroalimentación (Respuesta vacía o agotó tokens en pensamiento).")
 
-        return texto_crudo.strip()
-        
+        # Validación contra caracteres asiáticos (chino, japonés, coreano o puntuación de ancho completo)
+        if re.search(r"[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uff00-\uffef]", texto_limpio):
+            raise RuntimeError(f"El modelo {model_id} generó caracteres en otro idioma (chino/asiático) y fue descartado.")
+
+        # Validación contra alucinaciones de palabras pegadas sin espacios o bucles de diccionario
+        palabras_sin_url = [
+            p for p in texto_limpio.split()
+            if not p.startswith("http://") and not p.startswith("https://")
+        ]
+        if any(len(p) > 45 for p in palabras_sin_url):
+            raise RuntimeError(f"El modelo {model_id} generó texto corrupto con palabras pegadas sin espacios y fue descartado.")
+
+        return texto_limpio
