@@ -17,6 +17,7 @@ from config import (
 )
 from database import DatabaseManager
 from ia_client import IAClient
+from model_selection import construir_modelos_a_intentar
 from models import Actividad, Recurso, Retroalimentacion, Rubrica
 from prompt_builder import PromptBuilder
 from styles import app_css
@@ -85,6 +86,8 @@ class RetroalimentacionApp:
             "last_prompt": "",
             "last_reasoning": "",
             "batch_queue": [],
+            "use_random_models": False,
+            "model_rotation_queue": [],
             "zip_ready_bytes": None,
             "zip_ready_name": "Retroalimentaciones.zip",
             "procesando_lote": False,
@@ -130,6 +133,11 @@ class RetroalimentacionApp:
               
             st.session_state.model_name = mod_seleccionado["nombre"]
             st.session_state.model_id = mod_seleccionado["api_id"]
+            st.session_state.use_random_models = st.checkbox(
+                "🎲 Usar rotación aleatoria equilibrada de modelos",
+                value=st.session_state.use_random_models,
+                help="Alterna de forma balanceada entre todos los modelos disponibles, igual que en Telegram.",
+            )
               
             st.session_state.temperature = col_m2.slider("Temperatura", 0.0, 1.5, float(st.session_state.temperature), 0.1)
             st.session_state.max_tokens = col_m3.slider("Tokens (Max)", 200, 8000, int(st.session_state.max_tokens), 100)
@@ -259,13 +267,7 @@ class RetroalimentacionApp:
                         indice_estudiante=idx + 1
                     )
                     prompt = b.build()
-                      
-                    modelos_db = self.db.get_modelos()
-                    modelos_candidatos = [m for m in modelos_db if not (item.get("es_error_formato", False) and "haiku" in m["api_id"].lower())]
-                    modelo_fav = next((m for m in modelos_candidatos if m["api_id"] == st.session_state.model_id), modelos_candidatos[0] if modelos_candidatos else None)
-                      
-                    intentos = [modelo_fav] if modelo_fav else []
-                    intentos += [m for m in modelos_candidatos if modelo_fav and m["api_id"] != modelo_fav["api_id"]]
+                    intentos = self._build_model_attempts(item.get("es_error_formato", False), item.get("es_plagio", False))
 
                     texto_generado = None
                     modelo_usado_nombre = st.session_state.model_name
@@ -307,12 +309,7 @@ class RetroalimentacionApp:
         try:
             with st.spinner("Generando redacción pedagógica original..."):
                 prompt = builder.build()
-                modelos_db = self.db.get_modelos()
-                modelos_candidatos = [m for m in modelos_db if not (es_error_formato and "haiku" in m["api_id"].lower())]
-                modelo_fav = next((m for m in modelos_candidatos if m["api_id"] == st.session_state.model_id), modelos_candidatos[0] if modelos_candidatos else None)
-                  
-                intentos = [modelo_fav] if modelo_fav else []
-                intentos += [m for m in modelos_candidatos if modelo_fav and m["api_id"] != modelo_fav["api_id"]]
+                intentos = self._build_model_attempts(es_error_formato, False)
 
                 texto = None
                 modelo_final_nombre = st.session_state.model_name
@@ -348,6 +345,28 @@ class RetroalimentacionApp:
         except Exception as exc: 
             self.db.add_log("ERROR", f"Error general individual: {exc}")
             st.error(f"Error: {exc}")
+
+    def _build_model_attempts(self, es_error_formato: bool = False, es_plagio: bool = False) -> list[dict[str, Any]]:
+        modelos_db = self.db.get_modelos()
+        modelos_reales = [{"id": m["api_id"], "nombre": m["nombre"], "categoria": m["categoria"]} for m in modelos_db]
+
+        if es_error_formato or es_plagio:
+            modelos_reales = [m for m in modelos_reales if "haiku" not in m["id"].lower()]
+            if not modelos_reales:
+                modelos_reales = [{"id": "cohere/north-mini-code:free", "nombre": "Cohere (Respaldo)", "categoria": "Gratis"}]
+
+        modelo_id_base = st.session_state.model_id
+        usar_aleatorio = st.session_state.use_random_models or ((es_error_formato or es_plagio) and "haiku" in modelo_id_base.lower())
+        intentos = construir_modelos_a_intentar(
+            st.session_state,
+            modelos_reales,
+            modelo_id_base,
+            usar_aleatorio,
+            queue_key="model_rotation_queue",
+        )
+        if usar_aleatorio and intentos:
+            self.db.add_log("INFO", f"Modelo aleatorio equilibrado seleccionado: {intentos[0]['nombre']}.")
+        return intentos
 
     def tab_history(self) -> None:
         st.subheader("📦 Descarga y gestión de evaluaciones masivas")

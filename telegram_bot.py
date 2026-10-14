@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import time
-import random
 import io
 import json
 import logging
@@ -16,6 +15,7 @@ from database import DatabaseManager
 from prompt_builder import PromptBuilder
 from ia_client import IAClient
 from models import Retroalimentacion
+from model_selection import construir_modelos_a_intentar
 from utils import docx_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html, generar_nombre_archivo
 
 load_dotenv()
@@ -176,16 +176,6 @@ def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> floa
     else:
         if "cog" in crit_lower: return [40.0, 36.0, 32.0, 28.0, 24.0, 0.0][nivel_idx]
         else: return [20.0, 18.0, 16.0, 14.0, 12.0, 0.0][nivel_idx]
-
-def crear_cola_modelos_equilibrada(modelos_reales: list[dict]) -> list[dict]:
-    cola = modelos_reales.copy()
-    random.shuffle(cola)
-    return cola
-
-def obtener_siguiente_modelo(sesion: dict, modelos_reales: list[dict]) -> dict:
-    if "cola_modelos" not in sesion or not sesion["cola_modelos"]:
-        sesion["cola_modelos"] = crear_cola_modelos_equilibrada(modelos_reales)
-    return sesion["cola_modelos"].pop(0)
 
 @bot.message_handler(commands=['ayuda'])
 def comando_ayuda(message):
@@ -720,21 +710,16 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         if not modelos_reales:
             modelos_reales = [{"id": "cohere/north-mini-code:free", "nombre": "Cohere (Respaldo)", "categoria": "Gratis"}]
 
-    modelos_a_intentar = []
-    
-    if modelo_id_base == "auto" or ((es_error_formato or es_plagio) and "haiku" in modelo_id_base.lower()):
-        modelo_principal = obtener_siguiente_modelo(datos, modelos_reales)
-        bot_log("INFO", f"[{estudiante}] Modelo aleatorio equilibrado seleccionado: {modelo_principal['nombre']}.")
-    else:
-        modelo_principal = next((m for m in modelos_reales if m["id"] == modelo_id_base), modelos_reales[0])
-
-    modelos_a_intentar.append(modelo_principal)
-
-    modelos_fallback = [m for m in modelos_reales if m["id"] != modelo_principal["id"]]
-    random.shuffle(modelos_fallback) 
-    modelos_fallback.sort(key=lambda x: 0 if x["categoria"].lower() == "gratis" else 1) 
-    
-    modelos_a_intentar.extend(modelos_fallback)
+    usar_aleatorio = modelo_id_base == "auto" or ((es_error_formato or es_plagio) and "haiku" in modelo_id_base.lower())
+    modelos_a_intentar = construir_modelos_a_intentar(
+        datos,
+        modelos_reales,
+        modelo_id_base,
+        usar_aleatorio,
+        queue_key="cola_modelos",
+    )
+    if usar_aleatorio and modelos_a_intentar:
+        bot_log("INFO", f"[{estudiante}] Modelo aleatorio equilibrado seleccionado: {modelos_a_intentar[0]['nombre']}.")
 
     try:
         builder = PromptBuilder(

@@ -43,6 +43,7 @@ Diseñada para ahorrar tiempo, mejorar la calidad del feedback y mantener trazab
 - Generación de retroalimentaciones con IA a partir de actividad, criterios y observaciones.
 - Configuración de actividades, rúbricas, recursos y directrices globales.
 - Vista previa del prompt y parámetros de generación (modelo, temperatura, tokens).
+- Opción de rotación aleatoria equilibrada de modelos (misma lógica que Telegram).
 - Historial con exportación a **TXT, DOCX, PDF y JSON**.
 - Procesamiento individual y por lote.
 - Soporte de persistencia local (SQLite) y opción remota con Turso/LibSQL.
