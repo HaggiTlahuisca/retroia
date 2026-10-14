@@ -231,11 +231,9 @@ class RetroalimentacionApp:
 
                 if ejecutar_lote:
                     modelos_db = self.db.get_modelos()
-                    has_free = any(m["categoria"].lower() == "gratis" for m in modelos_db)
-                      
-                    if not has_free:
-                        self.db.add_log("ERROR", "Lote pausado por ausencia de modelos gratuitos en configuración.")
-                        st.error("⚠️ No hay modelos gratuitos configurados en el sistema. El lote se ha pausado y tus evaluaciones están guardadas. Configura un modelo gratuito en 'Configuración del sistema' para continuar procesándolas.")
+                    if not modelos_db:
+                        self.db.add_log("ERROR", "Lote pausado por ausencia de modelos en configuración.")
+                        st.error("⚠️ No hay modelos configurados en el sistema. Configura al menos un modelo en 'Configuración del sistema' para continuar.")
                         return
 
                     st.session_state.procesando_lote = True
@@ -348,12 +346,27 @@ class RetroalimentacionApp:
 
     def _build_model_attempts(self, es_error_formato: bool = False, es_plagio: bool = False) -> list[dict[str, Any]]:
         modelos_db = self.db.get_modelos()
-        modelos_reales = [{"id": m["api_id"], "nombre": m["nombre"], "categoria": m["categoria"]} for m in modelos_db]
+        modelos_reales = [
+            {
+                "id": m["api_id"],
+                "api_id": m["api_id"],
+                "nombre": m["nombre"],
+                "categoria": m["categoria"],
+            }
+            for m in modelos_db
+        ]
 
         if es_error_formato or es_plagio:
             modelos_reales = [m for m in modelos_reales if "haiku" not in m["id"].lower()]
             if not modelos_reales:
-                modelos_reales = [{"id": "cohere/north-mini-code:free", "nombre": "Cohere (Respaldo)", "categoria": "Gratis"}]
+                modelos_reales = [
+                    {
+                        "id": "cohere/north-mini-code:free",
+                        "api_id": "cohere/north-mini-code:free",
+                        "nombre": "Cohere (Respaldo)",
+                        "categoria": "Gratis",
+                    }
+                ]
 
         modelo_id_base = st.session_state.model_id
         usar_aleatorio = st.session_state.use_random_models or ((es_error_formato or es_plagio) and "haiku" in modelo_id_base.lower())
@@ -640,9 +653,9 @@ class RetroalimentacionApp:
 
         st.markdown("---")
         st.subheader("📝 Registro de Eventos (Caja Negra del Sistema)")
-        logs = self.db.get_logs(limit=100)
+        logs = self.db.get_logs(limit=1000)
         if logs:
-            st.text_area("Últimos 100 eventos (Alertas, desconexiones, tiempos altos):", value="\n".join([f"[{l['fecha']}] {l['nivel']}: {l['mensaje']}" for l in reversed(logs)]), height=250)
+            st.text_area("Últimos 1000 eventos (Alertas, desconexiones, tiempos altos):", value="\n".join([f"[{l['fecha']}] {l['nivel']}: {l['mensaje']}" for l in reversed(logs)]), height=400)
             if st.button("🗑️ Limpiar Logs", width="stretch"): self.db.clear_logs(); st.rerun()
         else: st.info("No hay eventos registrados todavía.")
 
@@ -718,3 +731,4 @@ class RetroalimentacionApp:
                 except Exception as e:
                     self.db.add_log("ERROR", f"Fallo al generar aportación de foro: {e}")
                     st.error(f"Error al generar la aportación: {e}")
+                    
