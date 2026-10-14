@@ -66,7 +66,10 @@ class PromptBuilder:
             f"Esta es la retroalimentación número {self.indice_estudiante} del lote actual. "
             f"Tu redacción DEBE ser léxica y estructuralmente distinta a cualquier texto anterior. "
             f"Varía el orden de las ideas, usa sinónimos y altera la longitud de los párrafos. "
-            f"Bajo ninguna circunstancia copies plantillas genéricas."
+            f"Bajo ninguna circunstancia copies plantillas genéricas.\n"
+            f"IDIOMA OBLIGATORIO: Escribe única y exclusivamente en español de México, cuidando "
+            f"la ortografía, la puntuación y los espacios correctos entre cada palabra. "
+            f"Tienes estrictamente prohibido usar caracteres chinos, asiáticos, inglés o cualquier otro idioma."
         )
 
         reglas_formato = self.dirs.get(
@@ -138,6 +141,7 @@ class PromptBuilder:
 {instruccion_plagio}
 
 ### REGLAS OBLIGATORIAS:
+- Escribe todo el texto únicamente en español de México.
 - Indica que todos los criterios se registran como no evaluables debido al plagio.
 - Redacta un mensaje corto y directo.
 - No describas ni desgloses los criterios de la rúbrica.
@@ -172,7 +176,7 @@ Firma:
 ### INSTRUCCIÓN CRÍTICA DE FORMATO INCORRECTO:
 {instruccion_error}
 
-¡REGLA DE ORO!: TIENES ESTRICTAMENTE PROHIBIDO desglosar los criterios de la rúbrica (Cognitivo, Actitudinal, Comunicativo, etc.). No los menciones. Solo debes redactar un mensaje breve, directo y útil para corregir el formato.
+¡REGLA DE ORO!: TIENES ESTRICTAMENTE PROHIBIDO desglosar los criterios de la rúbrica (Cognitivo, Actitudinal, Comunicativo, etc.). No los menciones. Solo debes redactar un mensaje breve, directo y útil en español de México para corregir el formato.
 
 1. **SALUDO:** Inicia EXACTAMENTE con: **Apreciable, {self.estudiante}.** (Dando un salto de línea después).
 2. **CUERPO DEL MENSAJE:** Redacta la observación del error de formato con empatía pero firmeza, invitándolo a revisar las instrucciones para futuras entregas.
@@ -255,6 +259,7 @@ Firma:
 
 ### REGLAS DE ORO DE FORMATO PARA EL FORO (¡MUY IMPORTANTE!):
 - {reglas_formato}
+- IDIOMA ESTRICTO: Redacta todo el mensaje únicamente en español de México. Prohibido usar caracteres chinos o de otros idiomas.
 - ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos, negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.). Todo debe fluir como párrafos naturales.
 - ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo sin citarlos como etiquetas.
 - RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de la observación general.
@@ -275,7 +280,7 @@ Firma:
    {self.dirs.get('areas_oportunidad', '')} {self.dirs.get('sugerencias', '')}
 
 4. **CIERRE EXACTO Y DESPEDIDA:**
-   Usa EXACTAMENTE esta redacción final. Solo asegúrate de copiarla tal cual:
+   Usa EXACTAMENTE esta redacción final en español (NO la traduzcas a ningún otro idioma). Solo asegúrate de copiarla tal cual:
 
 {self.dirs.get('despedida', 'Espero que todo lo aprendido en estas cuatro semanas te sea de mucha ayuda.')}
 
@@ -294,10 +299,11 @@ Firma:
 
 ### REGLAS DE ORO CONTRA ALUCINACIONES Y FORMATO (¡MUY IMPORTANTE!):
 1. {reglas_formato}
-2. ¡PROHIBIDO INVENTAR CONTEXTO O ACCIONES!: Esta actividad pertenece a matemáticas. NO inventes conceptos de otras materias. NO felicites por "aclarar dudas", "entregar a tiempo", o menciones que incluyó "gráficas" o "tablas", a menos que las observaciones del asesor lo indiquen explícitamente.
-3. RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de las observaciones generales. Si el asesor señala explícitamente "Inteligencia Artificial", "IA", "fuga de formato" o plagio, mantén la acusación firme y usa esas palabras clave.
-4. DISTRIBUCIÓN DE OBSERVACIONES: Las observaciones del asesor deben ser integradas y distribuidas a lo largo de los párrafos de los criterios para justificar los niveles. Tienes PROHIBIDO agruparlas en un solo párrafo aislado al final o dejarlas fuera de la carta. {regla_experto}
-5. LÍMITE DE NOMBRE DE ACTIVIDAD: Tienes ESTRICTAMENTE PROHIBIDO usar el nombre de la actividad integradora más de 3 veces en todo tu texto. NUNCA inicies con "Me resulta muy interesante la manera en que abordaste los temas".
+2. IDIOMA ESTRICTO: Redacta absolutamente toda la retroalimentación en español de México, con espacios adecuados entre cada palabra. Está prohibido usar caracteres chinos, asiáticos o traducir los encabezados o el cierre.
+3. ¡PROHIBIDO INVENTAR CONTEXTO O ACCIONES!: Esta actividad pertenece a matemáticas. NO inventes conceptos de otras materias. NO felicites por "aclarar dudas", "entregar a tiempo", o menciones que incluyó "gráficas" o "tablas", a menos que las observaciones del asesor lo indiquen explícitamente.
+4. RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de las observaciones generales. Si el asesor señala explícitamente "Inteligencia Artificial", "IA", "fuga de formato" o plagio, mantén la acusación firme y usa esas palabras clave.
+5. DISTRIBUCIÓN DE OBSERVACIONES: Las observaciones del asesor deben ser integradas y distribuidas a lo largo de los párrafos de los criterios para justificar los niveles. Tienes PROHIBIDO agruparlas en un solo párrafo aislado al final o dejarlas fuera de la carta. {regla_experto}
+6. LÍMITE DE NOMBRE DE ACTIVIDAD: Tienes ESTRICTAMENTE PROHIBIDO usar el nombre de la actividad integradora más de 3 veces en todo tu texto. NUNCA inicies con "Me resulta muy interesante la manera en que abordaste los temas".
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
@@ -309,7 +315,7 @@ Firma:
    ¡REGLA ESTRICTA!: Tienes PROHIBIDO usar las frases de cajón como "He revisado detalladamente" o "He revisado con atención".
 
 2. **RETROALIMENTACIÓN POR CRITERIOS:**
-   Debes presentar la evaluación dividida en los cuatro criterios en este orden:
+   Debes presentar la evaluación dividida en los cuatro criterios exactamente con estos nombres en español y en este orden:
    
    **Criterio cognitivo**
    **Criterio actitudinal**
@@ -317,8 +323,8 @@ Firma:
    **Criterio pensamiento crítico**
 
    REGLAS PARA LOS CRITERIOS:
-   - Escribe el nombre del criterio en negritas EN SU PROPIO RENGLÓN AISLADO.
-   - Debes mencionar obligatoriamente el nombre del nivel alcanzado en minúsculas y entre asteriscos dobles (ejemplo: **experto**, **capacitado**).
+   - Escribe el nombre del criterio en español y en negritas EN SU PROPIO RENGLÓN AISLADO.
+   - Debes mencionar obligatoriamente el nombre del nivel alcanzado en español, en minúsculas y entre asteriscos dobles (ejemplo: **experto**, **capacitado**).
    - {instruccion_criterios_dinamica}
 
 3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS (PÁRRAFO NUEVO INDEPENDIENTE):**
@@ -327,7 +333,7 @@ Firma:
    {bloque_recursos}
 
 4. **CIERRE EXACTO Y DESPEDIDA:**
-   Usa EXACTAMENTE esta redacción final. Solo asegúrate de copiarla tal cual:
+   Usa EXACTAMENTE esta redacción final en español (NO la traduzcas). Solo asegúrate de copiarla tal cual:
 
 {self.dirs.get('despedida', f'Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu "{n_act}".')}
 
@@ -336,3 +342,4 @@ Me despido con esta frase de {autor_frase}: **"{texto_frase}"**.
 Recuerda que siempre estoy para ti al otro lado de la pantalla. Me puedes contactar por medio de los canales institucionales.
 
 {firma_corta}"""
+
