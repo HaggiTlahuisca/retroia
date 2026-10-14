@@ -266,15 +266,19 @@ def pdf_bytes(title: str, text: str) -> bytes:
 
     story = []
     if title:
-        story.append(Paragraph(title, title_style))
+        story.append(Paragraph(escape(title), title_style))
         story.append(Spacer(1, 10))
 
     for paragraph in text.split("\n"):
         p_text = paragraph.strip().replace("##", "")
         if p_text:
-            p_text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'<b>\1</b>', p_text)
-            p_formatted = p_text.replace("\n", "<br/>")
-            story.append(Paragraph(p_formatted, normal_style))
+            safe_p = escape(p_text)
+            p_formatted = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'<b>\1</b>', safe_p)
+            try:
+                story.append(Paragraph(p_formatted, normal_style))
+            except Exception:
+                texto_plano = escape(p_text.replace("*", ""))
+                story.append(Paragraph(texto_plano, normal_style))
 
     doc.build(story)
     buffer.seek(0)
