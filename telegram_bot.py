@@ -663,9 +663,8 @@ def batch_run(call):
     cola = list(sesiones[chat_id].get("cola", []))
     
     modelos_db = db.get_modelos()
-    has_free = any(m["categoria"].lower() == "gratis" for m in modelos_db)
-    if not has_free:
-        bot.send_message(chat_id, "⚠ No hay modelos gratuitos disponibles en tu sistema. El lote se ha pausado por seguridad. Configura un modelo gratis en la web y presiona ejecutar nuevamente.")
+    if not modelos_db:
+        bot.send_message(chat_id, "⚠ No hay modelos configurados en tu sistema. Configura al menos un modelo en la web y presiona ejecutar nuevamente.")
         return
         
     bot_log("INFO", f"Iniciando procesamiento de lote para {len(cola)} estudiantes.")
@@ -702,13 +701,13 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             bot.send_message(chat_id, "❌ Error: No hay modelos de IA configurados en el panel del sistema.")
         return
 
-    modelos_reales = [{"id": m["api_id"], "nombre": m["nombre"], "categoria": m["categoria"]} for m in modelos_db]
+    modelos_reales = [{"id": m["api_id"], "api_id": m["api_id"], "nombre": m["nombre"], "categoria": m["categoria"]} for m in modelos_db]
     modelo_id_base = datos.get("modelo_id", "auto")
 
     if es_error_formato or es_plagio:
         modelos_reales = [m for m in modelos_reales if "haiku" not in m["id"].lower()]
         if not modelos_reales:
-            modelos_reales = [{"id": "cohere/north-mini-code:free", "nombre": "Cohere (Respaldo)", "categoria": "Gratis"}]
+            modelos_reales = [{"id": "cohere/north-mini-code:free", "api_id": "cohere/north-mini-code:free", "nombre": "Cohere (Respaldo)", "categoria": "Gratis"}]
 
     usar_aleatorio = modelo_id_base == "auto" or ((es_error_formato or es_plagio) and "haiku" in modelo_id_base.lower())
     modelos_a_intentar = construir_modelos_a_intentar(
@@ -888,3 +887,4 @@ if __name__ == '__main__':
     
     bot_log("INFO", "Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    
