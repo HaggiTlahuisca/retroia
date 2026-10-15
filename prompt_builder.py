@@ -69,7 +69,11 @@ class PromptBuilder:
             f"Bajo ninguna circunstancia copies plantillas genéricas.\n"
             f"IDIOMA OBLIGATORIO: Escribe única y exclusivamente en español de México, cuidando "
             f"la ortografía, la puntuación y los espacios correctos entre cada palabra. "
-            f"Tienes estrictamente prohibido usar caracteres chinos, asiáticos, inglés o cualquier otro idioma."
+            f"Tienes estrictamente prohibido usar caracteres chinos, asiáticos, inglés o cualquier otro idioma.\n"
+            f"REGLA DE AGILIDAD (SIN BUCLES DE PENSAMIENTO): Si tienes capacidad de razonamiento interno, "
+            f"planea tu respuesta en menos de 150 palabras sin debatir reglas. "
+            f"NO agregues el nombre del asesor ('{n_ase}') después de la despedida corta final, "
+            f"porque el sistema adjuntará el bloque de firma automáticamente."
         )
 
         reglas_formato = self.dirs.get(
@@ -83,7 +87,7 @@ class PromptBuilder:
             firmas_base.append(firma_personalizada)
         firma_corta = random.choice(firmas_base)
 
-        # --- NUEVA LÓGICA DE OBSERVACIONES ---
+        # --- LÓGICA DE OBSERVACIONES PARA ACTIVIDADES ENTREGABLES ---
         instruccion_criterios_dinamica = (
             "Redacta un párrafo breve para cada criterio justificando el nivel asignado. "
             "¡REGLA VITAL!: Tienes estrictamente PROHIBIDO copiar o transcribir el lenguaje técnico de las rúbricas institucionales. "
@@ -112,8 +116,8 @@ class PromptBuilder:
             else:
                 observacion_contexto = (
                     "Se han proporcionado observaciones generales del asesor como evidencia contextual. "
-                    "Úsalas como BASE para la redacción de los párrafos en cada uno de los criterios a fin de justificar "
-                    "los niveles asignados con la congruencia necesaria. No es necesario que el estudiante las lea exactamente como se escribieron. "
+                    "Úsalas como BASE para la redacción de los párrafos a fin de justificar "
+                    "el desempeño y las áreas de oportunidad con la congruencia necesaria. No es necesario que el estudiante las lea exactamente como se escribieron. "
                     f"\nContexto del asesor: {self.observaciones}"
                 )
         else:
@@ -151,7 +155,7 @@ class PromptBuilder:
 - No incluyas frases motivacionales.
 - No incluyas una despedida extensa.
 - No incluyas frases adicionales posteriores a la firma.
-- Termina únicamente con una firma corta: "Atentamente." o "Saludos cordiales."
+- Termina únicamente con una firma corta: "Atentamente." o "Saludos cordiales." (NO agregues el nombre del asesor debajo).
 
 Comienza exactamente con:
 Apreciable, {self.estudiante}.
@@ -180,7 +184,7 @@ Firma:
 
 1. **SALUDO:** Inicia EXACTAMENTE con: **Apreciable, {self.estudiante}.** (Dando un salto de línea después).
 2. **CUERPO DEL MENSAJE:** Redacta la observación del error de formato con empatía pero firmeza, invitándolo a revisar las instrucciones para futuras entregas.
-3. **DESPEDIDA:** Usa exactamente esta firma:
+3. **DESPEDIDA:** Usa exactamente esta firma corta (sin agregar tu nombre debajo):
 {firma_corta}"""
 
         is_foro = "foro de integración" in n_act.lower()
@@ -213,7 +217,69 @@ Firma:
 
         crit_str = "".join(crit_items)
 
-        # --- REGLA 100 E IDEAS DE APERTURA (ANTI-PLANTILLAS) ---
+        # --- BLOQUE EXCLUSIVO PARA EL FORO DE INTEGRACIÓN (NO ES UN DOCUMENTO ENTREGABLE) ---
+        if is_foro:
+            if self.observaciones and self.observaciones_textuales:
+                instruccion_areas_foro = (
+                    "En un párrafo independiente, incluye de forma íntegra y textual la siguiente observación del asesor "
+                    f"(sin suavizarla ni cambiarle palabras):\n{self.observaciones}"
+                )
+            elif self.observaciones:
+                instruccion_areas_foro = (
+                    "En uno o dos párrafos fluidos, desarrolla con claridad, firmeza pedagógica y sentido constructivo "
+                    "las áreas de oportunidad y recomendaciones basadas estrictamente en las observaciones del asesor "
+                    f"({self.observaciones}). Por ejemplo: si participó en un solo día, en dos días o hasta el domingo al final de la semana, "
+                    "explica que eso limita el intercambio oportuno de ideas y el diálogo con los compañeros; si faltó desarrollar ejemplos, "
+                    "indícale cómo explicar paso a paso dónde interviene el álgebra; si hubo sospecha de autoría o exceso de líneas, "
+                    "señálalo con respeto pero sin suavizar la observación."
+                )
+            else:
+                instruccion_areas_foro = (
+                    "En un párrafo breve, menciona como recomendación cuidar siempre la ortografía y la gramática en todos nuestros escritos, "
+                    "ya que en ello se refleja la dedicación puesta en cada participación (o bien, bríndale un reto breve para seguir "
+                    "profundizando y contrastando estrategias algebraicas en próximos espacios)."
+                )
+
+            return f"""{prompt_sistema}
+
+### DATOS DEL ALUMNO Y DEL FORO DE INTEGRACIÓN:
+- Estudiante: {self.estudiante}
+- Espacio evaluado: {n_act}
+- Propósito del foro: {prop_act if prop_act else "Reflexionar y debatir con los compañeros sobre la utilidad del álgebra en situaciones de la vida cotidiana."}
+- Desempeño por criterios (Cognitivo, Actitudinal, Comunicativo, Colaborativo, Pensamiento crítico):
+{crit_str}
+- Observaciones del asesor: {observacion_contexto}
+
+### REGLAS DE ORO EXCLUSIVAS PARA EL FORO DE INTEGRACIÓN (¡MUY IMPORTANTE!):
+1. ¡ESTO NO ES UN DOCUMENTO ENTREGABLE!: Es un foro de discusión donde el estudiante realiza aportaciones (respuesta a la pregunta detonadora, réplicas a compañeros y conclusión). TIENES ESTRICTAMENTE PROHIBIDO hablar de "tu entrega", "tu documento", "el archivo enviado" o agradecer por "haber entregado tu actividad o foro". Usa siempre vocabulario de foro: "tus aportaciones", "tus intervenciones", "tus réplicas", "tu participación en el foro", "el diálogo con tus compañeros".
+2. {reglas_formato}
+3. ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos, encabezados de criterios ("Criterio cognitivo", etc.) o viñetas. Todo debe fluir como párrafos naturales de una carta.
+4. ESTÁ ESTRICTAMENTE PROHIBIDO mencionar los nombres de los niveles ("experto", "capacitado", "aceptable", "aprendiz", "requiere apoyo"). Descríbelos cualitativamente.
+5. RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes prohibido suavizar, omitir o cambiar el sentido de las observaciones del asesor.
+
+### INSTRUCCIONES ESTRICTAS DE ESTRUCTURA Y REDACCIÓN (SIGUE ESTE FLUJO):
+
+1. **SALUDO Y ENTRADA FIJA:**
+   Inicia exactamente con: **Apreciable, {self.estudiante}.** (en su propio renglón).
+   En el siguiente párrafo, escribe exactamente:
+   Agradezco tu participación en este foro de integración.
+
+2. **ACIERTOS EN LAS APORTACIONES Y VALOR DEL FORO (1 o 2 párrafos):**
+   - Destaca de forma natural los aciertos observados en sus intervenciones de acuerdo con los niveles alcanzados (por ejemplo: responder a la pregunta detonadora relacionando el álgebra con situaciones cotidianas, buscar crear diálogo al replicar a las aportaciones de los compañeros, expresar ideas con orden o participar con disposición).
+   - Integra con tus propias palabras (variando la redacción entre un estudiante y otro) la idea de que los foros nos permiten expresar nuestras ideas a los demás, conocer los puntos de vista y las opiniones que otras personas tienen sobre un mismo tema y generar un debate enriquecedor a través del intercambio de ideas, lo cual requiere apertura de nuestra parte.
+
+3. **ÁREAS DE OPORTUNIDAD, SUGERENCIAS Y CONVIVENCIA (1 o 2 párrafos):**
+   - {instruccion_areas_foro}
+   - Integra también de manera natural (con redacción variada y fluida) la reflexión de que, al ser el foro un espacio donde confluyen diversas personas con una forma de pensar única para cada quien, es muy importante mantener siempre el respeto y la tolerancia, pues ello nos permite enriquecer nuestras ideas y crecer cada día como seres humanos.
+
+4. **CIERRE EXCLUSIVO DEL FORO Y DESPEDIDA CORTA:**
+   En un párrafo independiente al final, escribe EXACTAMENTE esta oración (PROHIBIDO usar el cierre de actividades entregables):
+   Espero que todo lo aprendido en estas cuatro semanas te sea de mucha ayuda.
+
+   Y en el último renglón, coloca únicamente esta firma corta (sin agregar el nombre del asesor debajo):
+   {firma_corta}"""
+
+        # --- BLOQUE PARA ACTIVIDADES INTEGRADORAS Y PROYECTO INTEGRADOR (ENTREGABLES) ---
         regla_experto = ""
         if es_experto_total:
             regla_experto = (
@@ -235,7 +301,6 @@ Firma:
    Recursos a incluir:
 {rec_str}"""
 
-        # En lugar de un texto fijo a copiar, le damos "viñetas conceptuales" para que la IA lo redacte con sus propias palabras.
         ideas_apertura = (
             "- Saluda cálidamente deseando bienestar al estudiante y a su familia.\n"
             "- Felicítalo por la entrega de esta actividad (puedes mencionar que es del 'módulo once' o del módulo en curso).\n"
@@ -243,51 +308,10 @@ Firma:
             "- Recuerda de forma natural que el objetivo de las actividades semanales es practicar lo aprendido con los materiales del curso o externos."
         )
         
-        # Conector para áreas de oportunidad
         if not es_experto_total and not self.observaciones_textuales:
             ideas_apertura += "\n- Añade un conector sutil indicando que, para seguir avanzando, se identificaron áreas de oportunidad en su actividad."
 
-        if is_foro:
-            return f"""{prompt_sistema}
-
-### DATOS DEL ALUMNO Y ACTIVIDAD:
-- Estudiante: {self.estudiante}
-- Actividad: {n_act}
-- Evaluaciones (EN ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Colaborativo, Pensamiento crítico):
-{crit_str}
-- Observaciones del asesor: {observacion_contexto}
-
-### REGLAS DE ORO DE FORMATO PARA EL FORO (¡MUY IMPORTANTE!):
-- {reglas_formato}
-- IDIOMA ESTRICTO: Redacta todo el mensaje únicamente en español de México. Prohibido usar caracteres chinos o de otros idiomas.
-- ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos, negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.). Todo debe fluir como párrafos naturales.
-- ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo sin citarlos como etiquetas.
-- RESPETO ABSOLUTO A LAS OBSERVACIONES DEL ASESOR: Tienes ESTRICTAMENTE PROHIBIDO suavizar, omitir o cambiar el sentido de la observación general.
-- DISTRIBUCIÓN DE OBSERVACIONES: Si el Asesor incluyó observaciones, intégralas de forma natural a lo largo de tu redacción para justificar las áreas correspondientes. {regla_experto}
-
-### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
-
-1. **SALUDO Y ENTRADA:**
-   Inicia exactamente con: **Apreciable, {self.estudiante}.**
-   En el siguiente párrafo, escribe exactamente: "Agradezco tu participación en este foro de integración."
-
-2. **DESARROLLO CONDENSADO (ORDEN ESTRICTO):**
-   Redacta uno o dos párrafos fluidos y conversacionales integrando el desempeño del estudiante en los aspectos evaluados EXACTAMENTE EN EL MISMO ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Colaborativo, Pensamiento crítico.
-   ¡REGLA VITAL!: Tienes estrictamente PROHIBIDO copiar el lenguaje técnico de la rúbrica. Utiliza tus directrices: {self.dirs.get('fortalezas', '')}
-
-3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS:**
-   En un nuevo párrafo independiente, menciona las áreas de mejora de forma constructiva.
-   {self.dirs.get('areas_oportunidad', '')} {self.dirs.get('sugerencias', '')}
-
-4. **CIERRE EXACTO Y DESPEDIDA:**
-   Usa EXACTAMENTE esta redacción final en español (NO la traduzcas a ningún otro idioma). Solo asegúrate de copiarla tal cual:
-
-{self.dirs.get('despedida', 'Espero que todo lo aprendido en estas cuatro semanas te sea de mucha ayuda.')}
-
-{firma_corta}"""
-
-        else:
-            return f"""{prompt_sistema}
+        return f"""{prompt_sistema}
 
 ### DATOS DEL ALUMNO Y ACTIVIDAD:
 - Estudiante: {self.estudiante}
@@ -333,7 +357,7 @@ Firma:
    {bloque_recursos}
 
 4. **CIERRE EXACTO Y DESPEDIDA:**
-   Usa EXACTAMENTE esta redacción final en español (NO la traduzcas). Solo asegúrate de copiarla tal cual:
+   Usa EXACTAMENTE esta redacción final en español (detente en "{firma_corta}" sin agregar tu nombre debajo):
 
 {self.dirs.get('despedida', f'Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu "{n_act}".')}
 
@@ -342,4 +366,3 @@ Me despido con esta frase de {autor_frase}: **"{texto_frase}"**.
 Recuerda que siempre estoy para ti al otro lado de la pantalla. Me puedes contactar por medio de los canales institucionales.
 
 {firma_corta}"""
-
