@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable
 import requests
 
 
@@ -43,12 +46,13 @@ class IAClient:
         api_key: str,
         model_id: str,
         temperature: float = 0.85,
-        max_tokens: int = 11500,
+        max_tokens: int = 8500,
         frequency_penalty: float = 0.05,
         presence_penalty: float = 0.05,
-        timeout: int = 95,
+        timeout: int = 60,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> str:
-        """Envía el prompt a OpenRouter, captura el razonamiento interno y retorna el texto limpio."""
+        """Envía el prompt a OpenRouter con límite de tiempo real estricto y opción de salto manual."""
         if not api_key:
             raise ValueError("No se proporcionó la clave de API de OpenRouter.")
 
@@ -69,7 +73,8 @@ class IAClient:
                         "Debes redactar única y exclusivamente en español de México, "
                         "con ortografía, gramática, puntuación y espacios correctos entre cada palabra. "
                         "Tienes estrictamente prohibido utilizar caracteres chinos, asiáticos, "
-                        "palabras en inglés o cambiar de idioma en cualquier parte del texto."
+                        "palabras en inglés o cambiar de idioma en cualquier parte del texto. "
+                        "Si utilizas razonamiento interno, hazlo en menos de 150 palabras y redacta la carta de inmediato."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -82,7 +87,27 @@ class IAClient:
 
         self.ultimo_razonamiento = ""
 
-        resp = requests.post(self.base_url, headers=headers, json=payload, timeout=timeout)
+        def _peticion() -> requests.Response:
+            return requests.post(self.base_url, headers=headers, json=payload, timeout=timeout)
+
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(_peticion)
+        inicio = time.time()
+
+        try:
+            while not future.done():
+                if cancel_check and cancel_check():
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    raise RuntimeError(f"Cambio de modelo solicitado manualmente al evaluar con {model_id}.")
+                if time.time() - inicio > timeout:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    raise TimeoutError(f"El modelo {model_id} excedió el límite estricto de {timeout} segundos.")
+                time.sleep(0.4)
+
+            resp = future.result()
+        finally:
+            executor.shutdown(wait=False)
+
         if resp.status_code != 200:
             raise RuntimeError(f"Fallo en API OpenRouter (Código {resp.status_code}): {resp.text}")
 
