@@ -22,11 +22,11 @@ APP_REFERER = "https://retroalimentaciones.local"
 APP_X_TITLE = "Retroalimentaciones formativas IA"
 
 DEFAULT_TEMPERATURE = 0.85         # equilibrada para evitar alucinaciones o cambios de idioma
-DEFAULT_MAX_TOKENS = 11500
+DEFAULT_MAX_TOKENS = 8500
 DEFAULT_PROMPT_TOKEN_LIMIT = 240000
 DEFAULT_FREQUENCY_PENALTY = 0.05   # penalización suave que no rompe los espacios ni el idioma
 DEFAULT_PRESENCE_PENALTY = 0.05    # penalización suave para mantener fluidez en español
-REQUEST_TIMEOUT_SECONDS = 900
+REQUEST_TIMEOUT_SECONDS = 60
 
 AI_PROVIDERS = {
     "OpenRouter": "openrouter",
