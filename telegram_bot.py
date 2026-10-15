@@ -24,7 +24,7 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TOKEN:
     raise ValueError("No se encontró TELEGRAM_TOKEN en las variables de entorno.")
 
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TOKEN, num_threads=4)
 db = DatabaseManager()
 try:
     db.initialize()
@@ -52,6 +52,11 @@ def responder_callback(call):
         bot.answer_callback_query(call.id)
     except Exception:
         pass
+
+def obtener_teclado_progreso() -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup(row_width=1)
+    markup.add(InlineKeyboardButton("⏭️ Cambiar de modelo ahora", callback_data="skip_model"))
+    return markup
 
 def obtener_criterios_actividad(actividad) -> list[str]:
     if hasattr(actividad, "criterios") and actividad.criterios:
@@ -216,7 +221,8 @@ def iniciar_evaluacion(message):
         "cola": [],
         "modelo_id": "auto",
         "modelo_nombre": "🎲 Rotación aleatoria",
-        "cola_modelos": []
+        "cola_modelos": [],
+        "saltar_modelo": False
     }
 
     bot_log("INFO", f"Sesión iniciada. Modo: {modo}. Usuario: {message.chat.id}")
@@ -241,6 +247,18 @@ def cancelar_evaluacion(message):
         bot.send_message(chat_id, "🚫 Evaluación cancelada. Escribe /evaluar o /lote para iniciar.")
     else:
         bot.send_message(chat_id, "No hay ninguna evaluación en curso para cancelar.")
+
+@bot.callback_query_handler(func=lambda call: call.data == 'skip_model')
+def saltar_modelo_callback(call):
+    chat_id = call.message.chat.id
+    if chat_id in sesiones:
+        sesiones[chat_id]["saltar_modelo"] = True
+        try:
+            bot.answer_callback_query(call.id, "⏭️ Saltando al siguiente modelo de la cola...")
+        except Exception:
+            pass
+    else:
+        responder_callback(call)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('mod_'))
 def seleccionar_modelo(call):
@@ -618,7 +636,8 @@ def draft_load_all(call):
         "cola": [],
         "modelo_id": "auto",
         "modelo_nombre": "🎲 Rotación aleatoria",
-        "cola_modelos": []
+        "cola_modelos": [],
+        "saltar_modelo": False
     }
     
     for idx, b in enumerate(borradores):
@@ -671,13 +690,18 @@ def batch_run(call):
     bot.edit_message_text(f"🚀 Generando lote de {len(cola)} retroalimentaciones. Esto tomará un momento...", chat_id=chat_id, message_id=call.message.message_id)
 
     for idx, item in enumerate(cola):
-        bot.send_message(chat_id, f"⏳ Evaluando a {item['estudiante']} ({idx+1}/{len(cola)})...")
+        msg_progreso = bot.send_message(
+            chat_id,
+            f"⏳ Evaluando a {item['estudiante']} ({idx+1}/{len(cola)})...",
+            reply_markup=obtener_teclado_progreso()
+        )
         procesar_generacion_individual(
-            chat_id, None, 
+            chat_id, msg_progreso.message_id, 
             item["estudiante"], item["criterios"], item["total_puntos"], 
             item["observaciones"], item.get("es_error_formato", False), 
             item.get("es_plagio", False), item.get("observaciones_textuales", False),
-            indice_estudiante=idx+1
+            indice_estudiante=idx+1,
+            total_lote=len(cola)
         )
         if "borrador_id" in item:
             db.eliminar_borrador(item["borrador_id"])
@@ -687,7 +711,7 @@ def batch_run(call):
     bot_log("INFO", "Lote completado exitosamente.")
     bot.send_message(chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /lote para iniciar de nuevo.")
 
-def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs, es_error_formato=False, es_plagio=False, observaciones_textuales=False, indice_estudiante=0):
+def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs, es_error_formato=False, es_plagio=False, observaciones_textuales=False, indice_estudiante=0, total_lote=1):
     datos = sesiones.get(chat_id)
     if not datos: return
     actividad = datos["actividad"]
@@ -741,21 +765,39 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         ultimo_error = None
 
         bot_log("INFO", f"[{estudiante}] Iniciando peticiones a OpenRouter.")
+        prefijo_lote = f"[{indice_estudiante}/{total_lote}] " if datos.get("modo") == "batch" else ""
 
         for intento, modelo_actual in enumerate(modelos_a_intentar):
+            datos["saltar_modelo"] = False
+
             if message_id_to_edit:
                 if intento == 0:
-                    mensaje = f"⏳ Redactando con {modelo_actual['nombre']}..."
+                    mensaje = f"⏳ {prefijo_lote}Evaluando a {estudiante} con {modelo_actual['nombre']}...\n(Máximo 60 s)"
                 else:
-                    mensaje = f"🔄 Reintentando con {modelo_actual['nombre']}..."
+                    mensaje = f"🔄 {prefijo_lote}Reintentando a {estudiante} con {modelo_actual['nombre']}...\n(Máximo 60 s)"
                 
-                try: bot.edit_message_text(mensaje, chat_id=chat_id, message_id=message_id_to_edit)
-                except Exception: pass
+                try:
+                    bot.edit_message_text(
+                        mensaje,
+                        chat_id=chat_id,
+                        message_id=message_id_to_edit,
+                        reply_markup=obtener_teclado_progreso()
+                    )
+                except Exception:
+                    pass
             
             bot_log("INFO", f"[{estudiante}] Intentando API con modelo: {modelo_actual['nombre']}")
             start_time = time.time()
             try:
-                texto_candidato = ia_client.generar(prompt, api_key, modelo_actual["id"], 0.65, 6500)
+                texto_candidato = ia_client.generar(
+                    prompt,
+                    api_key,
+                    modelo_actual["id"],
+                    temperature=0.65,
+                    max_tokens=2500,
+                    timeout=60,
+                    cancel_check=lambda: datos.get("saltar_modelo", False)
+                )
                 
                 if not texto_candidato or not texto_candidato.strip():
                     raise ValueError(f"El modelo {modelo_actual['nombre']} entregó una respuesta vacía.")
@@ -775,9 +817,14 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             except Exception as e:
                 elapsed = time.time() - start_time
                 ultimo_error = e
-                bot_log("ERROR", f"[{estudiante}] FALLÓ {modelo_actual['nombre']} tras {elapsed:.2f}s. Error: {e}")
+                fue_salto_manual = datos.get("saltar_modelo", False)
+                if fue_salto_manual:
+                    bot_log("INFO", f"[{estudiante}] Usuario saltó manualmente {modelo_actual['nombre']} tras {elapsed:.2f}s.")
+                else:
+                    bot_log("ERROR", f"[{estudiante}] FALLÓ {modelo_actual['nombre']} tras {elapsed:.2f}s. Error: {e}")
                 texto_generado = None
-                time.sleep(2)
+                if not fue_salto_manual:
+                    time.sleep(1)
                 continue
 
         if not texto_generado:
