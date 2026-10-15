@@ -273,7 +273,7 @@ class RetroalimentacionApp:
 
                     for mod in intentos:
                         try:
-                            texto_generado = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 6500, timeout=45)
+                            texto_generado = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 2500, timeout=60)
                             razonamiento = getattr(self.ia_client, "ultimo_razonamiento", "")
                             modelo_usado_nombre = mod["nombre"]
                             break
@@ -315,7 +315,7 @@ class RetroalimentacionApp:
 
                 for mod in intentos:
                     try:
-                        texto = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 6500, timeout=45)
+                        texto = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 2500, timeout=60)
                         razonamiento = getattr(self.ia_client, "ultimo_razonamiento", "")
                         modelo_final_nombre = mod["nombre"]
                         break
@@ -325,7 +325,7 @@ class RetroalimentacionApp:
 
                 if not texto:
                     self.db.add_log("ERROR", f"Todos los modelos fallaron para {builder.estudiante} en modo individual.")
-                    st.error("Todos los modelos fallaron o tardaron más de 45 segundos. Revisa el log de errores.")
+                    st.error("Todos los modelos fallaron o tardaron más de 60 segundos. Revisa el log de errores.")
                     return
 
             st.session_state.last_feedback = texto
