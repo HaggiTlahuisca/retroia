@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 import io
 import json
 import logging
 import telebot
+from telebot.apihelper import ApiTelegramException
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from dotenv import load_dotenv
 
@@ -41,6 +43,29 @@ def bot_log(nivel: str, mensaje: str):
         db.add_log(nivel, mensaje)
     except Exception as e:
         print(f"Error escribiendo en BD: {e}")
+
+def _extraer_segundos_espera(exc: Exception) -> int:
+    if hasattr(exc, "result_json") and isinstance(exc.result_json, dict):
+        params = exc.result_json.get("parameters", {})
+        if "retry_after" in params:
+            return int(params["retry_after"])
+    match = re.search(r"retry after (\d+)", str(exc), re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    return 15
+
+def tg_call_with_retry(func, *args, max_retries: int = 5, **kwargs):
+    """Ejecuta una llamada a Telegram y, si recibe error 429 (Too Many Requests), espera y reintenta."""
+    for intento in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except ApiTelegramException as e:
+            if e.error_code == 429 and intento < max_retries - 1:
+                espera = _extraer_segundos_espera(e) + 2
+                bot_log("INFO", f"Límite de velocidad de Telegram (429). Pausando {espera}s para continuar sin perder datos...")
+                time.sleep(espera)
+                continue
+            raise
 
 sesiones: dict[int, dict] = {}
 
@@ -184,18 +209,18 @@ def obtener_puntos(actividad_nombre: str, criterio: str, nivel_idx: int) -> floa
 
 @bot.message_handler(commands=['ayuda'])
 def comando_ayuda(message):
-    bot.send_message(message.chat.id, construir_texto_ayuda(), parse_mode="Markdown", reply_markup=obtener_teclado_ayuda())
+    tg_call_with_retry(bot.send_message, message.chat.id, construir_texto_ayuda(), parse_mode="Markdown", reply_markup=obtener_teclado_ayuda())
 
 @bot.message_handler(commands=['modelos'])
 def comando_modelos(message):
-    bot.send_message(message.chat.id, construir_texto_modelos_disponibles(), reply_markup=obtener_teclado_modelos_info())
+    tg_call_with_retry(bot.send_message, message.chat.id, construir_texto_modelos_disponibles(), reply_markup=obtener_teclado_modelos_info())
 
 @bot.message_handler(commands=['borradores'])
 def comando_borradores(message):
     chat_id = message.chat.id
     borradores = db.listar_borradores(chat_id)
     if not borradores:
-        bot.send_message(chat_id, "No tienes evaluaciones en borrador actualmente.")
+        tg_call_with_retry(bot.send_message, chat_id, "No tienes evaluaciones en borrador actualmente.")
         return
         
     markup = InlineKeyboardMarkup(row_width=2)
@@ -203,13 +228,13 @@ def comando_borradores(message):
         InlineKeyboardButton("📂 Cargar todos al lote", callback_data="draft_load_all"),
         InlineKeyboardButton("🗑️ Eliminar todos", callback_data="draft_delete_all")
     )
-    bot.send_message(chat_id, f"Tienes {len(borradores)} evaluaciones guardadas como borrador pendientes de procesar.\n¿Qué deseas hacer?", reply_markup=markup)
+    tg_call_with_retry(bot.send_message, chat_id, f"Tienes {len(borradores)} evaluaciones guardadas como borrador pendientes de procesar.\n¿Qué deseas hacer?", reply_markup=markup)
 
 @bot.message_handler(commands=['start', 'evaluar', 'lote'])
 def iniciar_evaluacion(message):
     actividades = db.list_activities()
     if not actividades:
-        bot.send_message(message.chat.id, "⚠️ No hay actividades configuradas.")
+        tg_call_with_retry(bot.send_message, message.chat.id, "⚠️ No hay actividades configuradas.")
         return
 
     modo = "batch" if message.text.startswith('/lote') else "individual"
@@ -231,7 +256,8 @@ def iniciar_evaluacion(message):
     n_ase = dirs.get("asesor_nombre", "Asesor").split()[0] if dirs.get("asesor_nombre") else "Asesor"
 
     encabezado = "📦 *Modo lote activado*\n" if modo == "batch" else f"👋 ¡Hola, {n_ase}!\n"
-    bot.send_message(
+    tg_call_with_retry(
+        bot.send_message,
         message.chat.id,
         f"{encabezado}Selecciona el **modelo de IA** para retroalimentar:",
         reply_markup=obtener_teclado_modelos(),
@@ -244,9 +270,9 @@ def cancelar_evaluacion(message):
     if chat_id in sesiones:
         del sesiones[chat_id]
         bot_log("INFO", f"Sesión cancelada por el usuario: {chat_id}")
-        bot.send_message(chat_id, "🚫 Evaluación cancelada. Escribe /evaluar o /lote para iniciar.")
+        tg_call_with_retry(bot.send_message, chat_id, "🚫 Evaluación cancelada. Escribe /evaluar o /lote para iniciar.")
     else:
-        bot.send_message(chat_id, "No hay ninguna evaluación en curso para cancelar.")
+        tg_call_with_retry(bot.send_message, chat_id, "No hay ninguna evaluación en curso para cancelar.")
 
 @bot.callback_query_handler(func=lambda call: call.data == 'skip_model')
 def saltar_modelo_callback(call):
@@ -289,7 +315,8 @@ def seleccionar_modelo(call):
     for act in actividades:
         markup.add(InlineKeyboardButton(act["nombre"], callback_data=f"act_{act['id']}"))
 
-    bot.edit_message_text(
+    tg_call_with_retry(
+        bot.edit_message_text,
         f"🤖 Modelo seleccionado: *{nombre_display}*\n\nSelecciona la actividad a evaluar:",
         chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown"
     )
@@ -304,12 +331,13 @@ def seleccionar_actividad(call):
     if act_obj:
         sesiones[chat_id]["actividad"] = act_obj
         sesiones[chat_id]["paso"] = "nombre"
-        bot.edit_message_text(
+        tg_call_with_retry(
+            bot.edit_message_text,
             f"✅ Actividad: *{act_obj.nombre}*\n\nEscribe el nombre del estudiante:",
             chat_id=chat_id, message_id=call.message.message_id
         )
     else:
-        bot.send_message(chat_id, "⚠️ Actividad no encontrada.")
+        tg_call_with_retry(bot.send_message, chat_id, "⚠️ Actividad no encontrada.")
 
 @bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "criterios" and message.text.strip() == "100")
 def auto_max_criterios(message):
@@ -323,7 +351,8 @@ def auto_max_criterios(message):
         sesiones[chat_id]["total_puntos"] += puntos
         
     sesiones[chat_id]["paso"] = "observaciones"
-    bot.send_message(
+    tg_call_with_retry(
+        bot.send_message,
         chat_id, 
         f"💯 Todos los criterios evaluados automáticamente con **Nivel experto**.\n\n¿Hay observaciones?",
         reply_markup=obtener_teclado_obs(),
@@ -352,7 +381,7 @@ def procesar_nombre_estudiante(message):
     for criterio in criterios_lista:
         markup.add(InlineKeyboardButton(f"📋 {criterio}", callback_data=f"crit_{criterio}"))
     
-    bot.send_message(chat_id, f"✍️ Estudiante: {sesiones[chat_id]['estudiante']}\n\nSelecciona un criterio a evaluar (O responde con **100** para experto automático):", reply_markup=markup, parse_mode="Markdown")
+    tg_call_with_retry(bot.send_message, chat_id, f"✍️ Estudiante: {sesiones[chat_id]['estudiante']}\n\nSelecciona un criterio a evaluar (O responde con **100** para experto automático):", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('crit_'))
 def seleccionar_criterio(call):
@@ -362,7 +391,8 @@ def seleccionar_criterio(call):
     sesiones[chat_id]["criterio_actual"] = criterio
     sesiones[chat_id]["paso"] = "nivel"
     
-    bot.edit_message_text(
+    tg_call_with_retry(
+        bot.edit_message_text,
         f"📊 Criterio: *{criterio}*\n\nSelecciona el nivel de desempeño:",
         chat_id=chat_id, message_id=call.message.message_id, reply_markup=obtener_teclado_niveles("niv"), parse_mode="Markdown"
     )
@@ -388,7 +418,8 @@ def seleccionar_nivel(call):
         for c_restante in criterios_restantes:
             markup.add(InlineKeyboardButton(f"📋 {c_restante}", callback_data=f"crit_{c_restante}"))
         
-        bot.edit_message_text(
+        tg_call_with_retry(
+            bot.edit_message_text,
             f"✅ {criterio}: *{NIVELES_NOMBRES[nivel_idx]}* (+{puntos:.1f} pts)\n\nSiguiente criterio:",
             chat_id=chat_id, message_id=call.message.message_id, reply_markup=markup, parse_mode="Markdown"
         )
@@ -400,7 +431,8 @@ def seleccionar_nivel(call):
                 InlineKeyboardButton("✅ Sí, es plagio", callback_data="plagio_si"),
                 InlineKeyboardButton("❌ No es plagio", callback_data="plagio_no")
             )
-            bot.edit_message_text(
+            tg_call_with_retry(
+                bot.edit_message_text,
                 f"✅ {criterio}: *No evaluable*\n\n"
                 "⚠️ Todos los criterios fueron marcados como no evaluables.\n"
                 "¿La actividad corresponde a un caso de plagio total?",
@@ -408,7 +440,8 @@ def seleccionar_nivel(call):
             )
         else:
             sesiones[chat_id]["paso"] = "observaciones"
-            bot.edit_message_text(
+            tg_call_with_retry(
+                bot.edit_message_text,
                 f"✅ {criterio}: *{NIVELES_NOMBRES[nivel_idx]}* (+{puntos:.1f} pts)\n\n¿Hay observaciones?",
                 chat_id=chat_id, message_id=call.message.message_id, reply_markup=obtener_teclado_obs(), parse_mode="Markdown"
             )
@@ -430,7 +463,8 @@ def procesar_confirmacion_plagio(call):
         "La evaluación continuará con el flujo normal.\n\n¿Deseas agregar observaciones a la rúbrica?"
     )
 
-    bot.edit_message_text(
+    tg_call_with_retry(
+        bot.edit_message_text,
         texto, chat_id=chat_id, message_id=call.message.message_id, reply_markup=obtener_teclado_obs()
     )
 
@@ -449,7 +483,8 @@ def procesar_observaciones(call):
         sesiones[chat_id]["paso"] = "obs_texto"
         sesiones[chat_id]["es_error_formato"] = False
         sesiones[chat_id]["observaciones_textuales"] = False
-        bot.edit_message_text(
+        tg_call_with_retry(
+            bot.edit_message_text,
             "✍️ Escribe las observaciones:",
             chat_id=chat_id,
             message_id=call.message.message_id
@@ -459,7 +494,8 @@ def procesar_observaciones(call):
         sesiones[chat_id]["paso"] = "obs_texto"
         sesiones[chat_id]["es_error_formato"] = False
         sesiones[chat_id]["observaciones_textuales"] = True
-        bot.edit_message_text(
+        tg_call_with_retry(
+            bot.edit_message_text,
             "✍️ Escribe las observaciones textuales (sin modificación IA):",
             chat_id=chat_id,
             message_id=call.message.message_id
@@ -468,7 +504,8 @@ def procesar_observaciones(call):
         sesiones[chat_id]["paso"] = "obs_formato_texto"
         sesiones[chat_id]["es_error_formato"] = True
         sesiones[chat_id]["observaciones_textuales"] = False
-        bot.edit_message_text(
+        tg_call_with_retry(
+            bot.edit_message_text,
             "⚠️ Describe brevemente el error de formato.\n\nEjemplo: envió un archivo .docx en lugar de un .pptx o un enlace sin permisos.",
             chat_id=chat_id, message_id=call.message.message_id
         )
@@ -494,7 +531,7 @@ def indiv_mod_obs(call):
     chat_id = call.message.chat.id
     if chat_id in sesiones and sesiones[chat_id].get("modo") == "individual":
         sesiones[chat_id]["paso"] = "observaciones"
-        bot.edit_message_text("✍️ De vuelta a las observaciones. Elige tu opción correcta:", chat_id=chat_id, message_id=call.message.message_id, reply_markup=obtener_teclado_obs())
+        tg_call_with_retry(bot.edit_message_text, "✍️ De vuelta a las observaciones. Elige tu opción correcta:", chat_id=chat_id, message_id=call.message.message_id, reply_markup=obtener_teclado_obs())
 
 def procesar_finalizacion(chat_id, message_id_to_edit):
     datos = sesiones.get(chat_id)
@@ -517,9 +554,9 @@ def procesar_finalizacion(chat_id, message_id_to_edit):
 
         mensaje_texto = f"✨ *{datos['estudiante']}* guardado en lote ({len(datos['cola'])} evaluaciones acumuladas).\n\nTambién puedes simplemente escribir el nombre del siguiente alumno."
         if message_id_to_edit:
-            bot.edit_message_text(mensaje_texto, chat_id, message_id_to_edit, reply_markup=markup, parse_mode="Markdown")
+            tg_call_with_retry(bot.edit_message_text, mensaje_texto, chat_id, message_id_to_edit, reply_markup=markup, parse_mode="Markdown")
         else:
-            bot.send_message(chat_id, mensaje_texto, reply_markup=markup, parse_mode="Markdown")
+            tg_call_with_retry(bot.send_message, chat_id, mensaje_texto, reply_markup=markup, parse_mode="Markdown")
     else:
         markup = InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -527,9 +564,9 @@ def procesar_finalizacion(chat_id, message_id_to_edit):
             InlineKeyboardButton("📝 Modificar observaciones", callback_data="indiv_mod_obs")
         )
         if message_id_to_edit:
-            bot.edit_message_text(f"Evaluación para {datos['estudiante']} lista. ¿Deseas modificar la observación o proceder a generarla?", chat_id, message_id_to_edit, reply_markup=markup)
+            tg_call_with_retry(bot.edit_message_text, f"Evaluación para {datos['estudiante']} lista. ¿Deseas modificar la observación o proceder a generarla?", chat_id, message_id_to_edit, reply_markup=markup)
         else:
-            bot.send_message(chat_id, f"Evaluación para {datos['estudiante']} lista. ¿Deseas modificar la observación o proceder a generarla?", reply_markup=markup)
+            tg_call_with_retry(bot.send_message, chat_id, f"Evaluación para {datos['estudiante']} lista. ¿Deseas modificar la observación o proceder a generarla?", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == 'indiv_run')
 def indiv_run(call):
@@ -556,7 +593,7 @@ def batch_add(call):
     sesiones[chat_id]["es_plagio"] = False
     sesiones[chat_id]["observaciones_textuales"] = False
     sesiones[chat_id]["paso"] = "nombre"
-    bot.edit_message_text("✍️ Escribe el nombre del siguiente estudiante:", chat_id=chat_id, message_id=call.message.message_id)
+    tg_call_with_retry(bot.edit_message_text, "✍️ Escribe el nombre del siguiente estudiante:", chat_id=chat_id, message_id=call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('b_rem_'))
 def batch_remove_student(call):
@@ -574,13 +611,15 @@ def batch_remove_student(call):
         db.eliminar_borrador(item_removed["borrador_id"])
         
     if not datos["cola"]:
-        bot.edit_message_text(
+        tg_call_with_retry(
+            bot.edit_message_text,
             "El lote está vacío. Agrega un estudiante nuevo:",
             chat_id=chat_id, message_id=call.message.message_id,
             reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("➕ Agregar estudiante", callback_data="batch_add"))
         )
     else:
-        bot.edit_message_text(
+        tg_call_with_retry(
+            bot.edit_message_text,
             f"🚫 Se quitó a {item_removed['estudiante']}. Quedan {len(datos['cola'])} evaluaciones.",
             chat_id=chat_id, message_id=call.message.message_id,
             reply_markup=obtener_teclado_lote(datos)
@@ -595,21 +634,23 @@ def batch_save_draft(call):
     if not datos or datos.get("modo") != "batch" or not datos.get("cola"): return
         
     for item in datos["cola"]:
-        borrador = {
-            "chat_id": chat_id,
-            "actividad_id": datos["actividad"].id,
-            "estudiante": item["estudiante"],
-            "criterios": item["criterios"],
-            "total_puntos": item["total_puntos"],
-            "observaciones": item["observaciones"],
-            "es_error_formato": item["es_error_formato"],
-            "es_plagio": item["es_plagio"],
-            "observaciones_textuales": item["observaciones_textuales"]
-        }
-        db.guardar_borrador(borrador)
+        if "borrador_id" not in item:
+            borrador = {
+                "chat_id": chat_id,
+                "actividad_id": datos["actividad"].id,
+                "estudiante": item["estudiante"],
+                "criterios": item["criterios"],
+                "total_puntos": item["total_puntos"],
+                "observaciones": item["observaciones"],
+                "es_error_formato": item["es_error_formato"],
+                "es_plagio": item["es_plagio"],
+                "observaciones_textuales": item["observaciones_textuales"]
+            }
+            item["borrador_id"] = db.guardar_borrador(borrador)
         
     del sesiones[chat_id]
-    bot.edit_message_text(
+    tg_call_with_retry(
+        bot.edit_message_text,
         "💾 Lote guardado como borrador exitosamente en la base de datos.\nUsa el comando /borradores en cualquier momento para continuar este lote.",
         chat_id=chat_id, message_id=call.message.message_id
     )
@@ -621,7 +662,7 @@ def draft_load_all(call):
     borradores = db.listar_borradores(chat_id)
     
     if not borradores:
-        bot.edit_message_text("No hay borradores.", chat_id=chat_id, message_id=call.message.message_id)
+        tg_call_with_retry(bot.edit_message_text, "No hay borradores.", chat_id=chat_id, message_id=call.message.message_id)
         return
         
     actividad_id = borradores[0]["actividad_id"]
@@ -654,9 +695,9 @@ def draft_load_all(call):
         }
         sesiones[chat_id]["cola"].append(item)
         
-    bot.edit_message_text(f"📂 {len(borradores)} evaluaciones recuperadas y cargadas a la cola del lote.", chat_id=chat_id, message_id=call.message.message_id)
+    tg_call_with_retry(bot.edit_message_text, f"📂 {len(borradores)} evaluaciones recuperadas y cargadas a la cola del lote.", chat_id=chat_id, message_id=call.message.message_id)
     markup = obtener_teclado_lote(sesiones[chat_id])
-    bot.send_message(chat_id, f"📦 Lote activo. Tienes {len(sesiones[chat_id]['cola'])} evaluaciones listas.", reply_markup=markup)
+    tg_call_with_retry(bot.send_message, chat_id, f"📦 Lote activo. Tienes {len(sesiones[chat_id]['cola'])} evaluaciones listas.", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == 'draft_delete_all')
 def draft_delete_all(call):
@@ -665,7 +706,7 @@ def draft_delete_all(call):
     borradores = db.listar_borradores(chat_id)
     for b in borradores:
         db.eliminar_borrador(b["id"])
-    bot.edit_message_text("🗑️ Todos los borradores han sido eliminados permanentemente.", chat_id=chat_id, message_id=call.message.message_id)
+    tg_call_with_retry(bot.edit_message_text, "🗑️ Todos los borradores han sido eliminados permanentemente.", chat_id=chat_id, message_id=call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == 'batch_cancel')
 def batch_cancel(call):
@@ -673,57 +714,108 @@ def batch_cancel(call):
     chat_id = call.message.chat.id
     if chat_id in sesiones:
         del sesiones[chat_id]
-        bot.edit_message_text("🚫 Lote cancelado por completo. Escribe /lote para iniciar uno nuevo.", chat_id=chat_id, message_id=call.message.message_id)
+        tg_call_with_retry(bot.edit_message_text, "🚫 Lote cancelado por completo. Escribe /lote para iniciar uno nuevo.", chat_id=chat_id, message_id=call.message.message_id)
 
 @bot.callback_query_handler(func=lambda call: call.data == 'batch_run')
 def batch_run(call):
     responder_callback(call)
     chat_id = call.message.chat.id
-    cola = list(sesiones[chat_id].get("cola", []))
+    if chat_id not in sesiones:
+        return
+    datos = sesiones[chat_id]
+    cola = list(datos.get("cola", []))
     
     modelos_db = db.get_modelos()
     if not modelos_db:
-        bot.send_message(chat_id, "⚠ No hay modelos configurados en tu sistema. Configura al menos un modelo en la web y presiona ejecutar nuevamente.")
+        tg_call_with_retry(bot.send_message, chat_id, "⚠ No hay modelos configurados en tu sistema. Configura al menos un modelo en la web y presiona ejecutar nuevamente.")
         return
+
+    # Respaldo automático en borradores antes de iniciar para no perder nunca niveles ni observaciones
+    for item in cola:
+        if "borrador_id" not in item:
+            try:
+                borrador = {
+                    "chat_id": chat_id,
+                    "actividad_id": datos["actividad"].id,
+                    "estudiante": item["estudiante"],
+                    "criterios": item["criterios"],
+                    "total_puntos": item["total_puntos"],
+                    "observaciones": item["observaciones"],
+                    "es_error_formato": item.get("es_error_formato", False),
+                    "es_plagio": item.get("es_plagio", False),
+                    "observaciones_textuales": item.get("observaciones_textuales", False)
+                }
+                item["borrador_id"] = db.guardar_borrador(borrador)
+            except Exception as e:
+                bot_log("ERROR", f"No se pudo crear respaldo automático de borrador para {item['estudiante']}: {e}")
         
     bot_log("INFO", f"Iniciando procesamiento de lote para {len(cola)} estudiantes.")
-    bot.edit_message_text(f"🚀 Generando lote de {len(cola)} retroalimentaciones. Esto tomará un momento...", chat_id=chat_id, message_id=call.message.message_id)
+    try:
+        tg_call_with_retry(bot.edit_message_text, f"🚀 Generando lote de {len(cola)} retroalimentaciones. Esto tomará un momento...", chat_id=chat_id, message_id=call.message.message_id)
+    except Exception:
+        pass
 
+    completados = 0
     for idx, item in enumerate(cola):
-        msg_progreso = bot.send_message(
-            chat_id,
-            f"⏳ Evaluando a {item['estudiante']} ({idx+1}/{len(cola)})...",
-            reply_markup=obtener_teclado_progreso()
-        )
-        procesar_generacion_individual(
-            chat_id, msg_progreso.message_id, 
+        msg_id = None
+        try:
+            msg_progreso = tg_call_with_retry(
+                bot.send_message,
+                chat_id,
+                f"⏳ Evaluando a {item['estudiante']} ({idx+1}/{len(cola)})...",
+                reply_markup=obtener_teclado_progreso()
+            )
+            msg_id = msg_progreso.message_id
+        except Exception as e:
+            bot_log("ERROR", f"[{item['estudiante']}] No se pudo enviar mensaje de progreso: {e}")
+
+        exito = procesar_generacion_individual(
+            chat_id, msg_id, 
             item["estudiante"], item["criterios"], item["total_puntos"], 
             item["observaciones"], item.get("es_error_formato", False), 
             item.get("es_plagio", False), item.get("observaciones_textuales", False),
             indice_estudiante=idx+1,
             total_lote=len(cola)
         )
-        if "borrador_id" in item:
-            db.eliminar_borrador(item["borrador_id"])
+        if exito:
+            completados += 1
+            if "borrador_id" in item:
+                try:
+                    db.eliminar_borrador(item["borrador_id"])
+                except Exception:
+                    pass
+
+        # Pausa breve entre alumnos para no saturar el límite de 20 mensajes por minuto en grupos de Telegram
+        if idx < len(cola) - 1:
+            time.sleep(2)
 
     if chat_id in sesiones:
         del sesiones[chat_id]
-    bot_log("INFO", "Lote completado exitosamente.")
-    bot.send_message(chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /lote para iniciar de nuevo.")
+    bot_log("INFO", f"Lote finalizado: {completados}/{len(cola)} completados.")
+    if completados == len(cola):
+        tg_call_with_retry(bot.send_message, chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /lote para iniciar de nuevo.")
+    else:
+        pendientes = len(cola) - completados
+        tg_call_with_retry(
+            bot.send_message,
+            chat_id,
+            f"⚠️ Lote finalizado ({completados}/{len(cola)} completados). Las {pendientes} evaluaciones restantes quedaron guardadas automáticamente en /borradores para que no tengas que volver a calificarlas."
+        )
 
-def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs, es_error_formato=False, es_plagio=False, observaciones_textuales=False, indice_estudiante=0, total_lote=1):
+def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs, es_error_formato=False, es_plagio=False, observaciones_textuales=False, indice_estudiante=0, total_lote=1) -> bool:
     datos = sesiones.get(chat_id)
-    if not datos: return
+    if not datos: return False
     actividad = datos["actividad"]
     
     modelos_db = db.get_modelos()
     if not modelos_db:
         if message_id_to_edit:
-            try: bot.edit_message_text("❌ Error: No hay modelos de IA configurados en el panel del sistema.", chat_id, message_id_to_edit)
-            except: pass
+            try: tg_call_with_retry(bot.edit_message_text, "❌ Error: No hay modelos de IA configurados en el panel del sistema.", chat_id, message_id_to_edit)
+            except Exception: pass
         else:
-            bot.send_message(chat_id, "❌ Error: No hay modelos de IA configurados en el panel del sistema.")
-        return
+            try: tg_call_with_retry(bot.send_message, chat_id, "❌ Error: No hay modelos de IA configurados en el panel del sistema.")
+            except Exception: pass
+        return False
 
     modelos_reales = [{"id": m["api_id"], "api_id": m["api_id"], "nombre": m["nombre"], "categoria": m["categoria"]} for m in modelos_db]
     modelo_id_base = datos.get("modelo_id", "auto")
@@ -743,6 +835,8 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
     )
     if usar_aleatorio and modelos_a_intentar:
         bot_log("INFO", f"[{estudiante}] Modelo aleatorio equilibrado seleccionado: {modelos_a_intentar[0]['nombre']}.")
+
+    guardado_en_historial = False
 
     try:
         builder = PromptBuilder(
@@ -830,11 +924,14 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         if not texto_generado:
             bot_log("ERROR", f"[{estudiante}] TODOS los modelos fallaron. Último error: {ultimo_error}")
             if message_id_to_edit:
-                try: bot.edit_message_text(f"❌ Ocurrió un error crítico con {estudiante} y todos los modelos fallaron. Último error: {ultimo_error}", chat_id, message_id_to_edit)
-                except: bot.send_message(chat_id, f"❌ Ocurrió un error crítico con {estudiante} y todos los modelos fallaron.")
+                try: tg_call_with_retry(bot.edit_message_text, f"❌ Ocurrió un error crítico con {estudiante} y todos los modelos fallaron. Último error: {ultimo_error}", chat_id, message_id_to_edit)
+                except Exception:
+                    try: tg_call_with_retry(bot.send_message, chat_id, f"❌ Ocurrió un error crítico con {estudiante} y todos los modelos fallaron.")
+                    except Exception: pass
             else:
-                bot.send_message(chat_id, f"❌ Ocurrió un error con {estudiante}: {ultimo_error}")
-            return
+                try: tg_call_with_retry(bot.send_message, chat_id, f"❌ Ocurrió un error con {estudiante}: {ultimo_error}")
+                except Exception: pass
+            return False
 
         razonamiento = getattr(ia_client, "ultimo_razonamiento", "")
 
@@ -851,6 +948,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
             razonamiento
         )
         db.create_history(item, actividad.id)
+        guardado_en_historial = True
 
         dirs = db.get_all_directrices()
         n_ase = dirs.get("asesor_nombre", "")
@@ -871,28 +969,36 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         html_buffer = io.BytesIO(html_text.encode('utf-8'))
         html_buffer.name = f"{nombre_base}.html"
 
-        bot.send_document(chat_id, document=word_buffer, caption=f"📄 Word: {estudiante} ({modelo_exitoso['nombre']})")
-        bot.send_document(chat_id, document=html_buffer, caption=f"🌐 HTML: {estudiante}")
+        tg_call_with_retry(bot.send_document, chat_id, document=word_buffer, caption=f"📄 Word: {estudiante} ({modelo_exitoso['nombre']})")
+        tg_call_with_retry(bot.send_document, chat_id, document=html_buffer, caption=f"🌐 HTML: {estudiante}")
 
         if "foro de integración" in actividad.nombre.lower():
-            bot.send_message(chat_id, f"🔢 *Calificación de {estudiante}:* `{total_puntos:.1f} / 100`", parse_mode="Markdown")
+            tg_call_with_retry(bot.send_message, chat_id, f"🔢 *Calificación de {estudiante}:* `{total_puntos:.1f} / 100`", parse_mode="Markdown")
 
         if datos.get("modo") == "individual":
-            bot.send_message(chat_id, "✨ ¡Listo! Escribe /evaluar o /lote para generar otra.")
+            tg_call_with_retry(bot.send_message, chat_id, "✨ ¡Listo! Escribe /evaluar o /lote para generar otra.")
             del sesiones[chat_id]
+
+        return True
 
     except Exception as e:
         bot_log("ERROR", f"[{estudiante}] Error inesperado al procesar: {e}")
+        aviso_extra = " (Su retroalimentación SÍ quedó guardada en el historial web)." if guardado_en_historial else ""
         if message_id_to_edit:
-            try: bot.edit_message_text(f"❌ Ocurrió un error procesando a {estudiante}: {e}", chat_id, message_id_to_edit)
-            except Exception: bot.send_message(chat_id, f"❌ Ocurrió un error procesando a {estudiante}: {e}")
+            try: tg_call_with_retry(bot.edit_message_text, f"❌ Ocurrió un error enviando archivos de {estudiante}: {e}{aviso_extra}", chat_id, message_id_to_edit)
+            except Exception:
+                try: tg_call_with_retry(bot.send_message, chat_id, f"❌ Ocurrió un error enviando archivos de {estudiante}: {e}{aviso_extra}")
+                except Exception: pass
         else:
-            bot.send_message(chat_id, f"❌ Ocurrió un error procesando a {estudiante}: {e}")
+            try: tg_call_with_retry(bot.send_message, chat_id, f"❌ Ocurrió un error enviando archivos de {estudiante}: {e}{aviso_extra}")
+            except Exception: pass
+        return guardado_en_historial
 
 @bot.callback_query_handler(func=lambda call: call.data == 'mostrar_modelos')
 def mostrar_modelos(call):
     responder_callback(call)
-    bot.edit_message_text(
+    tg_call_with_retry(
+        bot.edit_message_text,
         construir_texto_modelos_disponibles(),
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
@@ -902,7 +1008,8 @@ def mostrar_modelos(call):
 @bot.callback_query_handler(func=lambda call: call.data == 'volver_ayuda')
 def volver_ayuda(call):
     responder_callback(call)
-    bot.edit_message_text(
+    tg_call_with_retry(
+        bot.edit_message_text,
         construir_texto_ayuda(),
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
@@ -934,4 +1041,3 @@ if __name__ == '__main__':
     
     bot_log("INFO", "Bot de Telegram iniciado en modo Polling (Worker de Heroku)...")
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    
