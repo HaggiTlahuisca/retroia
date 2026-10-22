@@ -11,6 +11,7 @@ from html import escape
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -285,14 +286,37 @@ def pdf_bytes(title: str, text: str) -> bytes:
     return buffer.getvalue()
 
 
+#def create_zip(archivos: list[tuple[str, bytes]]) -> bytes:
+#    buf = io.BytesIO()
+#    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+#        for nombre_archivo, data in archivos:
+#            zf.writestr(nombre_archivo, data)
+#    buf.seek(0)
+#    return buf.getvalue()
+
 def create_zip(archivos: list[tuple[str, bytes]]) -> bytes:
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+    zona_local = ZoneInfo("America/Mexico_City")
+    ahora_local = datetime.now(zona_local).replace(tzinfo=None)
+
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for nombre_archivo, data in archivos:
-            zf.writestr(nombre_archivo, data)
+            info = zipfile.ZipInfo(
+                filename=nombre_archivo,
+                date_time=(
+                    ahora_local.year,
+                    ahora_local.month,
+                    ahora_local.day,
+                    ahora_local.hour,
+                    ahora_local.minute,
+                    ahora_local.second,
+                ),
+            )
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, data)
+
     buf.seek(0)
     return buf.getvalue()
-
 
 def export_json(data: dict[str, Any], filename_prefix: str = "export") -> Path:
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
