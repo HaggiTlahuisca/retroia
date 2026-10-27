@@ -37,12 +37,12 @@
   },
   {
     "id": 7,
-    "nombre": "👑 3.8 Flash (batch)",
-    "api_id": "google/gemini-3.8-flash:batch",
+    "nombre": "⚡️ 3.8 Flash",
+    "api_id": "google/gemini-3.8-flash",
     "categoria": "de pago"
   },
   {
-    id": 8,
+    "id": 8,
     "nombre": "👑 Qwen 3.7 Flash",
     "api_id": "qwen/qwen3.7-flash",
     "categoria": "de pago"
