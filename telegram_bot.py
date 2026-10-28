@@ -55,7 +55,6 @@ def _extraer_segundos_espera(exc: Exception) -> int:
     return 15
 
 def tg_call_with_retry(func, *args, max_retries: int = 5, **kwargs):
-    """Ejecuta una llamada a Telegram y, si recibe error 429 (Too Many Requests), espera y reintenta."""
     for intento in range(max_retries):
         try:
             return func(*args, **kwargs)
@@ -94,19 +93,13 @@ def todos_los_criterios_no_evaluables(sesion: dict, actividad) -> bool:
     criterios = obtener_criterios_actividad(actividad)
     if len(sesion.get("criterios", {})) != len(criterios):
         return False
-    return all(
-        datos[0] == "No evaluable"
-        for datos in sesion["criterios"].values()
-    )
+    return all(datos[0] == "No evaluable" for datos in sesion["criterios"].values())
 
 def obtener_teclado_modelos() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(InlineKeyboardButton("🎲 Rotación aleatoria", callback_data="mod_auto"))
     modelos = db.get_modelos()
-    botones_reales = [
-        InlineKeyboardButton(m["nombre"], callback_data=f"mod_{m['id']}")
-        for m in modelos
-    ]
+    botones_reales = [InlineKeyboardButton(m["nombre"], callback_data=f"mod_{m['id']}") for m in modelos]
     if botones_reales:
         markup.add(*botones_reales)
     return markup
@@ -146,13 +139,9 @@ def construir_texto_modelos_disponibles() -> str:
     if not modelos:
         lineas.extend(["", "⚠️ No hay modelos configurados en la base de datos."])
         return "\n".join(lineas)
-
     lineas.append("")
     for modelo in modelos:
-        lineas.append(f"{modelo['nombre']}")
-        lineas.append(f"   Categoría: {modelo['categoria']}")
-        lineas.append(f"   OpenRouter ID: {modelo['api_id']}")
-        lineas.append("")
+        lineas.append(f"{modelo['nombre']}\n   Categoría: {modelo['categoria']}\n   OpenRouter ID: {modelo['api_id']}\n")
     return "\n".join(lineas).strip()
 
 def obtener_teclado_niveles(prefijo: str) -> InlineKeyboardMarkup:
@@ -180,15 +169,8 @@ def obtener_teclado_obs() -> InlineKeyboardMarkup:
 
 def obtener_teclado_lote(datos: dict) -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=1)
-    
     for indice, item in enumerate(datos["cola"]):
-        markup.add(
-            InlineKeyboardButton(
-                f"🚫 Quitar {item['estudiante']}",
-                callback_data=f"b_rem_{indice}"
-            )
-        )
-        
+        markup.add(InlineKeyboardButton(f"🚫 Quitar {item['estudiante']}", callback_data=f"b_rem_{indice}"))
     markup.add(
         InlineKeyboardButton("➕ Otro", callback_data="batch_add"),
         InlineKeyboardButton("🚀 Ejecutar lote", callback_data="batch_run"),
@@ -222,7 +204,6 @@ def comando_borradores(message):
     if not borradores:
         tg_call_with_retry(bot.send_message, chat_id, "No tienes evaluaciones en borrador actualmente.")
         return
-        
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
         InlineKeyboardButton("📂 Cargar todos al lote", callback_data="draft_load_all"),
@@ -309,7 +290,6 @@ def seleccionar_modelo(call):
             nombre_display = "🎲 Rotación aleatoria"
 
     sesiones[chat_id]["paso"] = "actividad"
-
     actividades = db.list_activities()
     markup = InlineKeyboardMarkup(row_width=1)
     for act in actividades:
@@ -339,30 +319,55 @@ def seleccionar_actividad(call):
     else:
         tg_call_with_retry(bot.send_message, chat_id, "⚠️ Actividad no encontrada.")
 
-@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "criterios" and message.text.strip() == "100")
-def auto_max_criterios(message):
+@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "criterios" and message.text.strip().lower() in ["100", "0", "formato", "plagio"])
+def auto_atajos_criterios(message):
     chat_id = message.chat.id
+    comando = message.text.strip().lower()
     actividad = sesiones[chat_id]["actividad"]
     criterios_lista = obtener_criterios_actividad(actividad)
-    
-    for criterio in criterios_lista:
-        puntos = obtener_puntos(actividad.nombre, criterio, 0)
-        sesiones[chat_id]["criterios"][criterio] = (NIVELES_NOMBRES[0], puntos)
-        sesiones[chat_id]["total_puntos"] += puntos
+
+    if comando == "100":
+        for criterio in criterios_lista:
+            puntos = obtener_puntos(actividad.nombre, criterio, 0)
+            sesiones[chat_id]["criterios"][criterio] = (NIVELES_NOMBRES[0], puntos)
+            sesiones[chat_id]["total_puntos"] += puntos
+        sesiones[chat_id]["paso"] = "observaciones"
+        tg_call_with_retry(
+            bot.send_message, chat_id, 
+            f"💯 Todos los criterios evaluados automáticamente con **Nivel experto**.\n\n¿Hay observaciones?",
+            reply_markup=obtener_teclado_obs(), parse_mode="Markdown"
+        )
+    elif comando in ["0", "formato", "plagio"]:
+        idx_no_eval = NIVELES_CLAVES.index("no_evaluable")
+        for criterio in criterios_lista:
+            puntos = obtener_puntos(actividad.nombre, criterio, idx_no_eval)
+            sesiones[chat_id]["criterios"][criterio] = (NIVELES_NOMBRES[idx_no_eval], puntos)
+            sesiones[chat_id]["total_puntos"] += puntos
         
-    sesiones[chat_id]["paso"] = "observaciones"
-    tg_call_with_retry(
-        bot.send_message,
-        chat_id, 
-        f"💯 Todos los criterios evaluados automáticamente con **Nivel experto**.\n\n¿Hay observaciones?",
-        reply_markup=obtener_teclado_obs(),
-        parse_mode="Markdown"
-    )
+        sesiones[chat_id]["observaciones"] = ""
+        sesiones[chat_id]["observaciones_textuales"] = False
+        
+        if comando == "formato":
+            sesiones[chat_id]["es_error_formato"] = True
+            sesiones[chat_id]["es_plagio"] = False
+            tg_call_with_retry(bot.send_message, chat_id, "⚠️ Se marcó como **Error de formato** automáticamente. Generando...")
+            procesar_finalizacion(chat_id, None)
+        elif comando == "plagio":
+            sesiones[chat_id]["es_plagio"] = True
+            sesiones[chat_id]["es_error_formato"] = False
+            tg_call_with_retry(bot.send_message, chat_id, "🚫 Se marcó como **Plagio total** automáticamente. Generando...")
+            procesar_finalizacion(chat_id, None)
+        elif comando == "0":
+            sesiones[chat_id]["paso"] = "observaciones"
+            tg_call_with_retry(
+                bot.send_message, chat_id, 
+                f"⚠️ Todos los criterios evaluados automáticamente con **No evaluable**.\n\n¿Hay observaciones?",
+                reply_markup=obtener_teclado_obs(), parse_mode="Markdown"
+            )
 
 @bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") in ["nombre", "batch_esperando_decision"])
 def procesar_nombre_estudiante(message):
     chat_id = message.chat.id
-    
     if sesiones[chat_id]["paso"] == "batch_esperando_decision":
         sesiones[chat_id]["criterios"] = {}
         sesiones[chat_id]["total_puntos"] = 0.0
@@ -376,12 +381,10 @@ def procesar_nombre_estudiante(message):
     
     actividad = sesiones[chat_id]["actividad"]
     markup = InlineKeyboardMarkup(row_width=1)
-    
-    criterios_lista = obtener_criterios_actividad(actividad)
-    for criterio in criterios_lista:
+    for criterio in obtener_criterios_actividad(actividad):
         markup.add(InlineKeyboardButton(f"📋 {criterio}", callback_data=f"crit_{criterio}"))
     
-    tg_call_with_retry(bot.send_message, chat_id, f"✍️ Estudiante: {sesiones[chat_id]['estudiante']}\n\nSelecciona un criterio a evaluar (O responde con **100** para experto automático):", reply_markup=markup, parse_mode="Markdown")
+    tg_call_with_retry(bot.send_message, chat_id, f"✍️ Estudiante: {sesiones[chat_id]['estudiante']}\n\nSelecciona un criterio a evaluar (O responde con atajos: **100**, **formato**, **plagio**):", reply_markup=markup, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('crit_'))
 def seleccionar_criterio(call):
@@ -483,23 +486,12 @@ def procesar_observaciones(call):
         sesiones[chat_id]["paso"] = "obs_texto"
         sesiones[chat_id]["es_error_formato"] = False
         sesiones[chat_id]["observaciones_textuales"] = False
-        tg_call_with_retry(
-            bot.edit_message_text,
-            "✍️ Escribe las observaciones:",
-            chat_id=chat_id,
-            message_id=call.message.message_id
-        )
-
+        tg_call_with_retry(bot.edit_message_text, "✍️ Escribe las observaciones:", chat_id=chat_id, message_id=call.message.message_id)
     elif obs_tipo == "textual":
         sesiones[chat_id]["paso"] = "obs_texto"
         sesiones[chat_id]["es_error_formato"] = False
         sesiones[chat_id]["observaciones_textuales"] = True
-        tg_call_with_retry(
-            bot.edit_message_text,
-            "✍️ Escribe las observaciones textuales (sin modificación IA):",
-            chat_id=chat_id,
-            message_id=call.message.message_id
-        )
+        tg_call_with_retry(bot.edit_message_text, "✍️ Escribe las observaciones textuales (sin modificación IA):", chat_id=chat_id, message_id=call.message.message_id)
     elif obs_tipo == "formato":
         sesiones[chat_id]["paso"] = "obs_formato_texto"
         sesiones[chat_id]["es_error_formato"] = True
@@ -551,7 +543,6 @@ def procesar_finalizacion(chat_id, message_id_to_edit):
         datos["paso"] = "batch_esperando_decision"
         
         markup = obtener_teclado_lote(datos)
-
         mensaje_texto = f"✨ *{datos['estudiante']}* guardado en lote ({len(datos['cola'])} evaluaciones acumuladas).\n\nTambién puedes simplemente escribir el nombre del siguiente alumno."
         if message_id_to_edit:
             tg_call_with_retry(bot.edit_message_text, mensaje_texto, chat_id, message_id_to_edit, reply_markup=markup, parse_mode="Markdown")
