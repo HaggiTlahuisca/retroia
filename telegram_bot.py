@@ -55,6 +55,7 @@ def _extraer_segundos_espera(exc: Exception) -> int:
     return 15
 
 def tg_call_with_retry(func, *args, max_retries: int = 5, **kwargs):
+    """Ejecuta una llamada a Telegram y, si recibe error 429 (Too Many Requests), espera y reintenta."""
     for intento in range(max_retries):
         try:
             return func(*args, **kwargs)
@@ -338,24 +339,35 @@ def auto_atajos_criterios(message):
             reply_markup=obtener_teclado_obs(), parse_mode="Markdown"
         )
     elif comando in ["0", "formato", "plagio"]:
-        idx_no_eval = NIVELES_CLAVES.index("no_evaluable")
+        if comando == "formato":
+            idx_nivel = NIVELES_CLAVES.index("requiere_apoyo")
+        else:
+            idx_nivel = NIVELES_CLAVES.index("no_evaluable")
+            
         for criterio in criterios_lista:
-            puntos = obtener_puntos(actividad.nombre, criterio, idx_no_eval)
-            sesiones[chat_id]["criterios"][criterio] = (NIVELES_NOMBRES[idx_no_eval], puntos)
+            puntos = obtener_puntos(actividad.nombre, criterio, idx_nivel)
+            sesiones[chat_id]["criterios"][criterio] = (NIVELES_NOMBRES[idx_nivel], puntos)
             sesiones[chat_id]["total_puntos"] += puntos
         
-        sesiones[chat_id]["observaciones"] = ""
         sesiones[chat_id]["observaciones_textuales"] = False
         
         if comando == "formato":
             sesiones[chat_id]["es_error_formato"] = True
             sesiones[chat_id]["es_plagio"] = False
-            tg_call_with_retry(bot.send_message, chat_id, "⚠️ Se marcó como **Error de formato** automáticamente. Generando...")
-            procesar_finalizacion(chat_id, None)
+            sesiones[chat_id]["paso"] = "obs_formato_texto"
+            tg_call_with_retry(
+                bot.send_message,
+                chat_id,
+                "⚠️ Criterios evaluados con **Requiere apoyo (60 pts)** por error de formato.\n\n"
+                "✍️ Describe brevemente el error de formato:\n"
+                "(Por ejemplo: *Envió un archivo .docx en lugar de un .pptx* o *Compartió un enlace sin permisos*)",
+                parse_mode="Markdown"
+            )
         elif comando == "plagio":
             sesiones[chat_id]["es_plagio"] = True
             sesiones[chat_id]["es_error_formato"] = False
-            tg_call_with_retry(bot.send_message, chat_id, "🚫 Se marcó como **Plagio total** automáticamente. Generando...")
+            sesiones[chat_id]["observaciones"] = ""
+            tg_call_with_retry(bot.send_message, chat_id, "🚫 Se marcó como **Plagio total (0 pts)** automáticamente. Generando...")
             procesar_finalizacion(chat_id, None)
         elif comando == "0":
             sesiones[chat_id]["paso"] = "observaciones"
@@ -761,7 +773,7 @@ def batch_run(call):
             bot_log("ERROR", f"[{item['estudiante']}] No se pudo enviar mensaje de progreso: {e}")
 
         exito = procesar_generacion_individual(
-            chat_id, msg_id, 
+            chat_id, msg_id,
             item["estudiante"], item["criterios"], item["total_puntos"], 
             item["observaciones"], item.get("es_error_formato", False), 
             item.get("es_plagio", False), item.get("observaciones_textuales", False),
@@ -850,7 +862,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         ultimo_error = None
 
         bot_log("INFO", f"[{estudiante}] Iniciando peticiones a OpenRouter.")
-        prefijo_lote = f"[{indice_estudiante}/{total_lote}] " if datos.get("modo") == "batch" else ""
+        prefijo_lote = f"[{indice_estudiante}/{total_lote}] " if datos.get("modo") == "batch" else ""`
 
         for intento, modelo_actual in enumerate(modelos_a_intentar):
             datos["saltar_modelo"] = False
@@ -974,7 +986,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
 
     except Exception as e:
         bot_log("ERROR", f"[{estudiante}] Error inesperado al procesar: {e}")
-        aviso_extra = " (Su retroalimentación SÍ quedó guardada en el historial web)." if guardado_en_historial else ""
+        aviso_extra = " (Su retroalimentación SÍ quedó guardada en el historial web)." if guardado_en_historial else ""`
         if message_id_to_edit:
             try: tg_call_with_retry(bot.edit_message_text, f"❌ Ocurrió un error enviando archivos de {estudiante}: {e}{aviso_extra}", chat_id, message_id_to_edit)
             except Exception:
