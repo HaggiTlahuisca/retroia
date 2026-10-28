@@ -90,9 +90,10 @@ class _BasePrompt:
         prompt_sistema += (
             f"\n\n[INSTRUCCIÓN INTERNA MÁXIMA — REGLAS INQUEBRANTABLES]:\n"
             f"1. IDIOMA: Escribe única y exclusivamente en español de México, con espacios correctos entre palabras. Prohibido usar caracteres asiáticos o inglés.\n"
-            f"2. SALUDO OBLIGATORIO: Tienes ESTRICTAMENTE PROHIBIDO iniciar con '¡Hola!', '¡Saludos!', 'Buenos días' o cualquier otra frase. El ÚNICO inicio permitido es 'Apreciable, [Nombre].' sin nada más en ese renglón.\n"
+            f"2. SALUDO OBLIGATORIO: Tienes ESTRICTAMENTE PROHIBIDO iniciar con '¡Hola!', '¡Saludos!', 'Buenos días' o cualquier otra frase. El ÚNICO inicio permitido es 'Apreciable, {self.pb.estudiante}.' sin nada más en ese renglón.\n"
             f"3. UNICIDAD: Esta es la retroalimentación número {self.pb.indice_estudiante} del lote. Varía el vocabulario y la longitud de los párrafos. Cero plantillas genéricas.\n"
-            f"4. FIRMA: NO agregues el nombre del asesor ('{self.n_ase}') después de la despedida, el sistema lo hará automáticamente."
+            f"4. FIRMA: NO agregues el nombre del asesor ('{self.n_ase}') después de la despedida, el sistema lo hará automáticamente.\n"
+            f"5. REGLA DE AGILIDAD (SIN BUCLES DE PENSAMIENTO): Si tienes capacidad de razonamiento interno (<think>), planea tu respuesta en menos de 150 palabras sin debatir reglas."
         )
         return prompt_sistema
 
@@ -108,7 +109,7 @@ class _BasePrompt:
 
 
 class _NormalPrompt(_BasePrompt):
-    """Prompt para actividades integradoras normales."""
+    """Prompt exclusivo para actividades integradoras normales y proyectos."""
     def build(self) -> str:
         sys_prompt = self.get_system_prompt()
         crit_str = self.get_criterios_formateados()
@@ -143,9 +144,16 @@ class _NormalPrompt(_BasePrompt):
         rec_str = "".join([f"- URL: {r.url} (Tipo: {r.tipo}. Propósito: {r.descripcion})\n" for r in self.pb.actividad.recursos]) if self.pb.actividad and self.pb.actividad.recursos else ""
         bloque_recursos = f"\n4. **RECURSOS:**\nRedacta cada recurso en prosa fluida y natural (PROHIBIDO usar la palabra 'Recursos' como título o usar viñetas). \nRecursos a incluir:\n{rec_str}" if rec_str else ""
 
+        if self.pb.actividad and self.pb.actividad.frase:
+            texto_frase = self.pb.actividad.frase.texto
+            autor_frase = self.pb.actividad.frase.autor
+        else:
+            texto_frase = "Siempre parece imposible hasta que se hace"
+            autor_frase = "Nelson Mandela"
+
         # Apertura controlada
         ideas_apertura = (
-            "- Agradece la entrega de su \"{n_act}\" (OJO: escribe exactamente el título entre comillas, no le agregues la palabra 'actividad' antes del título) y deséale bienestar.\n"
+            f"- Agradece la entrega de su \"{self.n_act}\" (OJO: pon exactamente el título entre comillas. Si el título ya dice 'Proyecto', NO le agregues la palabra 'actividad' antes. Ejemplo correcto: Recibí tu \"Proyecto integrador. Adelgazando costos\").\n"
             "- Recuerda de forma natural que el objetivo de estas entregas es poner en práctica lo aprendido.\n"
             "- ¡REGLA CRÍTICA!: NO inventes elogios irreales (ej. 'uso impecable del álgebra', 'estructuraste tu documento de manera ordenada'). Limítate a lo anterior."
         )
@@ -157,17 +165,15 @@ class _NormalPrompt(_BasePrompt):
 ### DATOS DEL ALUMNO Y ACTIVIDAD:
 - Estudiante: {self.pb.estudiante}
 - Actividad: "{self.n_act}"
-- Propósito de la actividad: {self.prop_act}
 - Evaluaciones (EN ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Pensamiento crítico):
 {crit_str}
 - Observaciones del asesor: {obs_contexto}
 
 ### REGLAS CONTRA ALUCINACIONES:
 1. ¡PROHIBIDO INVENTAR CONTEXTO!: Esta actividad pertenece a matemáticas. NO inventes conceptos ajenos. NO felicites por "aclarar dudas" o "buena disposición".
-2. RESPETO ABSOLUTO A LAS OBSERVACIONES: PROHIBIDO suavizar, omitir o cambiar el sentido de lo indicado por el asesor.
+2. RESPETO ABSOLUTO A LAS OBSERVACIONES: PROHIBIDO suavizar, omitir o cambiar el sentido de lo indicado por el asesor. Si dice que hizo algo mal, mantén la acusación firme.
 3. DISTRIBUCIÓN DE OBSERVACIONES: Integra las observaciones a lo largo de los criterios. PROHIBIDO agruparlas al final aisladas. {regla_experto}
-4. LÍMITE DE TÍTULO: PROHIBIDO usar el nombre de la actividad más de 3 veces.
-5. {self.pb.dirs.get('reglas_formato', '')}
+4. {self.pb.dirs.get('reglas_formato', '')}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
@@ -195,7 +201,7 @@ class _NormalPrompt(_BasePrompt):
 
 {self.pb.dirs.get('despedida', f'Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu "{self.n_act}".')}
 
-Me despido con esta frase: **"Siempre parece imposible hasta que se hace"**. 
+Me despido con esta frase de {autor_frase}: **"{texto_frase}"**.
 
 Recuerda que siempre estoy para ti al otro lado de la pantalla. Me puedes contactar por medio de los canales institucionales.
 
@@ -206,28 +212,33 @@ class _FormatErrorPrompt(_BasePrompt):
     """Prompt exclusivo para cuando el alumno entrega un formato incorrecto (ej. Word en lugar de PPT)."""
     def build(self) -> str:
         sys_prompt = self.get_system_prompt()
-        obs_contexto = self.pb.observaciones if self.pb.observaciones else "Entregaste un documento de texto en lugar de una presentación."
+        
+        # Recuperamos la observación textual del error (Ej. "Entregaste un .docx en lugar de un .pptx")
+        obs_contexto = self.pb.observaciones if self.pb.observaciones else "entregaste un documento en un formato distinto al solicitado en las instrucciones."
         
         return f"""{sys_prompt}
 
 ### DATOS DEL ALUMNO Y ACTIVIDAD:
 - Estudiante: {self.pb.estudiante}
 - Actividad: "{self.n_act}"
-- Detalle del error: {obs_contexto}
+- DETALLE DEL ERROR DE FORMATO: {obs_contexto}
 
 ### INSTRUCCIÓN CRÍTICA DE FORMATO INCORRECTO:
-Redacta un mensaje breve (1 o 2 párrafos máximo) con empatía pero firmeza en español de México.
-Usa como base esta idea: "Recibí tu trabajo de tu '{self.n_act}', sin embargo, lo entregaste en un documento incorrecto [{obs_contexto}]. Por esta razón, la actividad queda con calificación mínima, ya que el formato solicitado es parte esencial de la entrega."
+Redacta un mensaje breve y directo (máximo 2 párrafos) con empatía pero firmeza en español de México.
+DEBES mencionar explícitamente qué formato entregó y qué formato debía entregar basándote en el "DETALLE DEL ERROR DE FORMATO" proporcionado arriba.
 
 ¡REGLAS DE ORO INQUEBRANTABLES!:
-1. TIENES ESTRICTAMENTE PROHIBIDO decir "revisé con detenimiento", "leí tu trabajo" o "analicé tu entrega". Al tener un formato incorrecto NO se revisó el contenido.
-2. TIENES ESTRICTAMENTE PROHIBIDO invitar al alumno a "corregir", "reingresar" o "volver a entregar" la actividad. El reglamento NO permite segundas entregas para mejorar calificación.
-3. TIENES ESTRICTAMENTE PROHIBIDO desglosar los criterios de la rúbrica (Cognitivo, etc.). NO los menciones.
+1. TIENES ESTRICTAMENTE PROHIBIDO decir "revisé con detenimiento", "leí tu trabajo" o "analicé tu entrega". Al tener un formato incorrecto NO se revisó el contenido, solo se recibió el archivo. 
+2. TIENES ESTRICTAMENTE PROHIBIDO invitar al alumno a "corregir", "reingresar" o "volver a entregar" la actividad actual. El reglamento NO permite segundas entregas si ya tiene la calificación mínima aprobatoria (60 puntos). Solo invítalo a leer con calma las instrucciones para "futuras entregas" o "próximas actividades".
+3. TIENES ESTRICTAMENTE PROHIBIDO desglosar los criterios de la rúbrica (Cognitivo, etc.). NO los menciones para nada.
+
+Ejemplo del tono y estilo que debes usar:
+"Recibí tu trabajo de la "{self.n_act}", sin embargo, {obs_contexto}. Por esta razón, la actividad queda con calificación mínima, ya que el formato solicitado es parte esencial de la entrega. Te invito con cariño a leer con calma las instrucciones antes de subir tus trabajos; este pequeño paso te ayudará a evitar contratiempos en tus futuras entregas."
 
 ### ESTRUCTURA OBLIGATORIA:
-1. **SALUDO:** Inicia EXACTAMENTE con: **Apreciable, {self.pb.estudiante}.** (Dando un salto de línea después).
-2. **CUERPO DEL MENSAJE:** Redacta la observación del error de formato. Puedes invitarlo a leer con calma las instrucciones para futuras entregas.
-3. **DESPEDIDA:** Usa exactamente esta firma corta:
+1. **SALUDO:** Inicia EXACTAMENTE con: **Apreciable, {self.pb.estudiante}.** (Dando un doble salto de línea después).
+2. **CUERPO DEL MENSAJE:** Redacta la observación del error de formato. 
+3. **DESPEDIDA:** Usa exactamente esta firma corta (sin nombre):
 {self.firma_corta}"""
 
 
@@ -256,7 +267,7 @@ class _PlagiarismPrompt(_BasePrompt):
 - NO incluyas frases motivacionales o despedidas extensas.
 
 Comienza EXACTAMENTE con:
-Apreciable, {self.pb.estudiante}.
+**Apreciable, {self.pb.estudiante}.**
 
 Firma:
 {self.firma_corta}"""
@@ -282,6 +293,7 @@ class _ForumPrompt(_BasePrompt):
 - Espacio evaluado: {self.n_act}
 - Desempeño por criterios:
 {crit_str}
+- Observaciones del asesor: {self.pb.observaciones if self.pb.observaciones else "Todo correcto según los niveles y la evidencia disponible."}
 
 ### REGLAS DE ORO EXCLUSIVAS PARA FORO:
 1. ¡ESTO NO ES UN ENTREGABLE!: Es un foro de discusión. ESTRICTAMENTE PROHIBIDO hablar de "tu entrega", "tu documento" o "el archivo enviado". Usa: "tus aportaciones", "tus réplicas", "el diálogo".
