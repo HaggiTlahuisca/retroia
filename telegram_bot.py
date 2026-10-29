@@ -862,7 +862,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
         ultimo_error = None
 
         bot_log("INFO", f"[{estudiante}] Iniciando peticiones a OpenRouter.")
-        prefijo_lote = f"[{indice_estudiante}/{total_lote}] " if datos.get("modo") == "batch" else ""`
+        prefijo_lote = f"[{indice_estudiante}/{total_lote}] " if datos.get("modo") == "batch" else ""
 
         for intento, modelo_actual in enumerate(modelos_a_intentar):
             datos["saltar_modelo"] = False
