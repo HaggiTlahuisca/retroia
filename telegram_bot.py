@@ -986,7 +986,7 @@ def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, crit
 
     except Exception as e:
         bot_log("ERROR", f"[{estudiante}] Error inesperado al procesar: {e}")
-        aviso_extra = " (Su retroalimentación SÍ quedó guardada en el historial web)." if guardado_en_historial else ""`
+        aviso_extra = " (Su retroalimentación SÍ quedó guardada en el historial web)." if guardado_en_historial else ""
         if message_id_to_edit:
             try: tg_call_with_retry(bot.edit_message_text, f"❌ Ocurrió un error enviando archivos de {estudiante}: {e}{aviso_extra}", chat_id, message_id_to_edit)
             except Exception:
