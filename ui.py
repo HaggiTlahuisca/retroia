@@ -93,7 +93,13 @@ class RetroalimentacionApp:
             "procesando_lote": False,
             "lote_idx": 0,
             "lote_exitosos": 0,
-            "lote_total": 0
+            "lote_total": 0,
+            # Variables de control del formulario de evaluación
+            "form_estudiante": "",
+            "form_observaciones": "",
+            "form_error_formato": False,
+            "form_obs_textuales": False,
+            "form_reset_trigger": False
         }
         for key, value in defaults.items(): st.session_state.setdefault(key, value)
 
@@ -142,16 +148,39 @@ class RetroalimentacionApp:
             st.session_state.temperature = col_m2.slider("Temperatura", 0.0, 1.5, float(st.session_state.temperature), 0.1)
             st.session_state.max_tokens = col_m3.slider("Tokens (Max)", 200, 8000, int(st.session_state.max_tokens), 100)
 
+        # Si el flag de reseteo está activo, vaciamos el formulario y los inputs de evaluación
+        if st.session_state.form_reset_trigger:
+            st.session_state.form_estudiante = ""
+            st.session_state.form_observaciones = ""
+            st.session_state.form_error_formato = False
+            st.session_state.form_obs_textuales = False
+            
+            # Reseteo dinámico de los selectbox de la rúbrica (índice 0 = Experto)
+            if "foro de integración" in activity.nombre.lower():
+                st.session_state.eval_select_cog = 0
+                st.session_state.eval_select_act = 0
+                st.session_state.eval_select_com = 0
+                st.session_state.eval_select_col = 0
+                st.session_state.eval_select_pen = 0
+            else:
+                st.session_state.eval_select_cog = 0
+                st.session_state.eval_select_act = 0
+                st.session_state.eval_select_com = 0
+                st.session_state.eval_select_pen = 0
+                
+            st.session_state.form_reset_trigger = False
+
         with st.form("evaluacion_form"):
             st.markdown("### 📝 Datos de la evaluación")
-            estudiante = st.text_input("Nombre del estudiante", placeholder="Ej. Argelia")
+            estudiante = st.text_input("Nombre del estudiante", key="form_estudiante", placeholder="Ej. Argelia")
 
-            criterios_evaluados, calificacion_total = evaluation_inputs(activity.nombre)
+            # Módulo de rúbricas modificado para aceptar reseteo
+            criterios_evaluados, calificacion_total = self._evaluation_inputs_con_estado(activity.nombre)
               
             tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir observación al estudiante"], horizontal=True)
-            formato_incorrecto = st.checkbox("⚠️ Evaluar por formato incorrecto", help="Genera una retroalimentación ultracorta informando el error de formato, sin desglose de rúbrica.")
-            observaciones_textuales = st.checkbox("📌 Pasar observación textual (La IA no la modifica)")
-            observaciones_usuario = st.text_area("Escribe tus observaciones (O especifica el error de formato si aplica):", height=100)
+            formato_incorrecto = st.checkbox("⚠️ Evaluar por formato incorrecto", key="form_error_formato", help="Genera una retroalimentación ultracorta informando el error de formato, sin desglose de rúbrica.")
+            observaciones_textuales = st.checkbox("📌 Pasar observación textual (La IA no la modifica)", key="form_obs_textuales")
+            observaciones_usuario = st.text_area("Escribe tus observaciones (O especifica el error de formato si aplica):", key="form_observaciones", height=100)
 
             st.markdown("---")
             if modo == "👤 Individual": submit_eval = st.form_submit_button("✨ Generar retroalimentación", type="primary", use_container_width=True)
@@ -187,6 +216,10 @@ class RetroalimentacionApp:
                         "observaciones_textuales": observaciones_textuales
                     })
                     st.success(f"✅ {estudiante} agregado a la cola de procesamiento ({len(st.session_state.batch_queue)} acumulados).")
+                    
+                    # Disparamos el reseteo para el siguiente alumno
+                    st.session_state.form_reset_trigger = True
+                    st.rerun()
                 else:
                     for error in validation.errors: st.error(error)
 
@@ -299,6 +332,50 @@ class RetroalimentacionApp:
                     st.session_state.procesando_lote = False
                     st.session_state.batch_queue.clear()
                     st.success(f"✨ ¡Lote completado! Se generaron {st.session_state.lote_exitosos} de {total_q} retroalimentaciones. Ve a la pestaña 'Historial' para descargarlas en ZIP.")
+
+    def _evaluation_inputs_con_estado(self, act_nombre: str = "") -> tuple[dict[str, dict[str, Any]], float]:
+        """Copia del evaluador original, pero usando las variables de st.session_state para permitir reseteos."""
+        st.markdown("#### 🎯 Evaluador por Criterio de Desempeño")
+        
+        is_foro = "foro de integración" in act_nombre.lower()
+        
+        if is_foro:
+            escala_cog = {"Experto (40 pts)": ("Experto", 40.0), "Capacitado (34 pts)": ("Capacitado", 34.0), "Aceptable (32 pts)": ("Aceptable", 32.0), "Aprendiz (28 pts)": ("Aprendiz", 28.0), "Requiere apoyo (24 pts)": ("Requiere apoyo", 24.0), "No evaluable (0 pts)": ("No evaluable", 0.0)}
+            escala_rest = {"Experto (15 pts)": ("Experto", 15.0), "Capacitado (14 pts)": ("Capacitado", 14.0), "Aceptable (12 pts)": ("Aceptable", 12.0), "Aprendiz (11 pts)": ("Aprendiz", 11.0), "Requiere apoyo (9 pts)": ("Requiere apoyo", 9.0), "No evaluable (0 pts)": ("No evaluable", 0.0)}
+        else:
+            escala_cog = {"Experto (40 pts)": ("Experto", 40.0), "Capacitado (36 pts)": ("Capacitado", 36.0), "Aceptable (32 pts)": ("Aceptable", 32.0), "Aprendiz (28 pts)": ("Aprendiz", 28.0), "Requiere apoyo (24 pts)": ("Requiere apoyo", 24.0), "No evaluable (0 pts)": ("No evaluable", 0.0)}
+            escala_rest = {"Experto (20 pts)": ("Experto", 20.0), "Capacitado (18 pts)": ("Capacitado", 18.0), "Aceptable (16 pts)": ("Aceptable", 16.0), "Aprendiz (14 pts)": ("Aprendiz", 14.0), "Requiere apoyo (12 pts)": ("Requiere apoyo", 12.0), "No evaluable (0 pts)": ("No evaluable", 0.0)}
+
+        criterios = {}
+        total = 0.0
+        
+        # Inicialización de estado para selects si no existen
+        if "eval_select_cog" not in st.session_state: st.session_state.eval_select_cog = 0
+        if "eval_select_act" not in st.session_state: st.session_state.eval_select_act = 0
+        if "eval_select_com" not in st.session_state: st.session_state.eval_select_com = 0
+        if "eval_select_col" not in st.session_state: st.session_state.eval_select_col = 0
+        if "eval_select_pen" not in st.session_state: st.session_state.eval_select_pen = 0
+
+        c1, c2 = st.columns(2)
+        with c1:
+            s_cog = st.selectbox("1. Cognitivo", list(escala_cog.keys()), key="eval_select_cog")
+            n_cog, p_cog = escala_cog[s_cog]; criterios["Cognitivo"] = {"nivel": n_cog, "puntos": p_cog}; total += p_cog
+            
+            s_act = st.selectbox("2. Actitudinal", list(escala_rest.keys()), key="eval_select_act")
+            n_act, p_act = escala_rest[s_act]; criterios["Actitudinal"] = {"nivel": n_act, "puntos": p_act}; total += p_act
+            
+            if is_foro:
+                s_col = st.selectbox("4. Colaborativo", list(escala_rest.keys()), key="eval_select_col")
+                n_col, p_col = escala_rest[s_col]; criterios["Colaborativo"] = {"nivel": n_col, "puntos": p_col}; total += p_col
+        with c2:
+            s_com = st.selectbox("3. Comunicativo", list(escala_rest.keys()), key="eval_select_com")
+            n_com, p_com = escala_rest[s_com]; criterios["Comunicativo"] = {"nivel": n_com, "puntos": p_com}; total += p_com
+            
+            s_pen = st.selectbox("5. Pensamiento crítico" if is_foro else "4. Pensamiento crítico", list(escala_rest.keys()), key="eval_select_pen")
+            n_pen, p_pen = escala_rest[s_pen]; criterios["Pensamiento crítico"] = {"nivel": n_pen, "puntos": p_pen}; total += p_pen
+
+        st.info(f"💡 **Calificación Total:** `{total:.1f} / 100 pts`")
+        return criterios, total
 
     def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None, es_error_formato: bool = False) -> None:
         validation = builder.validate()
@@ -731,4 +808,3 @@ class RetroalimentacionApp:
                 except Exception as e:
                     self.db.add_log("ERROR", f"Fallo al generar aportación de foro: {e}")
                     st.error(f"Error al generar la aportación: {e}")
-                    
