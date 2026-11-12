@@ -462,7 +462,7 @@ class DatabaseManager:
             cur = conn.execute("SELECT * FROM rubricas WHERE id = ?", (rubric_id,))
             row = cur.fetchone()
             if row:
-                row = dict(row) # Conversión a diccionario
+                row = dict(row)
                 return safe_rubrica(row["id"], row["nombre"], row["contenido"])
             return None
 
@@ -478,8 +478,23 @@ class DatabaseManager:
 
     def list_activities(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
-            cur = conn.execute("SELECT * FROM actividades ORDER BY orden ASC, id ASC")
-            return [dict(r) for r in cur.fetchall()]
+            cur = conn.execute("SELECT * FROM actividades")
+            actividades = [dict(r) for r in cur.fetchall()]
+            
+            def sort_key(act):
+                nombre = act.get("nombre", "").lower()
+                if "actividad integradora uno" in nombre or " 1" in nombre: return 1
+                if "actividad integradora dos" in nombre or " 2" in nombre: return 2
+                if "actividad integradora tres" in nombre or " 3" in nombre: return 3
+                if "actividad integradora cuatro" in nombre or " 4" in nombre: return 4
+                if "actividad integradora cinco" in nombre or " 5" in nombre: return 5
+                if "actividad integradora seis" in nombre or " 6" in nombre: return 6
+                if "proyecto integrador" in nombre: return 7
+                if "foro de integraci" in nombre: return 8
+                return 99 # Cualquier otra actividad se va al final
+                
+            actividades.sort(key=sort_key)
+            return actividades
 
     def get_activity(self, actividad_id: int) -> Optional[Any]:
         with self.connect() as conn:
@@ -488,7 +503,7 @@ class DatabaseManager:
             if not row:
                 return None
             
-            row = dict(row) # Conversión a diccionario para evitar errores con .get() en SQLite local
+            row = dict(row)
             
             grupo = row.get("grupo") or "M11C1G78-050"
             orden = row.get("orden") or 0
@@ -702,7 +717,6 @@ class DatabaseManager:
                 except Exception:
                     data[t] = []
             
-            # Sumamos los modelos desde el JSON independiente
             data["modelos"] = self.get_modelos()
             
             return data
@@ -714,4 +728,3 @@ class DatabaseManager:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return filepath
-        
