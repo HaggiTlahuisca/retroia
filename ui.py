@@ -98,6 +98,7 @@ class RetroalimentacionApp:
             "form_estudiante": "",
             "form_observaciones": "",
             "form_error_formato": False,
+            "form_es_plagio": False,
             "form_obs_textuales": False,
             "form_reset_trigger": False
         }
@@ -153,6 +154,7 @@ class RetroalimentacionApp:
             st.session_state.form_estudiante = ""
             st.session_state.form_observaciones = ""
             st.session_state.form_error_formato = False
+            st.session_state.form_es_plagio = False
             st.session_state.form_obs_textuales = False
             
             # Reseteo dinámico de los selectbox de la rúbrica (índice 0 = Experto)
@@ -179,15 +181,32 @@ class RetroalimentacionApp:
               
             tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir observación al estudiante"], horizontal=True)
             formato_incorrecto = st.checkbox("⚠️ Evaluar por formato incorrecto", key="form_error_formato", help="Genera una retroalimentación ultracorta informando el error de formato, sin desglose de rúbrica.")
+            es_plagio = st.checkbox("🚫 Evaluar por plagio total (0 pts)", key="form_es_plagio", help="Pone todos los criterios en No evaluable (0 pts) y solicita escribir el motivo del plagio en la caja de observaciones.")
             observaciones_textuales = st.checkbox("📌 Pasar observación textual (La IA no la modifica)", key="form_obs_textuales")
-            observaciones_usuario = st.text_area("Escribe tus observaciones (O especifica el error de formato si aplica):", key="form_observaciones", height=100)
+            observaciones_usuario = st.text_area("Escribe tus observaciones (O especifica el error de formato / motivo del plagio si aplica):", key="form_observaciones", height=100)
 
             st.markdown("---")
             if modo == "👤 Individual": submit_eval = st.form_submit_button("✨ Generar retroalimentación", type="primary", use_container_width=True)
             else: submit_eval = st.form_submit_button("➕ Agregar a la cola de procesamiento", type="primary", use_container_width=True)
 
         if submit_eval:
-            texto_base = observaciones_usuario if observaciones_usuario else ("Entregó en un formato equivocado." if formato_incorrecto else "")
+            # Si eligió "No, generar directo" y no es error de formato ni plagio ni observación textual, ignoramos/limpiamos el texto residual
+            if tipo_obs == "❌ No, generar directo" and not formato_incorrecto and not es_plagio and not observaciones_textuales:
+                observaciones_limpias = ""
+                st.session_state.form_observaciones = ""
+            else:
+                observaciones_limpias = observaciones_usuario.strip()
+
+            if es_plagio and not observaciones_limpias:
+                st.error("⚠️ Cuando se marca plagio total, es obligatorio escribir el motivo real en la caja de observaciones (por ejemplo, que la información plasmada no corresponde con la de su generación).")
+                return
+
+            if es_plagio:
+                calificacion_total = 0.0
+                for k in criterios_evaluados:
+                    criterios_evaluados[k] = {"nivel": "No evaluable", "puntos": 0.0}
+
+            texto_base = observaciones_limpias if observaciones_limpias else ("Entregó en un formato equivocado." if formato_incorrecto else "")
 
             builder = PromptBuilder(
                 directrices=self.db.get_all_directrices(),
@@ -197,13 +216,13 @@ class RetroalimentacionApp:
                 criterios_evaluados=criterios_evaluados,
                 observaciones=texto_base,
                 es_error_formato=formato_incorrecto,
-                es_plagio=False,
+                es_plagio=es_plagio,
                 observaciones_textuales=observaciones_textuales,
                 indice_estudiante=1
             )
 
             if modo == "👤 Individual":
-                self._generate_feedback(builder, activity.id, formato_incorrecto)
+                self._generate_feedback(builder, activity.id, formato_incorrecto, es_plagio)
             else:
                 validation = builder.validate()
                 if validation.ok:
@@ -213,6 +232,7 @@ class RetroalimentacionApp:
                         "criterios_evaluados": criterios_evaluados,
                         "observaciones": texto_base,
                         "es_error_formato": formato_incorrecto,
+                        "es_plagio": es_plagio,
                         "observaciones_textuales": observaciones_textuales
                     })
                     st.success(f"✅ {estudiante} agregado a la cola de procesamiento ({len(st.session_state.batch_queue)} acumulados).")
@@ -377,14 +397,14 @@ class RetroalimentacionApp:
         st.info(f"💡 **Calificación Total:** `{total:.1f} / 100 pts`")
         return criterios, total
 
-    def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None, es_error_formato: bool = False) -> None:
+    def _generate_feedback(self, builder: PromptBuilder, activity_id: int | None, es_error_formato: bool = False, es_plagio: bool = False) -> None:
         validation = builder.validate()
         for error in validation.errors: st.error(error)
         if not validation.ok: return
         try:
             with st.spinner("Generando redacción pedagógica original..."):
                 prompt = builder.build()
-                intentos = self._build_model_attempts(es_error_formato, False)
+                intentos = self._build_model_attempts(es_error_formato, es_plagio)
 
                 texto = None
                 modelo_final_nombre = st.session_state.model_name
