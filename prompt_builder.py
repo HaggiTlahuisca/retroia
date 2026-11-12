@@ -92,7 +92,7 @@ class _BasePrompt:
             f"1. IDIOMA: Escribe única y exclusivamente en español de México, con espacios correctos entre palabras. Prohibido usar caracteres asiáticos o inglés.\n"
             f"2. SALUDO OBLIGATORIO: Tienes ESTRICTAMENTE PROHIBIDO iniciar con '¡Hola!', '¡Saludos!', 'Buenos días' o cualquier otra frase. El ÚNICO inicio permitido es 'Apreciable, {self.pb.estudiante}.' sin nada más en ese renglón.\n"
             f"3. UNICIDAD: Esta es la retroalimentación número {self.pb.indice_estudiante} del lote. Varía el vocabulario y la longitud de los párrafos. Cero plantillas genéricas.\n"
-            f"4. FIRMA: NO agregues el nombre del asesor ('{self.n_ase}') después de la despedida, el sistema lo hará automáticamente.\n"
+            f"4. FIRMA: NO agregues tu nombre real ni el del asesor después de la despedida, el sistema lo hará automáticamente.\n"
             f"5. REGLA DE AGILIDAD (SIN BUCLES DE PENSAMIENTO): Si tienes capacidad de razonamiento interno (<think>), planea tu respuesta en menos de 150 palabras sin debatir reglas."
         )
         return prompt_sistema
@@ -217,7 +217,7 @@ class _NormalPrompt(_BasePrompt):
    {inst_areas}{bloque_recursos}
 
 4. **CIERRE EXACTO Y DESPEDIDA:**
-   Copia esto tal cual, deteniéndote en la firma (sin agregar el nombre del asesor):
+   Copia esto tal cual, deteniéndote en la firma:
 
 {self.pb.dirs.get('despedida', f'Para finalizar con tu retroalimentación nuevamente te felicito y agradezco el que hayas entregado tu "{self.n_act}".')}
 
@@ -258,7 +258,7 @@ Ejemplo del tono y estilo que debes usar:
 ### ESTRUCTURA OBLIGATORIA:
 1. **SALUDO:** Inicia EXACTAMENTE con: **Apreciable, {self.pb.estudiante}.** (Dando un doble salto de línea después).
 2. **CUERPO DEL MENSAJE:** Redacta la observación del error de formato. 
-3. **DESPEDIDA:** Usa exactamente esta firma corta (sin nombre):
+3. **DESPEDIDA:** Usa exactamente esta firma corta:
 {self.firma_corta}"""
 
 
@@ -295,44 +295,53 @@ Firma:
 
 
 class _ForumPrompt(_BasePrompt):
-    """Prompt exclusivo para Foros de Integración."""
+    """Prompt exclusivo para Foros de Integración con estructura exacta."""
     def build(self) -> str:
         sys_prompt = self.get_system_prompt()
         crit_str = self.get_criterios_formateados()
 
         if self.pb.observaciones and self.pb.observaciones_textuales:
-            instruccion_areas_foro = f"Pega EXACTAMENTE Y SIN ALTERAR el siguiente texto proporcionado por el asesor:\n{self.pb.observaciones}"
+            inst_obs = f"Pega EXACTAMENTE Y SIN ALTERAR el siguiente texto proporcionado por el asesor:\n{self.pb.observaciones}"
         elif self.pb.observaciones:
-            instruccion_areas_foro = f"Desarrolla con claridad y firmeza pedagógica los aspectos a mejorar basados ESTRICTAMENTE en esta observación: {self.pb.observaciones}."
+            inst_obs = f"Desarrolla con empatía y firmeza pedagógica las áreas de mejora basadas ESTRICTAMENTE en esta nota del asesor: {self.pb.observaciones}."
         else:
-            instruccion_areas_foro = "Menciona únicamente como recomendación general que es importante cuidar siempre la redacción, ortografía, gramática y sintaxis en todas las participaciones."
+            inst_obs = "(El estudiante no tiene observaciones específicas. Pasa directamente al siguiente párrafo sin mencionar fallas)."
 
         return f"""{sys_prompt}
 
 ### DATOS DEL ALUMNO Y FORO:
 - Estudiante: {self.pb.estudiante}
 - Espacio evaluado: {self.n_act}
-- Desempeño por criterios:
+- Evaluaciones (EN ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Colaborativo, Pensamiento crítico):
 {crit_str}
-- Observaciones del asesor: {self.pb.observaciones if self.pb.observaciones else "Todo correcto según los niveles y la evidencia disponible."}
+- Notas específicas del Asesor: {self.pb.observaciones if self.pb.observaciones else "Todo correcto según los niveles."}
 
-### REGLAS DE ORO EXCLUSIVAS PARA FORO:
-1. ¡ESTO NO ES UN ENTREGABLE!: Es un foro de discusión. ESTRICTAMENTE PROHIBIDO hablar de "tu entrega", "tu documento" o "el archivo enviado". Usa: "tus aportaciones", "tus réplicas", "el diálogo".
-2. ESTRICTAMENTE PROHIBIDO usar subtítulos, encabezados de criterios (como "Cognitivo") o viñetas.
-3. ESTRICTAMENTE PROHIBIDO mencionar los nombres de los niveles ("experto", "capacitado"). Descríbelos cualitativamente.
-4. ESTRICTAMENTE PROHIBIDO inventar temáticas ajenas como "finanzas", "economía" o "presupuestos".
-5. {self.pb.dirs.get('reglas_formato', '')}
+### REGLAS DE ORO DE FORMATO PARA EL FORO (¡MUY IMPORTANTE!):
+- {self.pb.dirs.get('reglas_formato', 'ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown.')}
+- ESTÁ ESTRICTAMENTE PROHIBIDO usar negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.).
+- ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo de manera totalmente cualitativa en formato de carta.
+- ESTÁ ESTRICTAMENTE PROHIBIDO inventar temáticas ajenas o dar recomendaciones sobre "finanzas", "economía", "presupuestos" o "matemáticas" en la despedida.
 
-### ESTRUCTURA ESTRICTA DE PÁRRAFOS:
-TIENES QUE RESPETAR ESTE ORDEN EXACTO. CADA PUNTO DEBE SER UN PÁRRAFO INDEPENDIENTE SEPARADO POR UN DOBLE SALTO DE LÍNEA. (PROHIBIDO ESCRIBIR TÍTULOS COMO "PÁRRAFO 1"):
+### ESTRUCTURA ESTRICTA DE PÁRRAFOS INDEPENDIENTES:
+DEBES SEPARAR TUS IDEAS EXACTAMENTE EN LOS SIGUIENTES 6 PÁRRAFOS CORTOS. (Da un doble salto de línea entre cada párrafo y PROHIBIDO ponerles título):
 
-1. **SALUDO:** Inicia exactamente con: **Apreciable, {self.pb.estudiante}.** (en su propio renglón).
-2. **PÁRRAFO 1 (Apertura):** Agradece su participación en el foro y menciona con tus palabras que este espacio brinda la oportunidad de intercambiar ideas y consolidar lo aprendido en las semanas anteriores.
-3. **PÁRRAFO 2 (Aciertos):** Reconoce su esfuerzo destacando los aciertos de sus intervenciones. Menciona que estas dinámicas enriquecen el diálogo y fortalecen el aprendizaje.
-4. **PÁRRAFO 3 (Valor del foro):** Reflexiona con tus palabras sobre cómo los foros son espacios valiosos para compartir perspectivas y conocer opiniones ajenas, invitando a mantener una actitud abierta ante puntos de vista distintos o coincidentes.
-5. **PÁRRAFO 4 (Observaciones o Recomendación):** {instruccion_areas_foro}
-6. **PÁRRAFO 5 (Convivencia):** Recuerda de forma natural que estos espacios reúnen a personas con pensamientos diversos, por lo que el respeto y la tolerancia son fundamentales para un ambiente enriquecedor.
-7. **PÁRRAFO 6 (Cierre fijo):** Escribe EXACTAMENTE Y SIN CAMBIAR NADA esta oración: "Confío en que todo lo aprendido durante estas cuatro semanas te sea de gran utilidad en tu formación."
-8. **DESPEDIDA Y FIRMA:** Termina exactamente con esta firma (sin agregar tu nombre):
+1. **SALUDO:** Inicia exactamente con: **Apreciable, {self.pb.estudiante}.** (En su propio renglón).
+
+2. **PÁRRAFO 1 (Apertura):** Agradece su participación en el foro y menciona de forma natural que este espacio brinda la oportunidad de intercambiar ideas y consolidar conocimientos.
+
+3. **PÁRRAFO 2 (Aciertos / Esfuerzo):** Reconoce su esfuerzo detallando cualitativamente sus intervenciones (Cognitivo, Actitudinal). Menciona que sus aportaciones enriquecen el diálogo y fortalecen el aprendizaje.
+
+4. **PÁRRAFO 3 (Observaciones Específicas):** 
+   {inst_obs}
+
+5. **PÁRRAFO 4 (Recomendación Obligatoria):** Sugiere poner especial atención a la ortografía y gramática en sus participaciones, indicando que el cuidado en la redacción refleja esmero académico. (PROHIBIDO dar sugerencias financieras aquí).
+
+6. **PÁRRAFO 5 (Valor del foro y Convivencia):** Recuerda de forma fluida que estos espacios reúnen a personas con pensamientos diversos, por lo que el respeto y la tolerancia son fundamentales, y que esta interacción invita a mantener una actitud abierta.
+
+7. **CIERRE EXACTO Y DESPEDIDA:**
+   Finaliza copiando EXACTAMENTE esta oración sin cambiar ni una palabra (será el final de tu mensaje, no agregues el nombre del asesor):
+
+Confío en que todo lo aprendido durante estas cuatro semanas te sea de gran utilidad en tu formación.
+
 {self.firma_corta}
 """
