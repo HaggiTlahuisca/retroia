@@ -124,17 +124,25 @@ class _NormalPrompt(_BasePrompt):
                 inst_criterios = "¡REGLA ESTRICTA!: ÚNICAMENTE INDICA EL NIVEL OBTENIDO con una frase extremadamente breve (ej. 'Tu desempeño alcanza un nivel aceptable'). PROHIBIDO justificar el nivel o agregar explicaciones."
                 inst_areas = (
                     "¡REGLA ESTRICTA!: Escribe EXACTAMENTE esta frase introductoria:\n"
-                    "'Lo anterior se debe a que tu actividad tiene las siguientes áreas de oportunidad:'\n"
-                    f"Y justo debajo, pega EXACTAMENTE SIN ALTERAR el siguiente texto:\n{self.pb.observaciones}"
+                    "'Los niveles obtenidos se asignan de esa manera debido a lo siguiente:'\n"
+                    f"Y justo debajo, pega EXACTAMENTE SIN ALTERAR el siguiente texto:\n{self.pb.observaciones}\n"
+                    "Finalmente, en un párrafo breve independiente después de pegar ese texto, incluye una recomendación general invitando a revisar la redacción, ortografía, gramática y sintaxis antes de enviar sus entregas (TIENES ESTRICTAMENTE PROHIBIDO dar otro tipo de recomendaciones o hablar de finanzas)."
                 )
             else:
                 obs_contexto = f"Observaciones generales del asesor para usar como base: {self.pb.observaciones}"
                 inst_criterios = "Redacta un párrafo breve para cada criterio justificando el nivel asignado con tus propias palabras (nivel medio superior). PROHIBIDO copiar el lenguaje técnico de rúbricas."
-                inst_areas = f"Redacta en prosa fluida las áreas de mejora.\n   {self.pb.dirs.get('areas_oportunidad', '')}"
+                inst_areas = (
+                    f"Redacta en prosa fluida los motivos por los que se asignaron esos niveles basándote en las observaciones del asesor.\n"
+                    f"   {self.pb.dirs.get('areas_oportunidad', '')}\n"
+                    f"   ¡REGLA DE ORO PARA LA RECOMENDACIÓN FINAL!: Después de explicar los niveles obtenidos (o áreas de mejora), la sugerencia o recomendación general DEBE CEÑIRSE EXCLUSIVAMENTE a recomendar la revisión previa de redacción, ortografía, gramática y sintaxis antes de entregar. PROHIBIDO inventar otro tipo de sugerencias."
+                )
         else:
             obs_contexto = "Todo correcto según los niveles."
             inst_criterios = "Redacta un párrafo breve para cada criterio justificando el nivel asignado con tus propias palabras (nivel medio superior). PROHIBIDO copiar el lenguaje técnico de rúbricas."
-            inst_areas = "Redacta en prosa fluida las áreas de mejora de forma constructiva si aplican."
+            inst_areas = (
+                "En un párrafo breve, incluye ÚNICA Y EXCLUSIVAMENTE una recomendación general invitando al estudiante a revisar siempre la redacción, ortografía, gramática y sintaxis antes de enviar sus entregas. "
+                "TIENES ESTRICTAMENTE PROHIBIDO inventar áreas de oportunidad falsas o agregar sugerencias sobre otros temas."
+            )
 
         regla_experto = ""
         if es_experto_total:
@@ -151,29 +159,41 @@ class _NormalPrompt(_BasePrompt):
             texto_frase = "Siempre parece imposible hasta que se hace"
             autor_frase = "Nelson Mandela"
 
-        # Apertura controlada
+        # Apertura controlada: distinguir entre Proyecto Integrador (módulo) y Actividad Integradora (semana)
+        es_proyecto = "proyecto integrador" in self.n_act.lower()
+        if es_proyecto:
+            recordatorio_objetivo = "- Recuerda de forma natural que el propósito de este proyecto es poner en práctica e integrar lo aprendido durante el módulo (PROHIBIDO decir 'en la semana').\n"
+        else:
+            recordatorio_objetivo = "- Recuerda de forma natural que el objetivo de estas actividades es poner en práctica lo aprendido en la semana.\n"
+
         ideas_apertura = (
             f"- Agradece la entrega de su \"{self.n_act}\" (OJO: pon exactamente el título entre comillas. Si el título ya dice 'Proyecto', NO le agregues la palabra 'actividad' antes. Ejemplo correcto: Recibí tu \"Proyecto integrador. Adelgazando costos\").\n"
-            "- Recuerda de forma natural que el objetivo de estas entregas es poner en práctica lo aprendido.\n"
+            f"{recordatorio_objetivo}"
             "- ¡REGLA CRÍTICA!: NO inventes elogios irreales (ej. 'uso impecable del álgebra', 'estructuraste tu documento de manera ordenada'). Limítate a lo anterior."
         )
         if not es_experto_total and not self.pb.observaciones_textuales:
-            ideas_apertura += "\n- Añade un conector sutil indicando que se identificaron áreas de oportunidad."
+            ideas_apertura += "\n- Añade un conector sutil indicando que a continuación se detallan los niveles obtenidos."
+
+        inst_act = self.pb.actividad.instrucciones if self.pb.actividad and getattr(self.pb.actividad, "instrucciones", "") else ""
+        contexto_estricto = ""
+        if self.prop_act or inst_act:
+            contexto_estricto = f"- Propósito oficial: {self.prop_act}\n- Instrucciones oficiales: {inst_act}\n"
 
         return f"""{sys_prompt}
 
-### DATOS DEL ALUMNO Y ACTIVIDAD:
+### DATOS DEL ALUMNO Y ENTREGABLE:
 - Estudiante: {self.pb.estudiante}
-- Actividad: "{self.n_act}"
-- Evaluaciones (EN ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Pensamiento crítico):
+- Entregable: "{self.n_act}"
+{contexto_estricto}- Evaluaciones (EN ORDEN ESTRICTO: Cognitivo, Actitudinal, Comunicativo, Pensamiento crítico):
 {crit_str}
 - Observaciones del asesor: {obs_contexto}
 
-### REGLAS CONTRA ALUCINACIONES:
-1. ¡PROHIBIDO INVENTAR CONTEXTO!: Esta actividad pertenece a matemáticas. NO inventes conceptos ajenos. NO felicites por "aclarar dudas" o "buena disposición".
-2. RESPETO ABSOLUTO A LAS OBSERVACIONES: PROHIBIDO suavizar, omitir o cambiar el sentido de lo indicado por el asesor. Si dice que hizo algo mal, mantén la acusación firme.
-3. DISTRIBUCIÓN DE OBSERVACIONES: Integra las observaciones a lo largo de los criterios. PROHIBIDO agruparlas al final aisladas. {regla_experto}
-4. {self.pb.dirs.get('reglas_formato', '')}
+### REGLAS CONTRA ALUCINACIONES (CANDADO ESTRICTO):
+1. ¡PROHIBIDO INVENTAR CONTEXTO O TEMÁTICAS AJENAS!: Tienes ESTRICTAMENTE PROHIBIDO escribir o mencionar cualquier concepto que no esté directamente en el propósito, en las instrucciones o en los descriptores de la rúbrica de este entregable. Queda TERMINANTEMENTE PROHIBIDO hablar de "finanzas", "finanzas personales", "economía", "inversiones", "presupuesto" u "optimización de gastos" si no forma parte explícita de las instrucciones. NO felicites por "aclarar dudas" o "buena disposición".
+2. REGLA DE ORO DE RECOMENDACIÓN GENERAL: La frase o párrafo posterior al desglose de los niveles obtenidos (o de la observación textual) DEBE CEÑIRSE EXCLUSIVAMENTE a recomendar la revisión de redacción, ortografía, gramática y sintaxis antes de entregar.
+3. RESPETO ABSOLUTO A LAS OBSERVACIONES: PROHIBIDO suavizar, omitir o cambiar el sentido de lo indicado por el asesor. Si dice que hizo algo mal, mantén la acusación firme.
+4. DISTRIBUCIÓN DE OBSERVACIONES: Si las observaciones NO son textuales, intégralas a lo largo de los criterios. {regla_experto}
+5. {self.pb.dirs.get('reglas_formato', '')}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
@@ -192,7 +212,7 @@ class _NormalPrompt(_BasePrompt):
    - Menciona obligatoriamente el nivel en minúsculas y entre asteriscos dobles (ej: **experto**).
    - {inst_criterios}
 
-3. **ÁREAS DE OPORTUNIDAD Y SUGERENCIAS (PÁRRAFO NUEVO INDEPENDIENTE):**
+3. **JUSTIFICACIÓN DE NIVELES Y SUGERENCIA GENERAL (PÁRRAFO NUEVO INDEPENDIENTE):**
    (Doble salto de línea después del último criterio. SIN TÍTULO).
    {inst_areas}{bloque_recursos}
 
@@ -246,22 +266,23 @@ class _PlagiarismPrompt(_BasePrompt):
     """Prompt exclusivo para casos de Plagio."""
     def build(self) -> str:
         sys_prompt = self.get_system_prompt()
-        obs_contexto = self.pb.observaciones if self.pb.observaciones else "Se detectó plagio total en la actividad."
-        instruccion_plagio = self.pb.dirs.get("plagio_total", "La actividad se sitúa como no evaluable en todos los criterios debido a que se detectó plagio total.")
+        obs_contexto = self.pb.observaciones if self.pb.observaciones else "Se detectó plagio total en el entregable."
+        instruccion_plagio = self.pb.dirs.get("plagio_total", "El entregable se sitúa como no evaluable en todos los criterios debido a que se detectó plagio total.")
         
         return f"""{sys_prompt}
 
-### DATOS DEL ALUMNO Y ACTIVIDAD:
+### DATOS DEL ALUMNO Y ENTREGABLE:
 - Estudiante: {self.pb.estudiante}
-- Actividad: "{self.n_act}"
-- Detalle del plagio: {obs_contexto}
+- Entregable: "{self.n_act}"
+- Motivo y detalle específico del plagio (proporcionado por el asesor): {obs_contexto}
 
 ### INSTRUCCIÓN PARA PLAGIO TOTAL:
 {instruccion_plagio}
 
 ### REGLAS OBLIGATORIAS:
-- Indica que todos los criterios se registran como no evaluables debido al plagio basándote en las observaciones del asesor.
-- Redacta un mensaje corto y directo.
+- Indica claramente que todos los criterios se registran como no evaluables debido a que se detectó plagio.
+- DEBES integrar de manera firme, directa y explícita el "Motivo y detalle específico del plagio" proporcionado arriba por el asesor (por ejemplo, cuando la información o los datos plasmados no corresponden con los de la plataforma para su generación porque fueron copiados de internet). NO omitas ni suavices esta explicación.
+- Redacta un mensaje corto y directo (1 a 2 párrafos).
 - NO describas ni desgloses los criterios de la rúbrica.
 - NO incluyas recomendaciones ni recursos educativos.
 - NO incluyas frases motivacionales o despedidas extensas.
@@ -282,9 +303,9 @@ class _ForumPrompt(_BasePrompt):
         if self.pb.observaciones and self.pb.observaciones_textuales:
             instruccion_areas_foro = f"En un párrafo independiente, incluye de forma íntegra y textual esta observación (SIN SUAVIZARLA):\n{self.pb.observaciones}"
         elif self.pb.observaciones:
-            instruccion_areas_foro = f"Desarrolla con claridad y firmeza pedagógica las áreas de oportunidad basadas ESTRICTAMENTE en esta observación: {self.pb.observaciones}."
+            instruccion_areas_foro = f"Desarrolla con claridad y firmeza pedagógica los aspectos a mejorar basados ESTRICTAMENTE en esta observación: {self.pb.observaciones}."
         else:
-            instruccion_areas_foro = "En un párrafo breve, menciona como recomendación cuidar siempre la ortografía y la gramática en todos nuestros escritos."
+            instruccion_areas_foro = "En un párrafo breve, menciona únicamente como recomendación general cuidar siempre la redacción, ortografía, gramática y sintaxis en todas nuestras participaciones."
 
         return f"""{sys_prompt}
 
@@ -299,7 +320,8 @@ class _ForumPrompt(_BasePrompt):
 1. ¡ESTO NO ES UN ENTREGABLE!: Es un foro de discusión. ESTRICTAMENTE PROHIBIDO hablar de "tu entrega", "tu documento" o "el archivo enviado". Usa: "tus aportaciones", "tus réplicas", "el diálogo".
 2. ESTRICTAMENTE PROHIBIDO usar subtítulos, encabezados de criterios o viñetas.
 3. ESTRICTAMENTE PROHIBIDO mencionar los nombres de los niveles ("experto", "capacitado"). Descríbelos cualitativamente.
-4. {self.pb.dirs.get('reglas_formato', '')}
+4. ESTRICTAMENTE PROHIBIDO inventar temáticas ajenas como "finanzas", "economía" o "presupuestos".
+5. {self.pb.dirs.get('reglas_formato', '')}
 
 ### INSTRUCCIONES DE REDACCIÓN:
 
@@ -310,7 +332,7 @@ class _ForumPrompt(_BasePrompt):
 2. **ACIERTOS Y VALOR DEL FORO:**
    Destaca los aciertos de sus intervenciones (ej. responder la pregunta, replicar a compañeros). Integra con tus palabras que los foros nos permiten expresar ideas y conocer distintos puntos de vista.
 
-3. **ÁREAS DE OPORTUNIDAD Y CONVIVENCIA:**
+3. **OBSERVACIONES Y CONVIVENCIA:**
    {instruccion_areas_foro}
    Integra de forma natural la reflexión de que, al ser un espacio diverso, es importante mantener el respeto y la tolerancia para enriquecer nuestras ideas.
 
