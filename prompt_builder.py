@@ -301,11 +301,11 @@ class _ForumPrompt(_BasePrompt):
         crit_str = self.get_criterios_formateados()
 
         if self.pb.observaciones and self.pb.observaciones_textuales:
-            instruccion_areas_foro = f"En un párrafo independiente, incluye de forma íntegra y textual esta observación (SIN SUAVIZARLA):\n{self.pb.observaciones}"
+            instruccion_areas_foro = f"Pega EXACTAMENTE Y SIN ALTERAR el siguiente texto proporcionado por el asesor:\n{self.pb.observaciones}"
         elif self.pb.observaciones:
             instruccion_areas_foro = f"Desarrolla con claridad y firmeza pedagógica los aspectos a mejorar basados ESTRICTAMENTE en esta observación: {self.pb.observaciones}."
         else:
-            instruccion_areas_foro = "En un párrafo breve, menciona únicamente como recomendación general cuidar siempre la redacción, ortografía, gramática y sintaxis en todas nuestras participaciones."
+            instruccion_areas_foro = "Menciona únicamente como recomendación general que es importante cuidar siempre la redacción, ortografía, gramática y sintaxis en todas las participaciones."
 
         return f"""{sys_prompt}
 
@@ -318,26 +318,21 @@ class _ForumPrompt(_BasePrompt):
 
 ### REGLAS DE ORO EXCLUSIVAS PARA FORO:
 1. ¡ESTO NO ES UN ENTREGABLE!: Es un foro de discusión. ESTRICTAMENTE PROHIBIDO hablar de "tu entrega", "tu documento" o "el archivo enviado". Usa: "tus aportaciones", "tus réplicas", "el diálogo".
-2. ESTRICTAMENTE PROHIBIDO usar subtítulos, encabezados de criterios o viñetas.
+2. ESTRICTAMENTE PROHIBIDO usar subtítulos, encabezados de criterios (como "Cognitivo") o viñetas.
 3. ESTRICTAMENTE PROHIBIDO mencionar los nombres de los niveles ("experto", "capacitado"). Descríbelos cualitativamente.
 4. ESTRICTAMENTE PROHIBIDO inventar temáticas ajenas como "finanzas", "economía" o "presupuestos".
 5. {self.pb.dirs.get('reglas_formato', '')}
 
-### INSTRUCCIONES DE REDACCIÓN:
+### ESTRUCTURA ESTRICTA DE PÁRRAFOS:
+TIENES QUE RESPETAR ESTE ORDEN EXACTO. CADA PUNTO DEBE SER UN PÁRRAFO INDEPENDIENTE SEPARADO POR UN DOBLE SALTO DE LÍNEA. (PROHIBIDO ESCRIBIR TÍTULOS COMO "PÁRRAFO 1"):
 
-1. **SALUDO Y ENTRADA FIJA:**
-   Inicia exactamente con: **Apreciable, {self.pb.estudiante}.** (en su propio renglón).
-   En el siguiente párrafo, escribe exactamente: "Agradezco tu participación en este foro de integración."
-
-2. **ACIERTOS Y VALOR DEL FORO:**
-   Destaca los aciertos de sus intervenciones (ej. responder la pregunta, replicar a compañeros). Integra con tus palabras que los foros nos permiten expresar ideas y conocer distintos puntos de vista.
-
-3. **OBSERVACIONES Y CONVIVENCIA:**
-   {instruccion_areas_foro}
-   Integra de forma natural la reflexión de que, al ser un espacio diverso, es importante mantener el respeto y la tolerancia para enriquecer nuestras ideas.
-
-4. **CIERRE EXCLUSIVO DEL FORO Y DESPEDIDA CORTA:**
-   Usa EXACTAMENTE esta redacción final:
-{self.pb.dirs.get('despedida', 'Espero que todo lo aprendido en estas cuatro semanas te sea de mucha ayuda.')}
-
-{self.firma_corta}"""
+1. **SALUDO:** Inicia exactamente con: **Apreciable, {self.pb.estudiante}.** (en su propio renglón).
+2. **PÁRRAFO 1 (Apertura):** Agradece su participación en el foro y menciona con tus palabras que este espacio brinda la oportunidad de intercambiar ideas y consolidar lo aprendido en las semanas anteriores.
+3. **PÁRRAFO 2 (Aciertos):** Reconoce su esfuerzo destacando los aciertos de sus intervenciones. Menciona que estas dinámicas enriquecen el diálogo y fortalecen el aprendizaje.
+4. **PÁRRAFO 3 (Valor del foro):** Reflexiona con tus palabras sobre cómo los foros son espacios valiosos para compartir perspectivas y conocer opiniones ajenas, invitando a mantener una actitud abierta ante puntos de vista distintos o coincidentes.
+5. **PÁRRAFO 4 (Observaciones o Recomendación):** {instruccion_areas_foro}
+6. **PÁRRAFO 5 (Convivencia):** Recuerda de forma natural que estos espacios reúnen a personas con pensamientos diversos, por lo que el respeto y la tolerancia son fundamentales para un ambiente enriquecedor.
+7. **PÁRRAFO 6 (Cierre fijo):** Escribe EXACTAMENTE Y SIN CAMBIAR NADA esta oración: "Confío en que todo lo aprendido durante estas cuatro semanas te sea de gran utilidad en tu formación."
+8. **DESPEDIDA Y FIRMA:** Termina exactamente con esta firma (sin agregar tu nombre):
+{self.firma_corta}
+"""
