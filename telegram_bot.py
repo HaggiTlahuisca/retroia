@@ -333,9 +333,10 @@ def auto_atajos_criterios(message):
             sesiones[chat_id]["criterios"][criterio] = (NIVELES_NOMBRES[0], puntos)
             sesiones[chat_id]["total_puntos"] += puntos
         sesiones[chat_id]["paso"] = "observaciones"
+        aviso_atajo = "\n💡 *Tip: En modo lote, puedes escribir directamente el nombre del siguiente estudiante para guardar a este sin observaciones.*" if sesiones[chat_id].get("modo") == "batch" else ""
         tg_call_with_retry(
             bot.send_message, chat_id, 
-            f"💯 Todos los criterios evaluados automáticamente con **Nivel experto**.\n\n¿Hay observaciones?",
+            f"💯 Todos los criterios evaluados automáticamente con **Nivel experto**.\n\n¿Hay observaciones?{aviso_atajo}",
             reply_markup=obtener_teclado_obs(), parse_mode="Markdown"
         )
     elif comando in ["0", "formato", "plagio"]:
@@ -366,9 +367,15 @@ def auto_atajos_criterios(message):
         elif comando == "plagio":
             sesiones[chat_id]["es_plagio"] = True
             sesiones[chat_id]["es_error_formato"] = False
-            sesiones[chat_id]["observaciones"] = ""
-            tg_call_with_retry(bot.send_message, chat_id, "🚫 Se marcó como **Plagio total (0 pts)** automáticamente. Generando...")
-            procesar_finalizacion(chat_id, None)
+            sesiones[chat_id]["paso"] = "obs_plagio_texto"
+            tg_call_with_retry(
+                bot.send_message,
+                chat_id,
+                "🚫 Criterios evaluados como **No evaluable (0 pts)** por plagio.\n\n"
+                "✍️ Escribe las observaciones o el motivo real por el que se considera plagio:\n"
+                "(Por ejemplo: *Toda la información plasmada en el proyecto no corresponde con la de la plataforma para su generación*)",
+                parse_mode="Markdown"
+            )
         elif comando == "0":
             sesiones[chat_id]["paso"] = "observaciones"
             tg_call_with_retry(
@@ -377,10 +384,64 @@ def auto_atajos_criterios(message):
                 reply_markup=obtener_teclado_obs(), parse_mode="Markdown"
             )
 
-@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") in ["nombre", "batch_esperando_decision"])
+@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") in ["nombre", "batch_esperando_decision", "observaciones"])
 def procesar_nombre_estudiante(message):
     chat_id = message.chat.id
-    if sesiones[chat_id]["paso"] == "batch_esperando_decision":
+    paso_actual = sesiones[chat_id].get("paso")
+
+    # Súper-atajo en el paso "observaciones": si escribe un nombre directamente,
+    # guarda al estudiante actual sin observaciones en la cola y usa el texto como el siguiente estudiante.
+    if paso_actual == "observaciones":
+        if sesiones[chat_id].get("modo") != "batch":
+            tg_call_with_retry(
+                bot.send_message,
+                chat_id,
+                "⚠️ Por favor selecciona una de las opciones de los botones de arriba para continuar con la evaluación individual.",
+                reply_markup=obtener_teclado_obs()
+            )
+            return
+
+        estudiante_anterior = sesiones[chat_id]["estudiante"]
+        item = {
+            "estudiante": estudiante_anterior,
+            "criterios": dict(sesiones[chat_id]["criterios"]),
+            "total_puntos": sesiones[chat_id]["total_puntos"],
+            "observaciones": "",
+            "es_error_formato": False,
+            "es_plagio": sesiones[chat_id].get("es_plagio", False),
+            "observaciones_textuales": False
+        }
+        sesiones[chat_id]["cola"].append(item)
+
+        # Limpiamos los datos para el nuevo estudiante que acaba de escribir
+        sesiones[chat_id]["criterios"] = {}
+        sesiones[chat_id]["total_puntos"] = 0.0
+        sesiones[chat_id]["observaciones"] = ""
+        sesiones[chat_id]["es_error_formato"] = False
+        sesiones[chat_id]["es_plagio"] = False
+        sesiones[chat_id]["observaciones_textuales"] = False
+        
+        nuevo_estudiante = message.text.strip()
+        sesiones[chat_id]["estudiante"] = nuevo_estudiante
+        sesiones[chat_id]["paso"] = "criterios"
+
+        actividad = sesiones[chat_id]["actividad"]
+        markup = InlineKeyboardMarkup(row_width=1)
+        for criterio in obtener_criterios_actividad(actividad):
+            markup.add(InlineKeyboardButton(f"📋 {criterio}", callback_data=f"crit_{criterio}"))
+
+        tg_call_with_retry(
+            bot.send_message,
+            chat_id,
+            f"✨ *{estudiante_anterior}* agregado al lote sin observaciones ({len(sesiones[chat_id]['cola'])} en cola).\n\n"
+            f"✍️ Siguiente estudiante: *{nuevo_estudiante}*\n\n"
+            f"Selecciona un criterio a evaluar (O responde con atajos: **100**, **formato**, **plagio**):",
+            reply_markup=markup,
+            parse_mode="Markdown"
+        )
+        return
+
+    if paso_actual == "batch_esperando_decision":
         sesiones[chat_id]["criterios"] = {}
         sesiones[chat_id]["total_puntos"] = 0.0
         sesiones[chat_id]["observaciones"] = ""
@@ -455,9 +516,10 @@ def seleccionar_nivel(call):
             )
         else:
             sesiones[chat_id]["paso"] = "observaciones"
+            aviso_atajo = "\n💡 *Tip: En modo lote, puedes escribir directamente el nombre del siguiente estudiante para guardar a este sin observaciones.*" if sesiones[chat_id].get("modo") == "batch" else ""
             tg_call_with_retry(
                 bot.edit_message_text,
-                f"✅ {criterio}: *{NIVELES_NOMBRES[nivel_idx]}* (+{puntos:.1f} pts)\n\n¿Hay observaciones?",
+                f"✅ {criterio}: *{NIVELES_NOMBRES[nivel_idx]}* (+{puntos:.1f} pts)\n\n¿Hay observaciones?{aviso_atajo}",
                 chat_id=chat_id, message_id=call.message.message_id, reply_markup=obtener_teclado_obs(), parse_mode="Markdown"
             )
 
@@ -470,18 +532,25 @@ def procesar_confirmacion_plagio(call):
 
     es_plagio = call.data == "plagio_si"
     datos["es_plagio"] = es_plagio
-    datos["paso"] = "observaciones"
 
-    texto = (
-        "⚠️ Se generará una retroalimentación breve por plagio total.\n\n¿Deseas agregar observaciones adicionales a este dictamen?"
-        if es_plagio else
-        "La evaluación continuará con el flujo normal.\n\n¿Deseas agregar observaciones a la rúbrica?"
-    )
-
-    tg_call_with_retry(
-        bot.edit_message_text,
-        texto, chat_id=chat_id, message_id=call.message.message_id, reply_markup=obtener_teclado_obs()
-    )
+    if es_plagio:
+        datos["es_error_formato"] = False
+        datos["observaciones_textuales"] = False
+        datos["paso"] = "obs_plagio_texto"
+        tg_call_with_retry(
+            bot.edit_message_text,
+            "🚫 Se marcó como **Plagio total (0 pts)**.\n\n"
+            "✍️ Escribe las observaciones o el motivo real por el que se considera plagio:\n"
+            "(Por ejemplo: *Toda la información plasmada en el proyecto no corresponde con la de la plataforma para su generación*)",
+            chat_id=chat_id, message_id=call.message.message_id, parse_mode="Markdown"
+        )
+    else:
+        datos["paso"] = "observaciones"
+        tg_call_with_retry(
+            bot.edit_message_text,
+            "La evaluación continuará con el flujo normal.\n\n¿Deseas agregar observaciones a la rúbrica?",
+            chat_id=chat_id, message_id=call.message.message_id, reply_markup=obtener_teclado_obs()
+        )
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('obs_'))
 def procesar_observaciones(call):
@@ -513,6 +582,15 @@ def procesar_observaciones(call):
             "⚠️ Describe brevemente el error de formato.\n\nEjemplo: envió un archivo .docx en lugar de un .pptx o un enlace sin permisos.",
             chat_id=chat_id, message_id=call.message.message_id
         )
+
+@bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "obs_plagio_texto")
+def procesar_detalle_plagio(message):
+    chat_id = message.chat.id
+    sesiones[chat_id]["observaciones"] = message.text.strip()
+    sesiones[chat_id]["es_plagio"] = True
+    sesiones[chat_id]["es_error_formato"] = False
+    sesiones[chat_id]["observaciones_textuales"] = False
+    procesar_finalizacion(chat_id, None)
 
 @bot.message_handler(func=lambda message: sesiones.get(message.chat.id, {}).get("paso") == "obs_formato_texto")
 def procesar_detalle_error_formato(message):
