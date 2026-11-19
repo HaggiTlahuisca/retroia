@@ -130,7 +130,7 @@ class _NormalPrompt(_BasePrompt):
                 )
             else:
                 obs_contexto = f"Observaciones generales del asesor para usar como base: {self.pb.observaciones}"
-                inst_criterios = "Redacta un párrafo breve para cada criterio justificando el nivel asignado con tus propias palabras (nivel medio superior). PROHIBIDO copiar el lenguaje técnico de rúbricas."
+                inst_criterios = "Redacta un párrafo breve y equilibrado (2 a 3 oraciones) para cada criterio justificando el nivel asignado en términos pedagógicos generales, sin copiar el lenguaje técnico de rúbricas y SIN mencionar cifras, porcentajes, fórmulas ni conteos de incisos que no estén en las observaciones del asesor."
                 inst_areas = (
                     f"Redacta en prosa fluida los motivos por los que se asignaron esos niveles basándote en las observaciones del asesor.\n"
                     f"   {self.pb.dirs.get('areas_oportunidad', '')}\n"
@@ -138,7 +138,11 @@ class _NormalPrompt(_BasePrompt):
                 )
         else:
             obs_contexto = "Todo correcto según los niveles."
-            inst_criterios = "Redacta un párrafo breve para cada criterio justificando el nivel asignado con tus propias palabras (nivel medio superior). PROHIBIDO copiar el lenguaje técnico de rúbricas."
+            inst_criterios = (
+                "Redacta un párrafo breve y equilibrado (1 a 2 oraciones) para cada criterio justificando el nivel asignado en términos pedagógicos generales y naturales "
+                "(por ejemplo: 'Tu desempeño es **experto**, ya que aplicaste correctamente los procedimientos matemáticos solicitados y presentaste tus resultados con claridad'). "
+                "PROHIBIDO copiar el lenguaje técnico de rúbricas y PROHIBIDO mencionar cifras, porcentajes, fórmulas exactas o el número de incisos/solicitudes del ejercicio."
+            )
             inst_areas = (
                 "En un párrafo breve, incluye ÚNICA Y EXCLUSIVAMENTE una recomendación general invitando al estudiante a revisar siempre la redacción, ortografía, gramática y sintaxis antes de enviar sus entregas. "
                 "TIENES ESTRICTAMENTE PROHIBIDO inventar áreas de oportunidad falsas o agregar sugerencias sobre otros temas."
@@ -146,11 +150,28 @@ class _NormalPrompt(_BasePrompt):
 
         regla_experto = ""
         if es_experto_total:
-            regla_experto = "\n- ¡ATENCIÓN! CALIFICACIÓN PERFECTA (100): Justificación conversacional, muy breve y sencilla. No inventes áreas de oportunidad falsas."
+            regla_experto = "\n- ¡ATENCIÓN! CALIFICACIÓN PERFECTA (100): Mantén una justificación conversacional, equilibrada y breve (sin quedarte demasiado corto ni extenderte inventando detalles). No inventes áreas de oportunidad falsas ni cites cálculos, porcentajes o cantidades específicas del ejercicio."
 
-        # Recursos
-        rec_str = "".join([f"- URL: {r.url} (Tipo: {r.tipo}. Propósito: {r.descripcion})\n" for r in self.pb.actividad.recursos]) if self.pb.actividad and self.pb.actividad.recursos else ""
-        bloque_recursos = f"\n4. **RECURSOS:**\nRedacta cada recurso en prosa fluida y natural (PROHIBIDO usar la palabra 'Recursos' como título o usar viñetas). \nRecursos a incluir:\n{rec_str}" if rec_str else ""
+        # Recursos (omitir la categoría interna si es "Otro")
+        rec_items = []
+        if self.pb.actividad and self.pb.actividad.recursos:
+            for r in self.pb.actividad.recursos:
+                tipo_limpio = (r.tipo or "").strip()
+                if tipo_limpio and tipo_limpio.lower() != "otro":
+                    rec_items.append(f"- URL: {r.url} (Tipo: {tipo_limpio}. Propósito: {r.descripcion})\n")
+                else:
+                    rec_items.append(f"- URL: {r.url} (Propósito: {r.descripcion})\n")
+        rec_str = "".join(rec_items)
+
+        bloque_recursos = ""
+        if rec_str:
+            bloque_recursos = (
+                "\n4. **RECURSOS:**\n"
+                "¡REGLA OBLIGATORIA DE SEPARACIÓN!: Redacta CADA RECURSO en su PROPIO PÁRRAFO INDEPENDIENTE, separado del siguiente por un doble salto de línea (un renglón en blanco). "
+                "ESTÁ ESTRICTAMENTE PROHIBIDO juntar dos o más recursos en un mismo párrafo. "
+                "PROHIBIDO usar la palabra 'Recursos' como título, usar viñetas o escribir frases robóticas como 'recurso de tipo otro'. Intégralos de forma natural en prosa fluida.\n"
+                f"Recursos a incluir:\n{rec_str}"
+            )
 
         if self.pb.actividad and self.pb.actividad.frase:
             texto_frase = self.pb.actividad.frase.texto
@@ -174,10 +195,9 @@ class _NormalPrompt(_BasePrompt):
         if not es_experto_total and not self.pb.observaciones_textuales:
             ideas_apertura += "\n- Añade un conector sutil indicando que a continuación se detallan los niveles obtenidos."
 
-        inst_act = self.pb.actividad.instrucciones if self.pb.actividad and getattr(self.pb.actividad, "instrucciones", "") else ""
         contexto_estricto = ""
-        if self.prop_act or inst_act:
-            contexto_estricto = f"- Propósito oficial: {self.prop_act}\n- Instrucciones oficiales: {inst_act}\n"
+        if self.prop_act:
+            contexto_estricto = f"- Propósito oficial: {self.prop_act}\n"
 
         return f"""{sys_prompt}
 
@@ -189,11 +209,12 @@ class _NormalPrompt(_BasePrompt):
 - Observaciones del asesor: {obs_contexto}
 
 ### REGLAS CONTRA ALUCINACIONES (CANDADO ESTRICTO):
-1. ¡PROHIBIDO INVENTAR CONTEXTO O TEMÁTICAS AJENAS!: Tienes ESTRICTAMENTE PROHIBIDO escribir o mencionar cualquier concepto que no esté directamente en el propósito, en las instrucciones o en los descriptores de la rúbrica de este entregable. Queda TERMINANTEMENTE PROHIBIDO hablar de "finanzas", "finanzas personales", "economía", "inversiones", "presupuesto" u "optimización de gastos" si no forma parte explícita de las instrucciones. NO felicites por "aclarar dudas" o "buena disposición".
-2. REGLA DE ORO DE RECOMENDACIÓN GENERAL: La frase o párrafo posterior al desglose de los niveles obtenidos (o de la observación textual) DEBE CEÑIRSE EXCLUSIVAMENTE a recomendar la revisión de redacción, ortografía, gramática y sintaxis antes de entregar.
-3. RESPETO ABSOLUTO A LAS OBSERVACIONES: PROHIBIDO suavizar, omitir o cambiar el sentido de lo indicado por el asesor. Si dice que hizo algo mal, mantén la acusación firme.
-4. DISTRIBUCIÓN DE OBSERVACIONES: Si las observaciones NO son textuales, intégralas a lo largo de los criterios. {regla_experto}
-5. {self.pb.dirs.get('reglas_formato', '')}
+1. ¡TÚ NO HAS VISTO EL ARCHIVO DEL ESTUDIANTE — PROHIBIDO CITAR DATOS, CIFRAS, CONTEOS O FÓRMULAS!: Solo conoces los niveles asignados y las observaciones del asesor. Incluso si reconoces esta actividad de Prepa en Línea-SEP por tu entrenamiento previo, tienes TERMINANTEMENTE PROHIBIDO escribir, calcular, asumir o deducir cantidades numéricas, porcentajes, resultados concretos, precios, medidas, fórmulas o conteos de incisos (por ejemplo, NUNCA escribas cosas como "ocho por ciento", "trece por ciento", "las seis solicitudes", "tablas", "144 unidades", "9(2)^(n-1)", "3n + 1", etc.) a menos que el asesor los haya escrito textualmente en sus observaciones. No afirmes detalles específicos que no te constan; mantén la redacción en términos pedagógicos generales acordes al propósito.
+2. ¡PROHIBIDO INVENTAR CONTEXTO O TEMÁTICAS AJENAS!: Tienes ESTRICTAMENTE PROHIBIDO escribir o mencionar cualquier concepto que no esté directamente en el propósito o en las observaciones del asesor. Queda TERMINANTEMENTE PROHIBIDO hablar de "finanzas", "finanzas personales", "economía", "inversiones", "presupuesto" u "optimización de gastos" si no forma parte explícita de las observaciones. NO felicites por "aclarar dudas" o "buena disposición", ni menciones extensiones en renglones que no estén en las observaciones.
+3. REGLA DE ORO DE RECOMENDACIÓN GENERAL: La frase o párrafo posterior al desglose de los niveles obtenidos (o de la observación textual) DEBE CEÑIRSE EXCLUSIVAMENTE a recomendar la revisión de redacción, ortografía, gramática y sintaxis antes de entregar.
+4. RESPETO ABSOLUTO A LAS OBSERVACIONES: PROHIBIDO suavizar, omitir o cambiar el sentido de lo indicado por el asesor. Si dice que hizo algo mal, mantén la acusación firme.
+5. DISTRIBUCIÓN DE OBSERVACIONES: Si las observaciones NO son textuales, intégralas a lo largo de los criterios. {regla_experto}
+6. {self.pb.dirs.get('reglas_formato', '')}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
 
@@ -320,7 +341,7 @@ class _ForumPrompt(_BasePrompt):
 - {self.pb.dirs.get('reglas_formato', 'ESTÁ ESTRICTAMENTE PROHIBIDO usar subtítulos Markdown.')}
 - ESTÁ ESTRICTAMENTE PROHIBIDO usar negritas para títulos o viñetas (NO escribas "Criterio cognitivo", "Criterio actitudinal", etc.).
 - ESTÁ ESTRICTAMENTE PROHIBIDO mencionar el nombre de los niveles obtenidos (NO escribas las palabras "experto", "capacitado", "aceptable", "aprendiz", etc.). Tu trabajo es interpretar el nivel y describirlo de manera totalmente cualitativa en formato de carta.
-- ESTÁ ESTRICTAMENTE PROHIBIDO inventar temáticas ajenas o dar recomendaciones sobre "finanzas", "economía", "presupuestos" o "matemáticas" en la despedida.
+- ESTÁ ESTRICTAMENTE PROHIBIDO inventar temáticas ajenas, cifras específicas o dar recomendaciones sobre "finanzas", "economía", "presupuestos" o "matemáticas" en la despedida.
 
 ### ESTRUCTURA ESTRICTA DE PÁRRAFOS INDEPENDIENTES:
 DEBES SEPARAR TUS IDEAS EXACTAMENTE EN LOS SIGUIENTES 6 PÁRRAFOS CORTOS. (Da un doble salto de línea entre cada párrafo y PROHIBIDO ponerles título):
