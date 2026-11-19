@@ -8,6 +8,7 @@ import time
 import io
 import json
 import logging
+import threading
 import telebot
 from telebot.apihelper import ApiTelegramException
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
@@ -18,7 +19,7 @@ from prompt_builder import PromptBuilder
 from ia_client import IAClient
 from models import Retroalimentacion
 from model_selection import construir_modelos_a_intentar
-from utils import docx_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html, generar_nombre_archivo
+from utils import docx_bytes, sanitize_filename, get_activity_code, feedback_to_moodle_html, generar_nombre_archivo, create_zip
 
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -68,6 +69,8 @@ def tg_call_with_retry(func, *args, max_retries: int = 5, **kwargs):
             raise
 
 sesiones: dict[int, dict] = {}
+lotes_en_curso: dict[int, dict] = {}
+lotes_lock = threading.Lock()
 
 NIVELES_NOMBRES = ["Experto", "Capacitado", "Aceptable", "Aprendiz", "Requiere apoyo", "No evaluable"]
 NIVELES_CLAVES = ["experto", "capacitado", "aceptable", "aprendiz", "requiere_apoyo", "no_evaluable"]
@@ -77,6 +80,14 @@ def responder_callback(call):
         bot.answer_callback_query(call.id)
     except Exception:
         pass
+
+def obtener_aviso_atajo(chat_id: int) -> str:
+    """Muestra el tip de captura rápida únicamente las dos primeras veces de un lote."""
+    sesion = sesiones.get(chat_id, {})
+    if sesion.get("modo") == "batch" and sesion.get("tips_mostrados", 0) < 2:
+        sesion["tips_mostrados"] = sesion.get("tips_mostrados", 0) + 1
+        return "\n💡 *Tip: En modo lote, puedes escribir directamente el nombre del siguiente estudiante para guardar a este sin observaciones.*"
+    return ""
 
 def obtener_teclado_progreso() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=1)
@@ -174,7 +185,9 @@ def obtener_teclado_lote(datos: dict) -> InlineKeyboardMarkup:
         markup.add(InlineKeyboardButton(f"🚫 Quitar {item['estudiante']}", callback_data=f"b_rem_{indice}"))
     markup.add(
         InlineKeyboardButton("➕ Otro", callback_data="batch_add"),
-        InlineKeyboardButton("🚀 Ejecutar lote", callback_data="batch_run"),
+        InlineKeyboardButton("🌐 Ejecutar con HTML", callback_data="batch_run_html"),
+        InlineKeyboardButton("📄 Ejecutar con documentos", callback_data="batch_run_docs"),
+        InlineKeyboardButton("⚡ Ejecutar sin documentos", callback_data="batch_run_none"),
         InlineKeyboardButton("💾 Guardar como borrador", callback_data="batch_save_draft"),
         InlineKeyboardButton("❌ Cancelar lote completo", callback_data="batch_cancel")
     )
@@ -229,7 +242,8 @@ def iniciar_evaluacion(message):
         "modelo_id": "auto",
         "modelo_nombre": "🎲 Rotación aleatoria",
         "cola_modelos": [],
-        "saltar_modelo": False
+        "saltar_modelo": False,
+        "tips_mostrados": 0
     }
 
     bot_log("INFO", f"Sesión iniciada. Modo: {modo}. Usuario: {message.chat.id}")
@@ -333,7 +347,7 @@ def auto_atajos_criterios(message):
             sesiones[chat_id]["criterios"][criterio] = (NIVELES_NOMBRES[0], puntos)
             sesiones[chat_id]["total_puntos"] += puntos
         sesiones[chat_id]["paso"] = "observaciones"
-        aviso_atajo = "\n💡 *Tip: En modo lote, puedes escribir directamente el nombre del siguiente estudiante para guardar a este sin observaciones.*" if sesiones[chat_id].get("modo") == "batch" else ""
+        aviso_atajo = obtener_aviso_atajo(chat_id)
         tg_call_with_retry(
             bot.send_message, chat_id, 
             f"💯 Todos los criterios evaluados automáticamente con **Nivel experto**.\n\n¿Hay observaciones?{aviso_atajo}",
@@ -516,7 +530,7 @@ def seleccionar_nivel(call):
             )
         else:
             sesiones[chat_id]["paso"] = "observaciones"
-            aviso_atajo = "\n💡 *Tip: En modo lote, puedes escribir directamente el nombre del siguiente estudiante para guardar a este sin observaciones.*" if sesiones[chat_id].get("modo") == "batch" else ""
+            aviso_atajo = obtener_aviso_atajo(chat_id)
             tg_call_with_retry(
                 bot.edit_message_text,
                 f"✅ {criterio}: *{NIVELES_NOMBRES[nivel_idx]}* (+{puntos:.1f} pts)\n\n¿Hay observaciones?{aviso_atajo}",
@@ -759,7 +773,8 @@ def draft_load_all(call):
         "modelo_id": "auto",
         "modelo_nombre": "🎲 Rotación aleatoria",
         "cola_modelos": [],
-        "saltar_modelo": False
+        "saltar_modelo": False,
+        "tips_mostrados": 0
     }
     
     for idx, b in enumerate(borradores):
@@ -797,15 +812,219 @@ def batch_cancel(call):
         del sesiones[chat_id]
         tg_call_with_retry(bot.edit_message_text, "🚫 Lote cancelado por completo. Escribe /lote para iniciar uno nuevo.", chat_id=chat_id, message_id=call.message.message_id)
 
-@bot.callback_query_handler(func=lambda call: call.data == 'batch_run')
+def _worker_lote_segundo_plano(chat_id: int, cola: list[dict], actividad, modelo_id_base: str, modo_entrega: str) -> None:
+    """Procesa un lote completo en segundo plano sin bloquear la captura de nuevos lotes en el chat."""
+    local_ia = IAClient("openrouter")
+    estado_modelos_local: dict = {"cola_modelos": []}
+    archivos_zip: list[tuple[str, bytes]] = []
+    calificaciones_foro: list[tuple[str, float]] = []
+    completados = 0
+
+    try:
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        dirs = db.get_all_directrices()
+        n_ase = dirs.get("asesor_nombre", "")
+        id_ase = dirs.get("asesor_id", "")
+        g_ase = dirs.get("grupo", "M00C0G00-000")
+
+        for idx, item in enumerate(cola):
+            estudiante = item["estudiante"]
+            criterios = item["criterios"]
+            total_puntos = item["total_puntos"]
+            obs = item["observaciones"]
+            es_error_formato = item.get("es_error_formato", False)
+            es_plagio = item.get("es_plagio", False)
+            observaciones_textuales = item.get("observaciones_textuales", False)
+
+            modelos_db = db.get_modelos()
+            if not modelos_db:
+                bot_log("ERROR", f"[Lote BG - {estudiante}] No hay modelos configurados.")
+                continue
+
+            modelos_reales = [
+                {"id": m["api_id"], "api_id": m["api_id"], "nombre": m["nombre"], "categoria": m["categoria"]}
+                for m in modelos_db
+            ]
+            if es_error_formato or es_plagio:
+                modelos_reales = [m for m in modelos_reales if "haiku" not in m["id"].lower()]
+                if not modelos_reales:
+                    modelos_reales = [{"id": "cohere/north-mini-code:free", "api_id": "cohere/north-mini-code:free", "nombre": "Cohere (Respaldo)", "categoria": "Gratis"}]
+
+            usar_aleatorio = modelo_id_base == "auto" or ((es_error_formato or es_plagio) and "haiku" in modelo_id_base.lower())
+            modelos_a_intentar = construir_modelos_a_intentar(
+                estado_modelos_local,
+                modelos_reales,
+                modelo_id_base,
+                usar_aleatorio,
+                queue_key="cola_modelos",
+            )
+
+            builder = PromptBuilder(
+                directrices=db.get_all_directrices(),
+                actividad=actividad,
+                estudiante=estudiante,
+                calificacion=total_puntos,
+                criterios_evaluados=criterios,
+                observaciones=obs,
+                es_error_formato=es_error_formato,
+                es_plagio=es_plagio,
+                observaciones_textuales=observaciones_textuales,
+                indice_estudiante=idx + 1
+            )
+            prompt = builder.build()
+
+            texto_generado = None
+            modelo_exitoso = None
+            ultimo_error = None
+
+            for modelo_actual in modelos_a_intentar:
+                bot_log("INFO", f"[Lote BG - {estudiante}] Intentando API con modelo: {modelo_actual['nombre']}")
+                start_time = time.time()
+                try:
+                    texto_candidato = local_ia.generar(
+                        prompt,
+                        api_key,
+                        modelo_actual["id"],
+                        temperature=0.65,
+                        max_tokens=2500,
+                        timeout=60,
+                    )
+                    if not texto_candidato or not texto_candidato.strip():
+                        raise ValueError(f"El modelo {modelo_actual['nombre']} entregó una respuesta vacía.")
+
+                    terminaciones_truncadas = (" y", " con", " el", " la", " los", " las", " de", " un", " una", " proced", " funcion", " cual", " que", ",")
+                    if any(texto_candidato.strip().lower().endswith(t) for t in terminaciones_truncadas):
+                        raise ValueError(f"El modelo {modelo_actual['nombre']} truncó la respuesta a la mitad.")
+
+                    texto_generado = texto_candidato
+                    elapsed = time.time() - start_time
+                    bot_log("INFO", f"[Lote BG - {estudiante}] ÉXITO con {modelo_actual['nombre']}. Tiempo: {elapsed:.2f}s.")
+                    modelo_exitoso = modelo_actual
+                    break
+                except Exception as e:
+                    elapsed = time.time() - start_time
+                    ultimo_error = e
+                    bot_log("ERROR", f"[Lote BG - {estudiante}] FALLÓ {modelo_actual['nombre']} tras {elapsed:.2f}s. Error: {e}")
+                    time.sleep(1)
+                    continue
+
+            if not texto_generado or not modelo_exitoso:
+                bot_log("ERROR", f"[Lote BG - {estudiante}] TODOS los modelos fallaron. Último error: {ultimo_error}")
+                continue
+
+            razonamiento = getattr(local_ia, "ultimo_razonamiento", "")
+            retro = Retroalimentacion(
+                estudiante,
+                actividad.nombre,
+                texto_generado,
+                modelo_exitoso["nombre"],
+                total_puntos,
+                criterios,
+                obs,
+                prompt,
+                0.65,
+                razonamiento
+            )
+            db.create_history(retro, actividad.id)
+
+            if "foro de integración" in actividad.nombre.lower():
+                calificaciones_foro.append((estudiante, total_puntos))
+
+            if modo_entrega in ("html", "docs"):
+                nombre_base = generar_nombre_archivo(estudiante, actividad.nombre)
+                html_text = feedback_to_moodle_html(texto_generado, n_ase, id_ase, g_ase)
+                archivos_zip.append((f"{nombre_base}.html", html_text.encode("utf-8")))
+                if modo_entrega == "docs":
+                    word_bytes = docx_bytes("", texto_generado, n_ase, id_ase, g_ase)
+                    archivos_zip.append((f"{nombre_base}.docx", word_bytes))
+
+            completados += 1
+            if "borrador_id" in item:
+                try:
+                    db.eliminar_borrador(item["borrador_id"])
+                except Exception:
+                    pass
+
+        bot_log("INFO", f"Lote en segundo plano finalizado ({actividad.nombre}): {completados}/{len(cola)} completados.")
+
+        if modo_entrega in ("html", "docs") and archivos_zip:
+            zip_bytes = create_zip(archivos_zip)
+            act_code = get_activity_code(actividad.nombre)
+            sufijo = "_HTML" if modo_entrega == "html" else ""
+            zip_buffer = io.BytesIO(zip_bytes)
+            zip_buffer.name = f"Retros_{g_ase}_{act_code}{sufijo}.zip"
+            etiqueta = "solo HTML" if modo_entrega == "html" else "Word y HTML"
+            tg_call_with_retry(
+                bot.send_document,
+                chat_id,
+                document=zip_buffer,
+                caption=f"📦 Lote completado ({completados}/{len(cola)}) — {actividad.nombre} ({etiqueta})."
+            )
+
+        if calificaciones_foro and modo_entrega != "none":
+            resumen_foro = "🔢 *Calificaciones del foro de integración:*\n" + "\n".join(
+                f"• {est}: `{pts:.1f} / 100`" for est, pts in calificaciones_foro
+            )
+            tg_call_with_retry(bot.send_message, chat_id, resumen_foro, parse_mode="Markdown")
+
+        if completados == len(cola):
+            if modo_entrega == "none":
+                tg_call_with_retry(
+                    bot.send_message,
+                    chat_id,
+                    f"✨ ¡Lote de *{actividad.nombre}* completado ({completados}/{len(cola)})! Todas las retroalimentaciones quedaron guardadas en el historial web (sin envío de archivos).",
+                    parse_mode="Markdown"
+                )
+            else:
+                tg_call_with_retry(
+                    bot.send_message,
+                    chat_id,
+                    f"✨ ¡Lote de *{actividad.nombre}* finalizado exitosamente! Ya puedes ejecutar el siguiente lote cuando gustes.",
+                    parse_mode="Markdown"
+                )
+        else:
+            pendientes = len(cola) - completados
+            tg_call_with_retry(
+                bot.send_message,
+                chat_id,
+                f"⚠️ Lote de *{actividad.nombre}* finalizado ({completados}/{len(cola)} completados). Las {pendientes} evaluaciones restantes quedaron guardadas automáticamente en /borradores.",
+                parse_mode="Markdown"
+            )
+    except Exception as e:
+        bot_log("ERROR", f"Error inesperado en lote en segundo plano: {e}")
+        try:
+            tg_call_with_retry(bot.send_message, chat_id, f"❌ Error en el lote en segundo plano ({actividad.nombre}): {e}")
+        except Exception:
+            pass
+    finally:
+        with lotes_lock:
+            lotes_en_curso.pop(chat_id, None)
+
+@bot.callback_query_handler(func=lambda call: call.data in ['batch_run_html', 'batch_run_docs', 'batch_run_none'])
 def batch_run(call):
     responder_callback(call)
     chat_id = call.message.chat.id
     if chat_id not in sesiones:
         return
+
+    with lotes_lock:
+        lote_activo = lotes_en_curso.get(chat_id)
+    if lote_activo:
+        tg_call_with_retry(
+            bot.send_message,
+            chat_id,
+            f"⏳ Ya hay un lote en segundo plano procesando *{lote_activo['actividad']}* ({lote_activo['total']} estudiantes). "
+            f"Tu cola actual sigue intacta; en cuanto termine ese lote podrás presionar el botón de ejecutar nuevamente.",
+            parse_mode="Markdown"
+        )
+        return
+
     datos = sesiones[chat_id]
     cola = list(datos.get("cola", []))
-    
+    actividad = datos["actividad"]
+    modelo_id_base = datos.get("modelo_id", "auto")
+    modo_entrega = call.data.split("_")[-1]  # "html", "docs" o "none"
+
     modelos_db = db.get_modelos()
     if not modelos_db:
         tg_call_with_retry(bot.send_message, chat_id, "⚠ No hay modelos configurados en tu sistema. Configura al menos un modelo en la web y presiona ejecutar nuevamente.")
@@ -817,7 +1036,7 @@ def batch_run(call):
             try:
                 borrador = {
                     "chat_id": chat_id,
-                    "actividad_id": datos["actividad"].id,
+                    "actividad_id": actividad.id,
                     "estudiante": item["estudiante"],
                     "criterios": item["criterios"],
                     "total_puntos": item["total_puntos"],
@@ -829,59 +1048,39 @@ def batch_run(call):
                 item["borrador_id"] = db.guardar_borrador(borrador)
             except Exception as e:
                 bot_log("ERROR", f"No se pudo crear respaldo automático de borrador para {item['estudiante']}: {e}")
-        
-    bot_log("INFO", f"Iniciando procesamiento de lote para {len(cola)} estudiantes.")
+
+    etiquetas = {
+        "html": "solo HTML en ZIP",
+        "docs": "Word y HTML en ZIP",
+        "none": "sin entrega de documentos"
+    }
+    etiqueta_modo = etiquetas.get(modo_entrega, modo_entrega)
+
+    with lotes_lock:
+        lotes_en_curso[chat_id] = {"actividad": actividad.nombre, "total": len(cola)}
+
+    # Liberamos la sesión actual para que el usuario pueda iniciar otro /lote inmediatamente
+    del sesiones[chat_id]
+
+    bot_log("INFO", f"Iniciando lote en segundo plano ({etiqueta_modo}) para {len(cola)} estudiantes en {actividad.nombre}.")
     try:
-        tg_call_with_retry(bot.edit_message_text, f"🚀 Generando lote de {len(cola)} retroalimentaciones. Esto tomará un momento...", chat_id=chat_id, message_id=call.message.message_id)
+        tg_call_with_retry(
+            bot.edit_message_text,
+            f"🚀 Lote de *{len(cola)}* estudiantes para *{actividad.nombre}* iniciado en segundo plano (*{etiqueta_modo}*).\n\n"
+            f"Ya puedes escribir /lote para ir cargando la siguiente actividad mientras este termina.",
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            parse_mode="Markdown"
+        )
     except Exception:
         pass
 
-    completados = 0
-    for idx, item in enumerate(cola):
-        msg_id = None
-        try:
-            msg_progreso = tg_call_with_retry(
-                bot.send_message,
-                chat_id,
-                f"⏳ Evaluando a {item['estudiante']} ({idx+1}/{len(cola)})...",
-                reply_markup=obtener_teclado_progreso()
-            )
-            msg_id = msg_progreso.message_id
-        except Exception as e:
-            bot_log("ERROR", f"[{item['estudiante']}] No se pudo enviar mensaje de progreso: {e}")
-
-        exito = procesar_generacion_individual(
-            chat_id, msg_id,
-            item["estudiante"], item["criterios"], item["total_puntos"], 
-            item["observaciones"], item.get("es_error_formato", False), 
-            item.get("es_plagio", False), item.get("observaciones_textuales", False),
-            indice_estudiante=idx+1,
-            total_lote=len(cola)
-        )
-        if exito:
-            completados += 1
-            if "borrador_id" in item:
-                try:
-                    db.eliminar_borrador(item["borrador_id"])
-                except Exception:
-                    pass
-
-        # Pausa breve entre alumnos para no saturar el límite de 20 mensajes por minuto en grupos de Telegram
-        if idx < len(cola) - 1:
-            time.sleep(2)
-
-    if chat_id in sesiones:
-        del sesiones[chat_id]
-    bot_log("INFO", f"Lote finalizado: {completados}/{len(cola)} completados.")
-    if completados == len(cola):
-        tg_call_with_retry(bot.send_message, chat_id, "✨ ¡Lote completado exitosamente! Escribe /evaluar o /lote para iniciar de nuevo.")
-    else:
-        pendientes = len(cola) - completados
-        tg_call_with_retry(
-            bot.send_message,
-            chat_id,
-            f"⚠️ Lote finalizado ({completados}/{len(cola)} completados). Las {pendientes} evaluaciones restantes quedaron guardadas automáticamente en /borradores para que no tengas que volver a calificarlas."
-        )
+    hilo = threading.Thread(
+        target=_worker_lote_segundo_plano,
+        args=(chat_id, cola, actividad, modelo_id_base, modo_entrega),
+        daemon=True
+    )
+    hilo.start()
 
 def procesar_generacion_individual(chat_id, message_id_to_edit, estudiante, criterios, total_puntos, obs, es_error_formato=False, es_plagio=False, observaciones_textuales=False, indice_estudiante=0, total_lote=1) -> bool:
     datos = sesiones.get(chat_id)
