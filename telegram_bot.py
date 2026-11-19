@@ -818,6 +818,7 @@ def _worker_lote_segundo_plano(chat_id: int, cola: list[dict], actividad, modelo
     estado_modelos_local: dict = {"cola_modelos": []}
     archivos_zip: list[tuple[str, bytes]] = []
     calificaciones_foro: list[tuple[str, float]] = []
+    resumen_modelos: list[tuple[str, str]] = []
     completados = 0
 
     try:
@@ -926,6 +927,7 @@ def _worker_lote_segundo_plano(chat_id: int, cola: list[dict], actividad, modelo
                 razonamiento
             )
             db.create_history(retro, actividad.id)
+            resumen_modelos.append((estudiante, modelo_exitoso["nombre"]))
 
             if "foro de integración" in actividad.nombre.lower():
                 calificaciones_foro.append((estudiante, total_puntos))
@@ -967,13 +969,16 @@ def _worker_lote_segundo_plano(chat_id: int, cola: list[dict], actividad, modelo
             )
             tg_call_with_retry(bot.send_message, chat_id, resumen_foro, parse_mode="Markdown")
 
+        detalle_modelos = "\n".join(f"• {est}: {mod}" for est, mod in resumen_modelos)
+
         if completados == len(cola):
             if modo_entrega == "none":
                 tg_call_with_retry(
                     bot.send_message,
                     chat_id,
-                    f"✨ ¡Lote de *{actividad.nombre}* completado ({completados}/{len(cola)})! Todas las retroalimentaciones quedaron guardadas en el historial web (sin envío de archivos).",
-                    parse_mode="Markdown"
+                    f"✨ ¡Lote de {actividad.nombre} completado ({completados}/{len(cola)})!\n"
+                    f"Todas las retroalimentaciones quedaron guardadas en el historial web (sin envío de archivos).\n\n"
+                    f"📋 Resumen de modelos utilizados:\n{detalle_modelos}"
                 )
             else:
                 tg_call_with_retry(
@@ -984,12 +989,21 @@ def _worker_lote_segundo_plano(chat_id: int, cola: list[dict], actividad, modelo
                 )
         else:
             pendientes = len(cola) - completados
-            tg_call_with_retry(
-                bot.send_message,
-                chat_id,
-                f"⚠️ Lote de *{actividad.nombre}* finalizado ({completados}/{len(cola)} completados). Las {pendientes} evaluaciones restantes quedaron guardadas automáticamente en /borradores.",
-                parse_mode="Markdown"
-            )
+            if modo_entrega == "none" and detalle_modelos:
+                tg_call_with_retry(
+                    bot.send_message,
+                    chat_id,
+                    f"⚠️ Lote de {actividad.nombre} finalizado ({completados}/{len(cola)} completados). "
+                    f"Las {pendientes} evaluaciones restantes quedaron guardadas automáticamente en /borradores.\n\n"
+                    f"📋 Resumen de modelos utilizados:\n{detalle_modelos}"
+                )
+            else:
+                tg_call_with_retry(
+                    bot.send_message,
+                    chat_id,
+                    f"⚠️ Lote de *{actividad.nombre}* finalizado ({completados}/{len(cola)} completados). Las {pendientes} evaluaciones restantes quedaron guardadas automáticamente en /borradores.",
+                    parse_mode="Markdown"
+                )
     except Exception as e:
         bot_log("ERROR", f"Error inesperado en lote en segundo plano: {e}")
         try:
@@ -999,7 +1013,7 @@ def _worker_lote_segundo_plano(chat_id: int, cola: list[dict], actividad, modelo
     finally:
         with lotes_lock:
             lotes_en_curso.pop(chat_id, None)
-
+            
 @bot.callback_query_handler(func=lambda call: call.data in ['batch_run_html', 'batch_run_docs', 'batch_run_none'])
 def batch_run(call):
     responder_callback(call)
