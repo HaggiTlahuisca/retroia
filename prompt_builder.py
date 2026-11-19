@@ -122,6 +122,7 @@ class _NormalPrompt(_BasePrompt):
             if self.pb.observaciones_textuales:
                 obs_contexto = "Se han proporcionado observaciones TEXTUALES del asesor que sustituyen la redacción normal de áreas de oportunidad."
                 inst_criterios = "¡REGLA ESTRICTA!: ÚNICAMENTE INDICA EL NIVEL OBTENIDO con una frase extremadamente breve (ej. 'Tu desempeño alcanza un nivel aceptable'). PROHIBIDO justificar el nivel o agregar explicaciones."
+                titulo_seccion_3 = "3. **JUSTIFICACIÓN TEXTUAL DE NIVELES Y SUGERENCIA GENERAL (PÁRRAFO NUEVO INDEPENDIENTE):**"
                 inst_areas = (
                     "¡REGLA ESTRICTA!: Escribe EXACTAMENTE esta frase introductoria:\n"
                     "'Los niveles obtenidos se asignan de esa manera debido a lo siguiente:'\n"
@@ -129,12 +130,18 @@ class _NormalPrompt(_BasePrompt):
                     "Finalmente, en un párrafo breve independiente después de pegar ese texto, incluye una recomendación general invitando a revisar la redacción, ortografía, gramática y sintaxis antes de enviar sus entregas (TIENES ESTRICTAMENTE PROHIBIDO dar otro tipo de recomendaciones o hablar de finanzas)."
                 )
             else:
-                obs_contexto = f"Observaciones generales del asesor para usar como base: {self.pb.observaciones}"
-                inst_criterios = "Redacta un párrafo breve y equilibrado (2 a 3 oraciones) para cada criterio justificando el nivel asignado en términos pedagógicos generales, sin copiar el lenguaje técnico de rúbricas y SIN mencionar cifras, porcentajes, fórmulas ni conteos de incisos que no estén en las observaciones del asesor."
+                obs_contexto = f"Observaciones generales del asesor para distribuir EXCLUSIVAMENTE dentro de los criterios: {self.pb.observaciones}"
+                inst_criterios = (
+                    "Redacta un párrafo breve y equilibrado (2 a 3 oraciones) para cada criterio justificando de forma objetiva el nivel asignado "
+                    "e integrando aquí las observaciones del asesor en el criterio que corresponda. "
+                    "PROHIBIDO copiar el lenguaje técnico de rúbricas y PROHIBIDO mencionar cifras, porcentajes, fórmulas ni conteos de incisos que no estén en las observaciones del asesor."
+                )
+                titulo_seccion_3 = "3. **SUGERENCIA GENERAL (PÁRRAFO NUEVO INDEPENDIENTE):**"
                 inst_areas = (
-                    f"Redacta en prosa fluida los motivos por los que se asignaron esos niveles basándote en las observaciones del asesor.\n"
-                    f"   {self.pb.dirs.get('areas_oportunidad', '')}\n"
-                    f"   ¡REGLA DE ORO PARA LA RECOMENDACIÓN FINAL!: Después de explicar los niveles obtenidos (o áreas de mejora), la sugerencia o recomendación general DEBE CEÑIRSE EXCLUSIVAMENTE a recomendar la revisión previa de redacción, ortografía, gramática y sintaxis antes de entregar. PROHIBIDO inventar otro tipo de sugerencias."
+                    "¡REGLA ESTRICTA DE NO REPETICIÓN!: Como las observaciones del asesor YA fueron integradas dentro de los cuatro criterios anteriores, "
+                    "TIENES TERMINANTEMENTE PROHIBIDO volver a repetir, resumir, parafrasear o pegar esas observaciones en esta sección, así como volver a explicar por qué se asignaron los niveles. "
+                    "En este párrafo breve redacta ÚNICA Y EXCLUSIVAMENTE una recomendación general invitando al estudiante a revisar siempre la redacción, ortografía, gramática y sintaxis antes de enviar sus próximas entregas. "
+                    "PROHIBIDO incluir cualquier otra sugerencia o comentario adicional en este párrafo."
                 )
         else:
             obs_contexto = "Todo correcto según los niveles."
@@ -143,6 +150,7 @@ class _NormalPrompt(_BasePrompt):
                 "(por ejemplo: 'Tu desempeño es **experto**, ya que aplicaste correctamente los procedimientos matemáticos solicitados y presentaste tus resultados con claridad'). "
                 "PROHIBIDO copiar el lenguaje técnico de rúbricas y PROHIBIDO mencionar cifras, porcentajes, fórmulas exactas o el número de incisos/solicitudes del ejercicio."
             )
+            titulo_seccion_3 = "3. **SUGERENCIA GENERAL (PÁRRAFO NUEVO INDEPENDIENTE):**"
             inst_areas = (
                 "En un párrafo breve, incluye ÚNICA Y EXCLUSIVAMENTE una recomendación general invitando al estudiante a revisar siempre la redacción, ortografía, gramática y sintaxis antes de enviar sus entregas. "
                 "TIENES ESTRICTAMENTE PROHIBIDO inventar áreas de oportunidad falsas o agregar sugerencias sobre otros temas."
@@ -185,7 +193,7 @@ class _NormalPrompt(_BasePrompt):
         if es_proyecto:
             recordatorio_objetivo = "- Recuerda de forma natural que el propósito de este proyecto es poner en práctica e integrar lo aprendido durante el módulo (PROHIBIDO decir 'en la semana').\n"
         else:
-            recordatorio_objetivo = "- Recuerda de forma natural que el objetivo de estas actividades es poner en práctica lo aprendido en la semana.\n"
+            recordatorio_objetivo = "- Recuerda de forma natural que el objetivo de estas actividades es poner en práctica lo aprendido en la semana, sin señalar temas (es decir, no debes escribir: El propósito de este ejercicio es aplicar los conocimientos adquiridos durante la semana sobre series, sucesiones, razones y proporciones en la resolución de problemas cotidianos.\n"
 
         ideas_apertura = (
             f"- Agradece la entrega de su \"{self.n_act}\" (OJO: pon exactamente el título entre comillas. Si el título ya dice 'Proyecto', NO le agregues la palabra 'actividad' antes. Ejemplo correcto: Recibí tu \"Proyecto integrador. Adelgazando costos\").\n"
@@ -213,7 +221,7 @@ class _NormalPrompt(_BasePrompt):
 2. ¡PROHIBIDO INVENTAR CONTEXTO O TEMÁTICAS AJENAS!: Tienes ESTRICTAMENTE PROHIBIDO escribir o mencionar cualquier concepto que no esté directamente en el propósito o en las observaciones del asesor. Queda TERMINANTEMENTE PROHIBIDO hablar de "finanzas", "finanzas personales", "economía", "inversiones", "presupuesto" u "optimización de gastos" si no forma parte explícita de las observaciones. NO felicites por "aclarar dudas" o "buena disposición", ni menciones extensiones en renglones que no estén en las observaciones.
 3. REGLA DE ORO DE RECOMENDACIÓN GENERAL: La frase o párrafo posterior al desglose de los niveles obtenidos (o de la observación textual) DEBE CEÑIRSE EXCLUSIVAMENTE a recomendar la revisión de redacción, ortografía, gramática y sintaxis antes de entregar.
 4. RESPETO ABSOLUTO A LAS OBSERVACIONES: PROHIBIDO suavizar, omitir o cambiar el sentido de lo indicado por el asesor. Si dice que hizo algo mal, mantén la acusación firme.
-5. DISTRIBUCIÓN DE OBSERVACIONES: Si las observaciones NO son textuales, intégralas a lo largo de los criterios. {regla_experto}
+5. DISTRIBUCIÓN DE OBSERVACIONES (SIN DUPLICAR): Si las observaciones NO son textuales, intégralas y distribúyelas ÚNICAMENTE a lo largo de los párrafos de los criterios correspondientes. TIENES ESTRICTAMENTE PROHIBIDO volver a repetirlas, resumirlas o pegarlas en un párrafo adicional después del cuarto criterio. {regla_experto}
 6. {self.pb.dirs.get('reglas_formato', '')}
 
 ### INSTRUCCIONES ESTRICTAS DE REDACCIÓN Y SECCIONES:
@@ -233,7 +241,7 @@ class _NormalPrompt(_BasePrompt):
    - Menciona obligatoriamente el nivel en minúsculas y entre asteriscos dobles (ej: **experto**).
    - {inst_criterios}
 
-3. **JUSTIFICACIÓN DE NIVELES Y SUGERENCIA GENERAL (PÁRRAFO NUEVO INDEPENDIENTE):**
+{titulo_seccion_3}
    (Doble salto de línea después del último criterio. SIN TÍTULO).
    {inst_areas}{bloque_recursos}
 
@@ -247,7 +255,6 @@ Me despido con esta frase de {autor_frase}: **"{texto_frase}"**.
 Recuerda que siempre estoy para ti al otro lado de la pantalla. Me puedes contactar por medio de los canales institucionales.
 
 {self.firma_corta}"""
-
 
 class _FormatErrorPrompt(_BasePrompt):
     """Prompt exclusivo para cuando el alumno entrega un formato incorrecto (ej. Word en lugar de PPT)."""
