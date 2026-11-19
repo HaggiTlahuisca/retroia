@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       confirmar:
-        description: "Escribe SI para confirmar el despliegue"
+        description: "Escribe si para confirmar el despliegue"
         required: true
         type: string
 
 jobs:
   deploy:
-    if: ${{ github.event.inputs.confirmar == 'SI' }}
+    if: ${{ github.event.inputs.confirmar == 'si' }}
     runs-on: ubuntu-latest
 
     concurrency:
