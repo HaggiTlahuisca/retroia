@@ -41,7 +41,7 @@ DEFAULT_MODEL_NAME = "GPT 5.6 Luna Pro"
 DEFAULT_MODEL_ID = "openai/gpt-5.6-luna-pro"
 
 TIPOS_RECURSO = [
-    "Video", "PDF", "Artículo", "Enlace", "Documento", "Archivo", "Libro", "Otro"
+    "Video", "PDF", "Artículo", "Enlace", "Documento", "Archivo", "Libro", "Página interactiva", "Presentación"
 ]
 
 NIVELES_DESEMPENO = [
