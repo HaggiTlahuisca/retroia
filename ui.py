@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import pandas as pd
 from datetime import datetime, date, timedelta
 from typing import Any
@@ -73,7 +74,7 @@ class RetroalimentacionApp:
         elif pagina_actual == opciones_navegacion[4]: self.tab_settings()
         elif pagina_actual == opciones_navegacion[5]: self.tab_forums()
 
-        st.markdown("<br><hr><center><small class='small-muted'>Retroalimentaciones Formativas IA</small></center>", unsafe_allow_html=True)
+        st.markdown("<br><hr><center><small class='small-muted'>Retroalimentaciones formativas IA</small></center>", unsafe_allow_html=True)
 
     def _state(self) -> None:
         defaults = {
@@ -94,17 +95,245 @@ class RetroalimentacionApp:
             "lote_idx": 0,
             "lote_exitosos": 0,
             "lote_total": 0,
+            "bg_batch": None,
             # Variables de control del formulario de evaluación
             "form_estudiante": "",
             "form_observaciones": "",
             "form_error_formato": False,
             "form_es_plagio": False,
             "form_obs_textuales": False,
+            "form_tipo_obs": "❌ No, generar directo",
             "form_reset_trigger": False
         }
         for key, value in defaults.items(): st.session_state.setdefault(key, value)
 
+    def _render_bg_batch_panel(self) -> None:
+        @st.fragment(run_every=4)
+        def _panel_segundo_plano() -> None:
+            bg = st.session_state.get("bg_batch")
+            if not bg:
+                return
+
+            with bg["lock"]:
+                activo = bg["activo"]
+                terminado = bg["terminado"]
+                total = bg["total"]
+                procesados = bg["procesados"]
+                exitosos = bg["exitosos"]
+                actual = bg["actual"]
+                act_nom = bg["actividad_nombre"]
+                modo_ent = bg["modo_entrega"]
+                errores = list(bg["errores"])
+                zip_bytes = bg["zip_bytes"]
+                zip_name = bg["zip_name"]
+
+            etiquetas_modo = {
+                "html": "solo HTML en ZIP",
+                "docs": "Word y HTML en ZIP",
+                "none": "sin documentos (solo historial)"
+            }
+            etiqueta = etiquetas_modo.get(modo_ent, modo_ent)
+
+            if activo:
+                st.info(
+                    f"⚙️ **Lote en segundo plano ({act_nom} — {etiqueta}):** "
+                    f"evaluando a **{actual}** ({procesados} de {total} completados). "
+                    f"Puedes seguir cargando el siguiente lote sin interrumpir el proceso."
+                )
+                st.progress(procesados / total if total > 0 else 0.0)
+            elif terminado:
+                st.success(
+                    f"✨ **Lote en segundo plano finalizado ({act_nom}):** "
+                    f"se generaron **{exitosos} de {total}** retroalimentaciones ({etiqueta})."
+                )
+                if errores:
+                    with st.expander(f"⚠️ Ver errores ({len(errores)})"):
+                        for err in errores:
+                            st.write(f"- {err}")
+
+                c1, c2 = st.columns([3, 1])
+                if zip_bytes and modo_ent in ("html", "docs"):
+                    c1.download_button(
+                        f"💾 Descargar {zip_name}",
+                        data=zip_bytes,
+                        file_name=zip_name,
+                        mime="application/zip",
+                        type="primary",
+                        use_container_width=True,
+                        key="dl_bg_batch_zip"
+                    )
+                if c2.button("✖️ Cerrar aviso", use_container_width=True, key="close_bg_batch_notice"):
+                    st.session_state.bg_batch = None
+                    st.rerun()
+
+        _panel_segundo_plano()
+
+    def _iniciar_lote_segundo_plano(self, modo_entrega: str) -> None:
+        modelos_db = self.db.get_modelos()
+        if not modelos_db:
+            self.db.add_log("ERROR", "Lote pausado por ausencia de modelos en configuración.")
+            st.error("⚠️ No hay modelos configurados en el sistema. Configura al menos un modelo en 'Configuración del sistema' para continuar.")
+            return
+
+        cola_copia = [dict(item) for item in st.session_state.batch_queue]
+        if not cola_copia:
+            return
+
+        act_principal = cola_copia[0].get("actividad_nombre", "Varias")
+        if len({it.get("actividad_nombre", "") for it in cola_copia}) > 1:
+            act_principal = "Varias actividades"
+
+        bg_state: dict[str, Any] = {
+            "lock": threading.Lock(),
+            "activo": True,
+            "terminado": False,
+            "actividad_nombre": act_principal,
+            "modo_entrega": modo_entrega,
+            "total": len(cola_copia),
+            "procesados": 0,
+            "exitosos": 0,
+            "actual": cola_copia[0]["estudiante"],
+            "errores": [],
+            "zip_bytes": None,
+            "zip_name": "Retroalimentaciones.zip",
+        }
+        st.session_state.bg_batch = bg_state
+
+        api_key = st.session_state.api_key
+        model_id_base = st.session_state.model_id
+        model_name_base = st.session_state.model_name
+        temperature = float(st.session_state.temperature)
+        use_random = bool(st.session_state.use_random_models)
+
+        def _worker() -> None:
+            local_ia = IAClient("openrouter")
+            estado_modelos_local: dict[str, Any] = {"model_rotation_queue": []}
+            archivos_zip: list[tuple[str, bytes]] = []
+
+            dirs = self.db.get_all_directrices()
+            n_ase = dirs.get("asesor_nombre", "")
+            id_ase = dirs.get("asesor_id", "")
+            grupo_actual = dirs.get("grupo", "M00C0G00-000")
+
+            for idx, item in enumerate(cola_copia):
+                est_nom = item["estudiante"]
+                with bg_state["lock"]:
+                    bg_state["actual"] = est_nom
+
+                act_obj = self.db.get_activity(item["actividad_id"])
+                if not act_obj:
+                    with bg_state["lock"]:
+                        bg_state["errores"].append(f"{est_nom}: actividad no encontrada.")
+                        bg_state["procesados"] += 1
+                    continue
+
+                b = PromptBuilder(
+                    directrices=self.db.get_all_directrices(),
+                    actividad=act_obj,
+                    estudiante=est_nom,
+                    calificacion=item["calificacion_total"],
+                    criterios_evaluados=item["criterios_evaluados"],
+                    observaciones=item["observaciones"],
+                    es_error_formato=item.get("es_error_formato", False),
+                    es_plagio=item.get("es_plagio", False),
+                    observaciones_textuales=item.get("observaciones_textuales", False),
+                    indice_estudiante=idx + 1
+                )
+                prompt = b.build()
+
+                modelos_reales = [
+                    {
+                        "id": m["api_id"],
+                        "api_id": m["api_id"],
+                        "nombre": m["nombre"],
+                        "categoria": m["categoria"],
+                    }
+                    for m in self.db.get_modelos()
+                ]
+                es_err_fmt = item.get("es_error_formato", False)
+                es_plag = item.get("es_plagio", False)
+                if es_err_fmt or es_plag:
+                    modelos_reales = [m for m in modelos_reales if "haiku" not in m["id"].lower()]
+                    if not modelos_reales:
+                        modelos_reales = [
+                            {
+                                "id": "cohere/north-mini-code:free",
+                                "api_id": "cohere/north-mini-code:free",
+                                "nombre": "Cohere (Respaldo)",
+                                "categoria": "Gratis",
+                            }
+                        ]
+
+                usar_aleat = use_random or ((es_err_fmt or es_plag) and "haiku" in model_id_base.lower())
+                intentos = construir_modelos_a_intentar(
+                    estado_modelos_local,
+                    modelos_reales,
+                    model_id_base,
+                    usar_aleat,
+                    queue_key="model_rotation_queue",
+                )
+
+                texto_generado = None
+                modelo_usado_nombre = model_name_base
+                razonamiento = ""
+
+                for mod in intentos:
+                    try:
+                        texto_generado = local_ia.generar(prompt, api_key, mod["api_id"], temperature, 2500, timeout=60)
+                        razonamiento = getattr(local_ia, "ultimo_razonamiento", "")
+                        modelo_usado_nombre = mod["nombre"]
+                        break
+                    except Exception as e:
+                        self.db.add_log("ERROR", f"[{est_nom}] Falló {mod['nombre']}: {e}")
+                        continue
+
+                if texto_generado:
+                    retro = Retroalimentacion(
+                        b.estudiante, act_obj.nombre, texto_generado,
+                        modelo_usado_nombre, b.calificacion, b.criterios_evaluados,
+                        b.observaciones, prompt, temperature, razonamiento
+                    )
+                    self.db.create_history(retro, act_obj.id)
+
+                    if modo_entrega in ("html", "docs"):
+                        nombre_base = generar_nombre_archivo(b.estudiante, act_obj.nombre)
+                        html_text = feedback_to_moodle_html(texto_generado, n_ase, id_ase, grupo_actual)
+                        archivos_zip.append((f"{nombre_base}.html", html_text.encode("utf-8")))
+                        if modo_entrega == "docs":
+                            docx_data = docx_bytes("", texto_generado, n_ase, id_ase, grupo_actual)
+                            archivos_zip.append((f"{nombre_base}.docx", docx_data))
+
+                    with bg_state["lock"]:
+                        bg_state["exitosos"] += 1
+                else:
+                    with bg_state["lock"]:
+                        bg_state["errores"].append(f"{est_nom}: todos los modelos fallaron.")
+
+                with bg_state["lock"]:
+                    bg_state["procesados"] += 1
+
+            zip_bytes_final = None
+            zip_name_final = "Retroalimentaciones.zip"
+            if modo_entrega in ("html", "docs") and archivos_zip:
+                zip_bytes_final = create_zip(archivos_zip)
+                act_code = get_activity_code(act_principal) if act_principal != "Varias actividades" else "Varias"
+                sufijo = "_HTML" if modo_entrega == "html" else ""
+                zip_name_final = f"Retros_{grupo_actual}_{act_code}{sufijo}.zip"
+
+            with bg_state["lock"]:
+                bg_state["zip_bytes"] = zip_bytes_final
+                bg_state["zip_name"] = zip_name_final
+                bg_state["activo"] = False
+                bg_state["terminado"] = True
+
+        st.session_state.batch_queue.clear()
+        hilo = threading.Thread(target=_worker, daemon=True)
+        hilo.start()
+        st.rerun()
+
     def tab_generate(self) -> None:
+        self._render_bg_batch_panel()
+
         activities = self.db.list_activities()
         if not activities:
             st.warning("Primero registra una actividad en la configuración de actividades.")
@@ -149,26 +378,17 @@ class RetroalimentacionApp:
             st.session_state.temperature = col_m2.slider("Temperatura", 0.0, 1.5, float(st.session_state.temperature), 0.1)
             st.session_state.max_tokens = col_m3.slider("Tokens (Max)", 200, 8000, int(st.session_state.max_tokens), 100)
 
-        # Si el flag de reseteo está activo, vaciamos el formulario y los inputs de evaluación
+        # Si el flag de reseteo está activo, vaciamos el formulario y regresamos los criterios a Experto ANTES de instanciar widgets
         if st.session_state.form_reset_trigger:
             st.session_state.form_estudiante = ""
             st.session_state.form_observaciones = ""
             st.session_state.form_error_formato = False
             st.session_state.form_es_plagio = False
             st.session_state.form_obs_textuales = False
+            st.session_state.form_tipo_obs = "❌ No, generar directo"
             
-            # Reseteo dinámico de los selectbox de la rúbrica (índice 0 = Experto)
-            if "foro de integración" in activity.nombre.lower():
-                st.session_state.eval_select_cog = 0
-                st.session_state.eval_select_act = 0
-                st.session_state.eval_select_com = 0
-                st.session_state.eval_select_col = 0
-                st.session_state.eval_select_pen = 0
-            else:
-                st.session_state.eval_select_cog = 0
-                st.session_state.eval_select_act = 0
-                st.session_state.eval_select_com = 0
-                st.session_state.eval_select_pen = 0
+            for k in ("eval_select_cog", "eval_select_act", "eval_select_com", "eval_select_col", "eval_select_pen"):
+                st.session_state.pop(k, None)
                 
             st.session_state.form_reset_trigger = False
 
@@ -179,7 +399,7 @@ class RetroalimentacionApp:
             # Módulo de rúbricas modificado para aceptar reseteo
             criterios_evaluados, calificacion_total = self._evaluation_inputs_con_estado(activity.nombre)
               
-            tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir observación al estudiante"], horizontal=True)
+            tipo_obs = st.radio("¿Deseas agregar observaciones manuales?", ["❌ No, generar directo", "📝 Sí, escribir observación al estudiante"], horizontal=True, key="form_tipo_obs")
             formato_incorrecto = st.checkbox("⚠️ Evaluar por formato incorrecto", key="form_error_formato", help="Genera una retroalimentación ultracorta informando el error de formato, sin desglose de rúbrica.")
             es_plagio = st.checkbox("🚫 Evaluar por plagio total (0 pts)", key="form_es_plagio", help="Pone todos los criterios en No evaluable (0 pts) y solicita escribir el motivo del plagio en la caja de observaciones.")
             observaciones_textuales = st.checkbox("📌 Pasar observación textual (La IA no la modifica)", key="form_obs_textuales")
@@ -190,10 +410,9 @@ class RetroalimentacionApp:
             else: submit_eval = st.form_submit_button("➕ Agregar a la cola de procesamiento", type="primary", use_container_width=True)
 
         if submit_eval:
-            # Si eligió "No, generar directo" y no es error de formato ni plagio ni observación textual, ignoramos/limpiamos el texto residual
+            # Si eligió "No, generar directo" y no es error de formato ni plagio ni observación textual, ignoramos el texto residual sin modificar session_state aquí
             if tipo_obs == "❌ No, generar directo" and not formato_incorrecto and not es_plagio and not observaciones_textuales:
                 observaciones_limpias = ""
-                st.session_state.form_observaciones = ""
             else:
                 observaciones_limpias = observaciones_usuario.strip()
 
@@ -227,6 +446,8 @@ class RetroalimentacionApp:
                 validation = builder.validate()
                 if validation.ok:
                     st.session_state.batch_queue.append({
+                        "actividad_id": activity.id,
+                        "actividad_nombre": activity.nombre,
                         "estudiante": estudiante,
                         "calificacion_total": calificacion_total,
                         "criterios_evaluados": criterios_evaluados,
@@ -272,86 +493,30 @@ class RetroalimentacionApp:
                 download_buttons(title, st.session_state.last_feedback, html_feedback, docx_bytes("", st.session_state.last_feedback, n_ase, id_ase, grupo_actual), pdf_bytes("", st.session_state.last_feedback), payload)
                   
         else:
-            if st.session_state.batch_queue and not st.session_state.procesando_lote:
+            if st.session_state.batch_queue:
                 st.markdown(f"### 📋 Cola de procesamiento ({len(st.session_state.batch_queue)} evaluaciones)")
-                for i, item in enumerate(st.session_state.batch_queue): st.write(f"{i+1}. **{item['estudiante']}** ({item['calificacion_total']} pts)")
-                  
-                c_btn1, c_btn2 = st.columns([3, 1])
-                ejecutar_lote = c_btn1.button("🚀 Procesar todo el lote ahora", type="primary", use_container_width=True)
-                if c_btn2.button("🗑️ Vaciar cola", use_container_width=True):
+                for i, item in enumerate(st.session_state.batch_queue):
+                    st.write(f"{i+1}. **{item['estudiante']}** — {item.get('actividad_nombre', '')} ({item['calificacion_total']} pts)")
+                
+                bg_actual = st.session_state.get("bg_batch")
+                bg_activo = bool(bg_actual and bg_actual.get("activo"))
+                if bg_activo:
+                    st.warning("⏳ Ya hay un lote ejecutándose en segundo plano. Puedes seguir agregando estudiantes a esta nueva cola; los botones de ejecución se habilitarán en cuanto termine el lote anterior.")
+
+                c_btn1, c_btn2, c_btn3, c_btn4 = st.columns([2, 2, 2, 1])
+                ejecutar_html = c_btn1.button("🌐 Ejecutar con HTML", type="primary", disabled=bg_activo, use_container_width=True)
+                ejecutar_docs = c_btn2.button("📄 Ejecutar con documentos", disabled=bg_activo, use_container_width=True)
+                ejecutar_none = c_btn3.button("⚡ Ejecutar sin documentos", disabled=bg_activo, use_container_width=True)
+                if c_btn4.button("🗑️ Vaciar", use_container_width=True):
                     st.session_state.batch_queue.clear()
                     st.rerun()
 
-                if ejecutar_lote:
-                    modelos_db = self.db.get_modelos()
-                    if not modelos_db:
-                        self.db.add_log("ERROR", "Lote pausado por ausencia de modelos en configuración.")
-                        st.error("⚠️ No hay modelos configurados en el sistema. Configura al menos un modelo en 'Configuración del sistema' para continuar.")
-                        return
-
-                    st.session_state.procesando_lote = True
-                    st.session_state.lote_idx = 0
-                    st.session_state.lote_exitosos = 0
-                    st.session_state.lote_total = len(st.session_state.batch_queue)
-                    st.rerun()
-
-            if st.session_state.procesando_lote:
-                idx = st.session_state.lote_idx
-                total_q = st.session_state.lote_total
-
-                if idx < total_q:
-                    item = st.session_state.batch_queue[idx]
-                    est_nom = item["estudiante"]
-                    st.info(f"⏳ Evaluando a **{est_nom}** ({idx + 1} de {total_q})... Por favor no cierres la ventana.")
-                    progress_bar = st.progress(idx / total_q)
-                      
-                    b = PromptBuilder(
-                        directrices=self.db.get_all_directrices(),
-                        actividad=activity,
-                        estudiante=est_nom,
-                        calificacion=item["calificacion_total"],
-                        criterios_evaluados=item["criterios_evaluados"],
-                        observaciones=item["observaciones"],
-                        es_error_formato=item.get("es_error_formato", False),
-                        es_plagio=item.get("es_plagio", False),
-                        observaciones_textuales=item.get("observaciones_textuales", False),
-                        indice_estudiante=idx + 1
-                    )
-                    prompt = b.build()
-                    intentos = self._build_model_attempts(item.get("es_error_formato", False), item.get("es_plagio", False))
-
-                    texto_generado = None
-                    modelo_usado_nombre = st.session_state.model_name
-                    razonamiento = ""
-
-                    for mod in intentos:
-                        try:
-                            texto_generado = self.ia_client.generar(prompt, st.session_state.api_key, mod["api_id"], st.session_state.temperature, 2500, timeout=60)
-                            razonamiento = getattr(self.ia_client, "ultimo_razonamiento", "")
-                            modelo_usado_nombre = mod["nombre"]
-                            break
-                        except Exception as e:
-                            self.db.add_log("ERROR", f"[{est_nom}] Falló {mod['nombre']}: {e}")
-                            continue
-
-                    if texto_generado:
-                        retro = Retroalimentacion(
-                            b.estudiante, activity.nombre, texto_generado,
-                            modelo_usado_nombre, b.calificacion, b.criterios_evaluados,
-                            b.observaciones, prompt, st.session_state.temperature, razonamiento
-                        )
-                        self.db.create_history(retro, activity.id)
-                        st.session_state.lote_exitosos += 1
-                    else:
-                        st.error(f"❌ No se pudo generar la retroalimentación para {est_nom}. Se omitió.")
-
-                    st.session_state.lote_idx += 1
-                    st.rerun()
-                else:
-                    progress_bar = st.progress(1.0)
-                    st.session_state.procesando_lote = False
-                    st.session_state.batch_queue.clear()
-                    st.success(f"✨ ¡Lote completado! Se generaron {st.session_state.lote_exitosos} de {total_q} retroalimentaciones. Ve a la pestaña 'Historial' para descargarlas en ZIP.")
+                if ejecutar_html:
+                    self._iniciar_lote_segundo_plano("html")
+                elif ejecutar_docs:
+                    self._iniciar_lote_segundo_plano("docs")
+                elif ejecutar_none:
+                    self._iniciar_lote_segundo_plano("none")
 
     def _evaluation_inputs_con_estado(self, act_nombre: str = "") -> tuple[dict[str, dict[str, Any]], float]:
         """Copia del evaluador original, pero usando las variables de st.session_state para permitir reseteos."""
@@ -368,30 +533,32 @@ class RetroalimentacionApp:
 
         criterios = {}
         total = 0.0
-        
-        # Inicialización de estado para selects si no existen
-        if "eval_select_cog" not in st.session_state: st.session_state.eval_select_cog = 0
-        if "eval_select_act" not in st.session_state: st.session_state.eval_select_act = 0
-        if "eval_select_com" not in st.session_state: st.session_state.eval_select_com = 0
-        if "eval_select_col" not in st.session_state: st.session_state.eval_select_col = 0
-        if "eval_select_pen" not in st.session_state: st.session_state.eval_select_pen = 0
+
+        # Si se cambió entre foro y actividad normal, limpiamos llaves que ya no coinciden con la escala
+        opciones_cog = list(escala_cog.keys())
+        opciones_rest = list(escala_rest.keys())
+        if st.session_state.get("eval_select_cog") not in opciones_cog:
+            st.session_state.pop("eval_select_cog", None)
+        for k in ("eval_select_act", "eval_select_com", "eval_select_col", "eval_select_pen"):
+            if st.session_state.get(k) not in opciones_rest:
+                st.session_state.pop(k, None)
 
         c1, c2 = st.columns(2)
         with c1:
-            s_cog = st.selectbox("1. Cognitivo", list(escala_cog.keys()), key="eval_select_cog")
+            s_cog = st.selectbox("1. Cognitivo", opciones_cog, index=0, key="eval_select_cog")
             n_cog, p_cog = escala_cog[s_cog]; criterios["Cognitivo"] = {"nivel": n_cog, "puntos": p_cog}; total += p_cog
             
-            s_act = st.selectbox("2. Actitudinal", list(escala_rest.keys()), key="eval_select_act")
+            s_act = st.selectbox("2. Actitudinal", opciones_rest, index=0, key="eval_select_act")
             n_act, p_act = escala_rest[s_act]; criterios["Actitudinal"] = {"nivel": n_act, "puntos": p_act}; total += p_act
             
             if is_foro:
-                s_col = st.selectbox("4. Colaborativo", list(escala_rest.keys()), key="eval_select_col")
+                s_col = st.selectbox("4. Colaborativo", opciones_rest, index=0, key="eval_select_col")
                 n_col, p_col = escala_rest[s_col]; criterios["Colaborativo"] = {"nivel": n_col, "puntos": p_col}; total += p_col
         with c2:
-            s_com = st.selectbox("3. Comunicativo", list(escala_rest.keys()), key="eval_select_com")
+            s_com = st.selectbox("3. Comunicativo", opciones_rest, index=0, key="eval_select_com")
             n_com, p_com = escala_rest[s_com]; criterios["Comunicativo"] = {"nivel": n_com, "puntos": p_com}; total += p_com
             
-            s_pen = st.selectbox("5. Pensamiento crítico" if is_foro else "4. Pensamiento crítico", list(escala_rest.keys()), key="eval_select_pen")
+            s_pen = st.selectbox("5. Pensamiento crítico" if is_foro else "4. Pensamiento crítico", opciones_rest, index=0, key="eval_select_pen")
             n_pen, p_pen = escala_rest[s_pen]; criterios["Pensamiento crítico"] = {"nivel": n_pen, "puntos": p_pen}; total += p_pen
 
         st.info(f"💡 **Calificación Total:** `{total:.1f} / 100 pts`")
@@ -556,34 +723,36 @@ class RetroalimentacionApp:
         for row in rows: history_card(row, act_map)
 
     def tab_activities(self) -> None:
-        t1, t2, t3, t4 = st.tabs(["📚 Banco de recursos", "✍️ Banco de frases", "📐 rúbricas", "🔗 Ensamblar actividad"])
+        t1, t2, t3, t4 = st.tabs(["📚 Banco de recursos", "✍️ Banco de frases", "📐 Rúbricas", "🔗 Ensamblaje de actividad"])
         with t1:
-            st.subheader("Catálogo Global de Recursos")
+            st.subheader("Catálogo global de recursos")
             rec, sub_rec = recurso_global_form()
             if sub_rec and getattr(rec, "titulo", ""): self.db.create_recurso(rec); st.success("Recurso guardado."); st.rerun()
             st.markdown("---")
-            st.markdown("#### Recursos Guardados (Editar o Eliminar)")
+            st.markdown("#### Recursos ruardados (editar o eliminar)")
             for r in self.db.list_recursos_globales():
                 r_tit = getattr(r, "titulo", "")
                 r_tip = getattr(r, "tipo", "Video")
                 with st.expander(f"📌 {r_tit} [{r_tip}]"):
                     with st.form(f"form_edit_rec_{r.id}"):
                         e_tit = st.text_input("Título", r_tit)
-                        e_tip = st.selectbox("Tipo", ["Video", "Artículo", "Enlace", "PDF", "Otro"], index=["Video", "Artículo", "Enlace", "PDF", "Otro"].index(r_tip) if r_tip in ["Video", "Artículo", "Enlace", "PDF", "Otro"] else 0)
+                        tipos_rec = ["Video", "Artículo", "Enlace", "PDF", "Página interactiva", "Presentación"]
+                        e_tip = st.selectbox("Tipo", tipos_rec, index=tipos_rec.index(r_tip) if r_tip in tipos_rec else 0)
+                        #e_tip = st.selectbox("Tipo", ["Video", "Artículo", "Enlace", "PDF", "Otro"], index=["Video", "Artículo", "Enlace", "PDF", "Otro"].index(r_tip) if r_tip in ["Video", "Artículo", "Enlace", "PDF", "Otro"] else 0)
                         e_url = st.text_input("URL", getattr(r, "url", ""))
                         e_des = st.text_area("Descripción", getattr(r, "descripcion", ""), height=60)
                         c1, c2 = st.columns(2)
-                        if c1.form_submit_button("Actualizar Recurso"):
+                        if c1.form_submit_button("Actualizar recurso"):
                             d = _Dummy(); d.tipo, d.titulo, d.url, d.descripcion = e_tip, e_tit, e_url, e_des
                             self.db.update_recurso(r.id, d); st.success("Recurso actualizado."); st.rerun()
                         if c2.form_submit_button("Eliminar Recurso"): self.db.delete_recurso(r.id); st.rerun()
                       
         with t2:
-            st.subheader("Catálogo Global de Frases Célebres")
+            st.subheader("Catálogo global de frases")
             frase, sub_fra = frase_global_form()
             if sub_fra and getattr(frase, "texto", ""): self.db.create_frase(frase.texto, frase.autor); st.success("Frase guardada."); st.rerun()
             st.markdown("---")
-            st.markdown("#### Frases Guardadas (Editar o Eliminar)")
+            st.markdown("#### Frases guardadas (editar o eliminar)")
             for f in self.db.list_frases():
                 f_txt, f_aut = str(getattr(f, "texto", "")), str(getattr(f, "autor", ""))
                 with st.expander(f"💬 {f_aut} - {f_txt[:30]}..."):
@@ -595,14 +764,14 @@ class RetroalimentacionApp:
                         if c2.form_submit_button("Eliminar Frase"): self.db.delete_frase(f.id); st.rerun()
 
         with t3:
-            st.subheader("Rúbricas Institucionales")
+            st.subheader("Rúbricas institucionales")
             mode = st.radio("Modo", ["Manual", "Importar tabla"], horizontal=True)
             rubrica, sub_rub = rubric_manual_form() if mode == "Manual" else rubric_import_form()
             if sub_rub and getattr(rubrica, "nombre", ""):
                 try: self.db.create_rubric(rubrica); st.success("Rúbrica guardada."); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
             st.markdown("---")
-            st.markdown("#### Rúbricas Guardadas (Editar o Eliminar)")
+            st.markdown("#### Rúbricas guardadas (editar o eliminar)")
             for r in self.db.list_rubrics():
                 with st.expander(r["nombre"]):
                     rub_obj = self.db.get_rubric(r["id"])
@@ -617,13 +786,13 @@ class RetroalimentacionApp:
                         if c2.form_submit_button("Eliminar"): self.db.delete_rubric(r["id"]); st.rerun()
 
         with t4:
-            st.subheader("Configurar Nueva Actividad")
+            st.subheader("Configurar nueva actividad")
             act, r_id, f_id, rec_ids, sub_act = activity_form(self.db.list_rubrics(), self.db.list_frases(), self.db.list_recursos_globales())
             if sub_act and getattr(act, "nombre", ""):
-                try: self.db.create_activity(act, r_id, f_id, rec_ids); st.success("Actividad Ensamblada."); st.rerun()
+                try: self.db.create_activity(act, r_id, f_id, rec_ids); st.success("Actividad ensamblada."); st.rerun()
                 except Exception as e: st.error(f"Error: {e}")
             st.markdown("---")
-            st.markdown("#### Actividades Configuradas (Editar Ensamblado o Eliminar)")
+            st.markdown("#### Actividades configuradas (editar ensamblado o eliminar)")
             all_rubrics, all_frases, all_recursos = self.db.list_rubrics(), self.db.list_frases(), self.db.list_recursos_globales()
             for a_raw in self.db.list_activities():
                 act_obj = self.db.get_activity(a_raw["id"])
@@ -649,32 +818,32 @@ class RetroalimentacionApp:
                         e_recs = st.multiselect("Recursos asociados", list(recurso_opts.keys()), default=curr_recs_nombres)
                           
                         col1, col2 = st.columns(2)
-                        if col1.form_submit_button("Actualizar Ensamblado"):
+                        if col1.form_submit_button("Actualizar ensamblado"):
                             self.db.update_activity(act_obj.id, e_nom, e_pro, e_ins, getattr(act_obj, "grupo", "M00C0G00-000"), getattr(act_obj, "orden", 0), rubric_opts[e_rub], frase_opts[e_fra], [recurso_opts[n] for n in e_recs if n in recurso_opts])
                             st.success("Actividad actualizada correctamente."); st.rerun()
                         if col2.form_submit_button("Eliminar Actividad"): self.db.delete_activity(act_obj.id); st.rerun()
 
     def tab_ai_config(self) -> None:
-        st.subheader("👤 Perfil del Asesor")
+        st.subheader("👤 Perfil del asesor")
         dirs = self.db.get_all_directrices()
           
         with st.form("form_perfil_y_prompts"):
             c1, c2 = st.columns(2)
-            d_nombre = c1.text_input("Nombre Completo (Firma)", dirs.get("asesor_nombre", ""))
-            d_rol = c2.text_input("Puesto / Rol", dirs.get("asesor_rol", ""))
+            d_nombre = c1.text_input("Nombre completo", dirs.get("asesor_nombre", ""))
+            d_rol = c2.text_input("Rol", dirs.get("asesor_rol", ""))
             c3, c4 = st.columns(2)
             d_id = c3.text_input("ID / Matrícula", dirs.get("asesor_id", ""))
             d_grupo = c4.text_input("Grupo asignado actual", dirs.get("grupo", ""))
               
             st.markdown("---")
-            st.subheader("🧠 Instrucciones del Sistema (Prompt Builder)")
-            st.caption("Configura el comportamiento base de la Inteligencia Artificial. Las etiquetas {asesor_nombre} y {asesor_rol} se reemplazarán automáticamente.")
-            d_sistema = st.text_area("Rol de la IA (System Prompt)", dirs.get("prompt_sistema", ""), height=70)
-            d_formato = st.text_area("Reglas de Formato Estrictas", dirs.get("reglas_formato", ""), height=70)
-            d_formato_err = st.text_area("Instrucción para Error de Formato (Cuando entreguen el archivo equivocado)", dirs.get("error_formato", "La actividad se evalúa con calificación mínima porque no cumple con el formato solicitado. Redacta un mensaje breve invitando a revisar las instrucciones, SIN desglosar la rúbrica."), height=70)
+            st.subheader("🧠 Instrucciones del sistema")
+            st.caption("Configura el comportamiento base de la inteligencia artificial. Las etiquetas {asesor_nombre} y {asesor_rol} se reemplazarán automáticamente.")
+            d_sistema = st.text_area("Rol de la IA", dirs.get("prompt_sistema", ""), height=70)
+            d_formato = st.text_area("Reglas de formato estrictas", dirs.get("reglas_formato", ""), height=70)
+            d_formato_err = st.text_area("Instrucción para error de formato (Cuando entreguen el archivo equivocado)", dirs.get("error_formato", "La actividad se evalúa con calificación mínima porque no cumple con el formato solicitado. Redacta un mensaje breve invitando a revisar las instrucciones, SIN desglosar la rúbrica."), height=70)
               
             st.markdown("---")
-            st.subheader("📏 Directrices Pedagógicas por Sección")
+            st.subheader("📏 Directrices pedagógicas por sección")
             st.caption("Controla la redacción específica de cada bloque en las retroalimentaciones.")
             d_saludo = st.text_area("1. Saludo", dirs.get("saludo", ""), height=70)
             d_fortalezas = st.text_area("2. Fortalezas", dirs.get("fortalezas", ""), height=70)
@@ -684,7 +853,7 @@ class RetroalimentacionApp:
             d_despedida = st.text_area("6. Despedida", dirs.get("despedida", ""), height=70)
             d_firma = st.text_input("7. Frase de cortesía final (Ej. Cordialmente.)", dirs.get("firma", "Cordialmente."))
               
-            if st.form_submit_button("Guardar Perfil e Instrucciones", type="primary", use_container_width=True):
+            if st.form_submit_button("Guardar perfil e instrucciones", type="primary", use_container_width=True):
                 self.db.update_directriz("asesor_nombre", d_nombre)
                 self.db.update_directriz("asesor_rol", d_rol)
                 self.db.update_directriz("asesor_id", d_id)
@@ -699,14 +868,14 @@ class RetroalimentacionApp:
                 self.db.update_directriz("recursos_apoyo", d_recursos)
                 self.db.update_directriz("despedida", d_despedida)
                 self.db.update_directriz("firma", d_firma)
-                st.success("¡Perfil, System Prompts y Directrices actualizados con éxito!")
+                st.success("¡Perfil, prompts del sistema y directrices actualizados con éxito!")
                 st.rerun()
 
     def tab_settings(self) -> None:
-        st.subheader("🔑 Clave de API Global")
+        st.subheader("🔑 Clave de API global")
         st.session_state.api_key = st.text_input("Clave de API OpenRouter", st.session_state.api_key, type="password")
           
-        if st.button("Probar conexión de TODOS los modelos", width="stretch"):
+        if st.button("Probar conexión de todos los modelos", width="stretch"):
             with st.spinner("Probando conexión por cada modelo configurado..."):
                 for m in self.db.get_modelos():
                     ok, msg = self.ia_client.probar_conexion(st.session_state.api_key, m["api_id"])
@@ -717,17 +886,17 @@ class RetroalimentacionApp:
                         self.db.add_log("ERROR", f"Test de conexión fallido para {m['nombre']}: {msg}")
               
         st.markdown("---")
-        st.subheader("🤖 Catálogo de Modelos de IA")
-        st.caption("Administra tu propio portafolio de modelos. Los modelos marcados como 'Gratis' se usarán como salvavidas automáticos si el principal falla.")
+        st.subheader("🤖 Catálogo de modelos de IA")
+        st.caption("Administra tu propio portafolio de modelos. Los modelos marcados como 'gratis' se usarán como salvavidas automáticos si el principal falla.")
           
         with st.form("form_add_modelo"):
-            st.markdown("**Agregar Nuevo Modelo**")
+            st.markdown("**Agregar nuevo modelo**")
             col1, col2, col3 = st.columns(3)
             m_nom = col1.text_input("Nombre a mostrar (Ej. GPT-4o)")
             m_api = col2.text_input("ID en OpenRouter (Ej. openai/gpt-4o)")
-            m_cat = col3.selectbox("Categoría", ["Gratis", "De pago"])
+            m_cat = col3.selectbox("Categoría", ["gratis", "de pago"])
               
-            if st.form_submit_button("Guardar Modelo"):
+            if st.form_submit_button("Guardar modelo"):
                 if m_nom and m_api:
                     try:
                         self.db.create_modelo(m_nom, m_api, m_cat)
@@ -736,7 +905,7 @@ class RetroalimentacionApp:
                     except Exception as e: st.error(f"Error (¿El ID ya existe?): {e}")
                 else: st.error("El nombre y el ID de OpenRouter son obligatorios.")
 
-        st.markdown("#### Modelos Configurados")
+        st.markdown("#### Modelos configurados")
         for m in self.db.get_modelos():
             with st.expander(f"{m['nombre']} ({m['categoria']}) — {m['api_id']}"):
                 if st.button("🗑️ Eliminar modelo", key=f"del_mod_{m['id']}"):
@@ -749,7 +918,7 @@ class RetroalimentacionApp:
         c2.download_button("Exportar BD JSON", json.dumps(self.db.export_all_json(), ensure_ascii=False, indent=2), "retro_export.json", "application/json", width="stretch")
 
         st.markdown("---")
-        st.subheader("📝 Registro de Eventos (Caja Negra del Sistema)")
+        st.subheader("📝 Registro de eventos (Caja negra del sistema)")
         logs = self.db.get_logs(limit=1000)
         if logs:
             st.text_area("Últimos 1000 eventos (Alertas, desconexiones, tiempos altos):", value="\n".join([f"[{l['fecha']}] {l['nivel']}: {l['mensaje']}" for l in reversed(logs)]), height=400)
@@ -757,28 +926,28 @@ class RetroalimentacionApp:
         else: st.info("No hay eventos registrados todavía.")
 
     def tab_forums(self) -> None:
-        st.header("💬 Generador de aportaciones: foro Aprendiendo")
+        st.header("💬 Generador de aportaciones: foro aprendiendo")
         st.markdown("Automatiza tus participaciones diarias manteniendo tu estilo y cumpliendo con los lineamientos de Prepa en Línea-SEP.")
           
         col1, col2 = st.columns(2)
         with col1:
-            semana = st.selectbox("Semana del Módulo:", ["Semana 1", "Semana 2", "Semana 3", "Semana 4"])
+            semana = st.selectbox("Semana del módulo:", ["Semana 1", "Semana 2", "Semana 3", "Semana 4"])
         with col2:
             dia = st.selectbox("Día de participación:", [
-                "Lunes (Apertura y Planteamiento)", 
-                "Martes (Interacción y Retroalimentación)", 
-                "Miércoles (Ortografía y Redacción)", 
-                "Jueves (Orientación Matemática)", 
+                "Lunes (apertura y planteamiento)", 
+                "Martes (interacción y retroalimentación)", 
+                "Miércoles (ortografía y redacción)", 
+                "Jueves (orientación matemática)", 
                 "Viernes (Cierre de semana)"
             ])
               
-        tono = st.selectbox("Variación de estilo (Para no repetir):", [
-            "Estándar (Versión A)", 
-            "Empático y Motivador (Versión B)", 
-            "Directo y Académico (Versión C)"
+        tono = st.selectbox("Variación de estilo (para no repetir):", [
+            "Estándar (versión A)", 
+            "Empático y motivador (Versión B)", 
+            "Directo y académico (Versión C)"
         ])
           
-        if st.button("✨ Generar Aportación Automática", type="primary", width="stretch"):
+        if st.button("✨ Generar aportación automática", type="primary", width="stretch"):
             dirs = self.db.get_all_directrices()
             n_ase = dirs.get("asesor_nombre", "Asesor")
             r_ase = dirs.get("asesor_rol", "Asesor virtual")
