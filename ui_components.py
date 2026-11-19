@@ -23,7 +23,7 @@ def rubric_manual_form() -> tuple[Rubrica, bool]:
     st.markdown("#### 📐 Matriz de desempeño de la rúbrica")
     
     # Interruptor dinámico para mostrar u ocultar la pestaña Colaborativo
-    es_foro = st.checkbox("Habilitar 5to criterio (Colaborativo) para el foro de integración")
+    es_foro = st.checkbox("Habilitar 5to criterio (colaborativo) para el foro de integración")
     
     with st.form("form_rubrica_manual_matriz"):
         nombre = st.text_input("Nombre de la rúbrica", placeholder="Ej. Rúbrica de la actividad 4")
@@ -65,7 +65,8 @@ def rubric_import_form() -> tuple[Rubrica, bool]:
 def recurso_global_form() -> tuple[Recurso, bool]:
     with st.form("form_recurso_global"):
         titulo = st.text_input("Nombre / Título del recurso")
-        tipo = st.selectbox("Tipo de recurso", ["Video", "Artículo", "Enlace", "PDF", "Otro"])
+        tipo = st.selectbox("Tipo de recurso", ["Video", "Artículo", "Enlace", "PDF", "Página interactiva", "Presentación"])
+        #tipo = st.selectbox("Tipo de recurso", ["Video", "Artículo", "Enlace", "PDF", "Otro"])
         url = st.text_input("URL del recurso")
         descripcion = st.text_area("Propósito de la actividad", height=60)
         submitted = st.form_submit_button("Guardar en el catálogo")
