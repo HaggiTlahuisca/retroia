@@ -279,7 +279,7 @@ class RetroalimentacionApp:
 
                 for mod in intentos:
                     try:
-                        texto_generado = local_ia.generar(prompt, api_key, mod["api_id"], temperature, 2500, timeout=60)
+                        texto_generado = local_ia.generar(prompt, api_key, mod["api_id"], temperature, 4500, timeout=60)
                         razonamiento = getattr(local_ia, "ultimo_razonamiento", "")
                         modelo_usado_nombre = mod["nombre"]
                         break
