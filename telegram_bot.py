@@ -887,7 +887,7 @@ def _worker_lote_segundo_plano(chat_id: int, cola: list[dict], actividad, modelo
                         api_key,
                         modelo_actual["id"],
                         temperature=0.65,
-                        max_tokens=2500,
+                        max_tokens=4500,
                         timeout=60,
                     )
                     if not texto_candidato or not texto_candidato.strip():
